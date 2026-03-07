@@ -224,3 +224,26 @@ export function updateLastIndexed(): void {
     new Date().toISOString()
   )
 }
+
+/**
+ * Check if the embedding model has changed since last run.
+ * If it has, wipe all notes, chunks, and vectors so a fresh reindex is forced.
+ * Returns true if the model changed (caller should force-reindex).
+ */
+export function checkModelChanged(model: string): boolean {
+  const db = getDb()
+  const stored = db.prepare("SELECT value FROM settings WHERE key = 'embedding_model'").get() as { value: string } | undefined
+
+  if (stored?.value === model) {
+    return false
+  }
+
+  // Model changed — wipe everything
+  db.exec('DROP TABLE IF EXISTS vec_chunks')
+  db.exec('DELETE FROM chunks')
+  db.exec('DELETE FROM notes')
+  db.exec("DELETE FROM settings WHERE key IN ('embedding_dim', 'last_indexed')")
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_model', ?)").run(model)
+
+  return true
+}

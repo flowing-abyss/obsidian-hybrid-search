@@ -32,7 +32,8 @@ interface RawResult {
 
 function applyScope(results: RawResult[], scope?: string): RawResult[] {
   if (!scope) return results
-  return results.filter(r => r.path.startsWith(scope))
+  const normalized = scope.normalize('NFD')
+  return results.filter(r => r.path.startsWith(normalized))
 }
 
 function applyThreshold(results: RawResult[], threshold: number): RawResult[] {
@@ -207,9 +208,11 @@ function rrfFusion(lists: RawResult[][], k = 60): RawResult[] {
     })
   }
 
+  const maxPossibleScore = lists.length / (k + 1)
+
   return Array.from(scores.values())
     .sort((a, b) => b.rrfScore - a.rrfScore)
-    .map(({ rrfScore, result }) => ({ ...result, score: rrfScore }))
+    .map(({ rrfScore, result }) => ({ ...result, score: rrfScore / maxPossibleScore }))
 }
 
 export async function search(input: string, options: SearchOptions = {}): Promise<SearchResult[]> {
@@ -259,7 +262,8 @@ async function searchByQuery(query: string, mode: string, limit: number): Promis
 }
 
 async function searchSimilar(notePath: string, limit: number): Promise<RawResult[]> {
-  const note = getNoteByPath(notePath)
+  // macOS stores filenames as NFD; normalize to match DB paths
+  const note = getNoteByPath(notePath.normalize('NFD'))
   if (!note) return []
 
   // Embed a representative portion of the note

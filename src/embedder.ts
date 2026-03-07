@@ -4,13 +4,29 @@ let localPipeline: any = null
 let cachedContextLength: number | null = null
 let cachedDim: number | null = null
 
+// Known context lengths for common embedding models
+const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
+  'openai/text-embedding-3-small': 8191,
+  'openai/text-embedding-3-large': 8191,
+  'openai/text-embedding-ada-002': 8191,
+  'text-embedding-3-small': 8191,
+  'text-embedding-3-large': 8191,
+  'text-embedding-ada-002': 8191,
+}
+
 export async function getContextLength(): Promise<number> {
   if (cachedContextLength !== null) return cachedContextLength
 
   if (config.apiKey) {
+    // Check known models first
+    if (KNOWN_CONTEXT_LENGTHS[config.apiModel]) {
+      cachedContextLength = KNOWN_CONTEXT_LENGTHS[config.apiModel]
+      return cachedContextLength
+    }
+
     try {
       const res = await fetch(
-        `${config.apiBaseUrl}/models/${encodeURIComponent(config.apiModel)}`,
+        `${config.apiBaseUrl}/models/${config.apiModel}`,
         { headers: { Authorization: `Bearer ${config.apiKey}` } }
       )
       const data = await res.json() as { context_length?: number }
@@ -79,7 +95,10 @@ async function embedViaApi(texts: string[]): Promise<Float32Array[]> {
       throw new Error(`Embedding API error ${res.status}: ${text}`)
     }
 
-    const data = await res.json() as { data: { embedding: number[]; index: number }[] }
+    const data = await res.json() as { data?: { embedding: number[]; index: number }[]; error?: { message: string } }
+    if (data.error || !data.data) {
+      throw new Error(`Embedding API error: ${data.error?.message ?? 'unexpected response format'}`)
+    }
     // Sort by index to ensure correct order
     const sorted = data.data.sort((a, b) => a.index - b.index)
     for (const item of sorted) {

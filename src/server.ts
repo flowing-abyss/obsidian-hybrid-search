@@ -5,7 +5,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
 import { config } from './config.js'
-import { openDb, initVecTable, getStats } from './db.js'
+import { openDb, initVecTable, checkModelChanged, getStats } from './db.js'
 import { getContextLength, getEmbeddingDim } from './embedder.js'
 import { startBackgroundIndexing, startWatcher, indexFile, indexVaultSync } from './indexer.js'
 import { search } from './searcher.js'
@@ -13,6 +13,13 @@ import { search } from './searcher.js'
 async function main() {
   // Phase 1: open database
   openDb()
+
+  // Check if model changed — wipes DB if so, forces full reindex
+  const modelName = config.apiKey ? config.apiModel : 'local:Xenova/all-MiniLM-L6-v2'
+  const modelChanged = checkModelChanged(modelName)
+  if (modelChanged) {
+    console.error('[server] embedding model changed — database cleared, full reindex will run')
+  }
 
   // Phase 2: determine embedding dimension and context length
   const [contextLength, embeddingDim] = await Promise.all([

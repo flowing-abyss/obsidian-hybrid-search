@@ -102,7 +102,7 @@ export async function indexFile(
         : []
 
     const ctxLen = contextLength ?? (await getContextLength())
-    const chunks = chunkNote(content, ctxLen)
+    const chunks = chunkNote(content, ctxLen).filter(c => c.text.trim().length > 0)
 
     if (chunks.length === 0) {
       return 'skipped'
