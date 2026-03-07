@@ -43,6 +43,12 @@ export function openDb(): DB {
       text        TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS links (
+      from_path TEXT NOT NULL,
+      to_path   TEXT NOT NULL,
+      PRIMARY KEY (from_path, to_path)
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
       value TEXT
@@ -65,6 +71,19 @@ export function openDb(): DB {
       INSERT INTO notes_fts_fuzzy(notes_fts_fuzzy, rowid, title) VALUES('delete', old.id, old.title);
     END;
   `)
+
+  // Cleanup: remove notes stored with NFC paths (macOS filesystem uses NFD)
+  const nfcNotes = db.prepare('SELECT id, path FROM notes').all() as { id: number; path: string }[]
+  for (const note of nfcNotes) {
+    if (note.path !== note.path.normalize('NFD')) {
+      const chunkIds = db.prepare('SELECT id FROM chunks WHERE note_id = ?').all(note.id) as { id: number }[]
+      for (const { id } of chunkIds) {
+        db.prepare('DELETE FROM vec_chunks WHERE chunk_id = ?').run(id)
+      }
+      db.prepare('DELETE FROM links WHERE from_path = ?').run(note.path)
+      db.prepare('DELETE FROM notes WHERE id = ?').run(note.id)
+    }
+  }
 
   _db = db
   return db
@@ -202,7 +221,51 @@ export function deleteNote(notePath: string): void {
     db.prepare('DELETE FROM vec_chunks WHERE chunk_id = ?').run(id)
   }
 
+  db.prepare('DELETE FROM links WHERE from_path = ?').run(notePath)
   db.prepare('DELETE FROM notes WHERE id = ?').run(note.id)
+}
+
+export function upsertLinks(fromPath: string, toPaths: string[]): void {
+  const db = getDb()
+  db.prepare('DELETE FROM links WHERE from_path = ?').run(fromPath)
+  const insert = db.prepare('INSERT OR IGNORE INTO links (from_path, to_path) VALUES (?, ?)')
+  for (const toPath of toPaths) {
+    insert.run(fromPath, toPath)
+  }
+}
+
+export function getLinksForPaths(paths: string[]): {
+  links: Map<string, string[]>
+  backlinks: Map<string, string[]>
+} {
+  if (paths.length === 0) return { links: new Map(), backlinks: new Map() }
+
+  const db = getDb()
+  const placeholders = paths.map(() => '?').join(', ')
+
+  const outgoing = db.prepare(
+    `SELECT from_path, to_path FROM links WHERE from_path IN (${placeholders})`
+  ).all(...paths) as { from_path: string; to_path: string }[]
+
+  const incoming = db.prepare(
+    `SELECT from_path, to_path FROM links WHERE to_path IN (${placeholders})`
+  ).all(...paths) as { from_path: string; to_path: string }[]
+
+  const links = new Map<string, string[]>()
+  const backlinks = new Map<string, string[]>()
+
+  for (const path of paths) {
+    links.set(path, [])
+    backlinks.set(path, [])
+  }
+  for (const { from_path, to_path } of outgoing) {
+    links.get(from_path)!.push(to_path)
+  }
+  for (const { from_path, to_path } of incoming) {
+    backlinks.get(to_path)!.push(from_path)
+  }
+
+  return { links, backlinks }
 }
 
 export function getStats(): { total: number; indexed: number; pending: number; lastIndexed: string | null } {
@@ -216,6 +279,14 @@ export function getStats(): { total: number; indexed: number; pending: number; l
   ).get() as { value: string } | undefined)?.value ?? null
 
   return { total, indexed, pending: total - indexed, lastIndexed }
+}
+
+export function saveConfigMeta(meta: { vaultPath: string; apiBaseUrl: string; apiModel: string }): void {
+  const db = getDb()
+  const set = db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
+  set.run('vault_path', meta.vaultPath)
+  set.run('api_base_url', meta.apiBaseUrl)
+  set.run('api_model', meta.apiModel)
 }
 
 export function updateLastIndexed(): void {
@@ -241,6 +312,7 @@ export function checkModelChanged(model: string): boolean {
   // Model changed — wipe everything
   db.exec('DROP TABLE IF EXISTS vec_chunks')
   db.exec('DELETE FROM chunks')
+  db.exec('DELETE FROM links')
   db.exec('DELETE FROM notes')
   db.exec("DELETE FROM settings WHERE key IN ('embedding_dim', 'last_indexed')")
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_model', ?)").run(model)

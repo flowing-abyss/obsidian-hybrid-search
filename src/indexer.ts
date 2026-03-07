@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import matter from 'gray-matter'
 import { config } from './config.js'
-import { getDb, getNoteMeta, upsertNote, deleteNote, updateLastIndexed } from './db.js'
+import { getDb, getNoteMeta, upsertNote, upsertLinks, deleteNote, updateLastIndexed } from './db.js'
 import { embed, getContextLength } from './embedder.js'
 import { chunkNote } from './chunker.js'
 
@@ -70,8 +70,10 @@ export async function indexFile(
     const stat = statSync(fullPath)
     const mtime = stat.mtimeMs
 
+    const relPathForLookup = path.relative(config.vaultPath, fullPath).normalize('NFD')
+
     if (!force) {
-      const existing = getNoteMeta(path.relative(config.vaultPath, fullPath))
+      const existing = getNoteMeta(relPathForLookup)
       if (existing && existing.mtime === mtime) {
         return 'skipped'
       }
@@ -81,7 +83,7 @@ export async function indexFile(
     const hash = createHash('md5').update(raw).digest('hex')
 
     if (!force) {
-      const existing = getNoteMeta(path.relative(config.vaultPath, fullPath))
+      const existing = getNoteMeta(relPathForLookup)
       if (existing && existing.hash === hash) {
         // Content unchanged — only update mtime
         getDb().prepare('UPDATE notes SET mtime = ? WHERE path = ?').run(
@@ -93,7 +95,8 @@ export async function indexFile(
     }
 
     const { data: frontmatter, content } = matter(raw)
-    const relPath = path.relative(config.vaultPath, fullPath)
+    // Normalize to NFD — macOS filesystem uses NFD for filenames
+    const relPath = path.relative(config.vaultPath, fullPath).normalize('NFD')
     const title = (frontmatter.title as string | undefined) ?? path.basename(fullPath, '.md')
     const tags: string[] = Array.isArray(frontmatter.tags)
       ? frontmatter.tags.map(String)
@@ -119,6 +122,9 @@ export async function indexFile(
       hash,
       chunks: chunks.map((c, i) => ({ text: c.text, embedding: embeddings[i] })),
     })
+
+    const resolvedLinks = resolveWikilinks(content, relPath)
+    upsertLinks(relPath, resolvedLinks)
 
     return 'indexed'
   } catch (err) {
@@ -215,8 +221,48 @@ export function startWatcher(contextLength: number): void {
     watcher.on('add', handleChange)
     watcher.on('change', handleChange)
     watcher.on('unlink', (filePath: string) => {
-      const rel = path.relative(config.vaultPath, filePath)
+      const rel = path.relative(config.vaultPath, filePath).normalize('NFD')
       deleteNote(rel)
     })
   })
+}
+
+function parseWikilinks(content: string): string[] {
+  const seen = new Set<string>()
+  for (const match of content.matchAll(/\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]/g)) {
+    const target = match[1].trim()
+    if (target) seen.add(target)
+  }
+  return [...seen]
+}
+
+function resolveWikilinks(content: string, fromPath: string): string[] {
+  const db = getDb()
+  const raw = parseWikilinks(content)
+  if (raw.length === 0) return []
+
+  const resolved: string[] = []
+  for (const target of raw) {
+    // Try exact path match (with or without .md)
+    const withMd = target.endsWith('.md') ? target : target + '.md'
+    const byPath = db.prepare(
+      "SELECT path FROM notes WHERE path = ? OR path LIKE ? ESCAPE '\\'"
+    ).get(withMd, '%/' + withMd.replace(/[%_\\]/g, '\\$&')) as { path: string } | undefined
+
+    if (byPath) {
+      if (byPath.path !== fromPath) resolved.push(byPath.path)
+      continue
+    }
+
+    // Try title match (case-insensitive)
+    const byTitle = db.prepare(
+      'SELECT path FROM notes WHERE lower(title) = lower(?)'
+    ).get(target) as { path: string } | undefined
+
+    if (byTitle && byTitle.path !== fromPath) {
+      resolved.push(byTitle.path)
+    }
+  }
+
+  return [...new Set(resolved)]
 }

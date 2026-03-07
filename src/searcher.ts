@@ -1,4 +1,4 @@
-import { getDb, hasVecTable, getNoteByPath } from './db.js'
+import { getDb, hasVecTable, getNoteByPath, getLinksForPaths } from './db.js'
 import { embed } from './embedder.js'
 
 export interface SearchResult {
@@ -7,6 +7,8 @@ export interface SearchResult {
   tags: string[]
   score: number
   snippet: string
+  links: string[]
+  backlinks: string[]
   scores: {
     semantic?: number
     bm25?: number
@@ -47,7 +49,7 @@ function toSearchResult(r: RawResult): SearchResult {
   } catch {
     tags = []
   }
-  return { ...r, tags }
+  return { ...r, tags, links: [], backlinks: [] }
 }
 
 function sanitizeFtsQuery(query: string): string {
@@ -232,8 +234,16 @@ export async function search(input: string, options: SearchOptions = {}): Promis
 
   results = applyScope(results, options.scope)
   results = applyThreshold(results, threshold)
+  results = results.slice(0, limit)
 
-  return results.slice(0, limit).map(toSearchResult)
+  const paths = results.map(r => r.path)
+  const { links, backlinks } = getLinksForPaths(paths)
+
+  return results.map(r => ({
+    ...toSearchResult(r),
+    links: links.get(r.path) ?? [],
+    backlinks: backlinks.get(r.path) ?? [],
+  }))
 }
 
 async function searchByQuery(query: string, mode: string, limit: number): Promise<RawResult[]> {

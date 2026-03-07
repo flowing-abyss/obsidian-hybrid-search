@@ -5,7 +5,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
 import { config } from './config.js'
-import { openDb, initVecTable, checkModelChanged, getStats } from './db.js'
+import { openDb, initVecTable, checkModelChanged, getStats, saveConfigMeta } from './db.js'
 import { getContextLength, getEmbeddingDim } from './embedder.js'
 import { startBackgroundIndexing, startWatcher, indexFile, indexVaultSync } from './indexer.js'
 import { search } from './searcher.js'
@@ -13,6 +13,13 @@ import { search } from './searcher.js'
 async function main() {
   // Phase 1: open database
   openDb()
+
+  // Persist config metadata so the DB is self-describing
+  saveConfigMeta({
+    vaultPath: config.vaultPath,
+    apiBaseUrl: config.apiBaseUrl,
+    apiModel: config.apiModel,
+  })
 
   // Check if model changed — wipes DB if so, forces full reindex
   const modelName = config.apiKey ? config.apiModel : 'local:Xenova/all-MiniLM-L6-v2'

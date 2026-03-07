@@ -5,7 +5,18 @@ export interface Chunk {
 }
 
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4)
+  // Cyrillic and other non-ASCII scripts: ~1 char per token
+  // ASCII (English): ~4 chars per token
+  let tokens = 0
+  for (const char of text) {
+    const cp = char.codePointAt(0)!
+    if (cp > 127) {
+      tokens += 1 // non-ASCII (Cyrillic, CJK, etc.)
+    } else {
+      tokens += 0.25 // ASCII
+    }
+  }
+  return Math.ceil(tokens)
 }
 
 interface Section {
@@ -46,19 +57,35 @@ export function splitBySections(content: string): Section[] {
 }
 
 export function slidingWindow(text: string, contextLength: number, overlap: number): Chunk[] {
-  const charSize = contextLength * 4
-  const charStep = Math.max(contextLength - overlap, Math.ceil(contextLength / 2)) * 4
+  const stepTokens = Math.max(contextLength - overlap, Math.ceil(contextLength / 2))
   const chunks: Chunk[] = []
 
   let start = 0
   while (start < text.length) {
-    const end = Math.min(start + charSize, text.length)
+    // Advance char by char until we reach contextLength tokens
+    let end = start
+    let tokens = 0
+    while (end < text.length && tokens < contextLength) {
+      const cp = text.codePointAt(end)!
+      tokens += cp > 127 ? 1 : 0.25
+      end += cp > 0xffff ? 2 : 1
+    }
+
     const chunk = text.slice(start, end).trim()
     if (chunk.length >= config.chunkMinLength) {
       chunks.push({ text: chunk })
     }
     if (end >= text.length) break
-    start += charStep
+
+    // Advance start by stepTokens worth of chars
+    let stepped = 0
+    let stepTokensAccum = 0
+    while (stepped < text.length - start && stepTokensAccum < stepTokens) {
+      const cp = text.codePointAt(start + stepped)!
+      stepTokensAccum += cp > 127 ? 1 : 0.25
+      stepped += cp > 0xffff ? 2 : 1
+    }
+    start += stepped
   }
 
   return chunks.length > 0 ? chunks : [{ text: text.trim() }]
