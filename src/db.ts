@@ -211,7 +211,12 @@ function insertChunks(
   }
 }
 
-export function deleteNote(notePath: string): void {
+/**
+ * Remove a note from the index.
+ * keepLinks=true: preserve link entries (file still exists on disk, just no longer indexed)
+ * keepLinks=false (default): also remove all links — use when file is deleted from disk
+ */
+export function deleteNote(notePath: string, keepLinks = false): void {
   const db = getDb()
   const note = db.prepare('SELECT id FROM notes WHERE path = ?').get(notePath) as { id: number } | undefined
   if (!note) return
@@ -220,8 +225,11 @@ export function deleteNote(notePath: string): void {
   for (const { id } of chunkIds) {
     db.prepare('DELETE FROM vec_chunks WHERE chunk_id = ?').run(id)
   }
+  db.prepare('DELETE FROM chunks WHERE note_id = ?').run(note.id)
 
-  db.prepare('DELETE FROM links WHERE from_path = ? OR to_path = ?').run(notePath, notePath)
+  if (!keepLinks) {
+    db.prepare('DELETE FROM links WHERE from_path = ? OR to_path = ?').run(notePath, notePath)
+  }
   db.prepare('DELETE FROM notes WHERE id = ?').run(note.id)
 }
 

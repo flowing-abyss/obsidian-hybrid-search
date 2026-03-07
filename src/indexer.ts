@@ -161,18 +161,19 @@ export async function populateMissingLinks(): Promise<void> {
  * Called on server startup and during full reindex.
  */
 export function cleanupStaleNotes(fsPaths?: Set<string>): void {
-  // Handle ignore pattern changes
+  // Newly ignored notes: file still exists on disk, keep their link entries
+  // so backlinks from ignored notes remain visible in search results
   const pathsToRemove = getPathsToRemoveForIgnoreChange(config.ignorePatterns)
   for (const p of pathsToRemove) {
-    if (isIgnored(p)) deleteNote(p)
+    if (isIgnored(p)) deleteNote(p, true) // keepLinks=true
   }
 
-  // Remove notes deleted from filesystem
+  // Notes deleted from filesystem: remove everything including links (broken links)
   if (fsPaths) {
     const db = getDb()
     const dbPaths = (db.prepare('SELECT path FROM notes').all() as { path: string }[]).map(r => r.path)
     for (const dbPath of dbPaths) {
-      if (!fsPaths.has(dbPath)) deleteNote(dbPath)
+      if (!fsPaths.has(dbPath)) deleteNote(dbPath) // keepLinks=false
     }
   }
 }
