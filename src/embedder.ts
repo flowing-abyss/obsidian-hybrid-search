@@ -78,35 +78,65 @@ export async function embed(texts: string[]): Promise<Float32Array[]> {
 async function embedViaApi(texts: string[]): Promise<Float32Array[]> {
   const results: Float32Array[] = []
 
-  // Process in batches
   for (let i = 0; i < texts.length; i += config.batchSize) {
     const batch = texts.slice(i, i + config.batchSize)
-    const res = await fetch(`${config.apiBaseUrl}/embeddings`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ model: config.apiModel, input: batch }),
-    })
-
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`Embedding API error ${res.status}: ${text}`)
-    }
-
-    const data = await res.json() as { data?: { embedding: number[]; index: number }[]; error?: { message: string } }
-    if (data.error || !data.data) {
-      throw new Error(`Embedding API error: ${data.error?.message ?? 'unexpected response format'}`)
-    }
-    // Sort by index to ensure correct order
-    const sorted = data.data.sort((a, b) => a.index - b.index)
-    for (const item of sorted) {
-      results.push(new Float32Array(item.embedding))
-    }
+    const batchResults = await embedApiBatchWithFallback(batch)
+    results.push(...batchResults)
   }
 
   return results
+}
+
+async function embedApiBatch(texts: string[]): Promise<Float32Array[]> {
+  const res = await fetch(`${config.apiBaseUrl}/embeddings`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ model: config.apiModel, input: texts }),
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Embedding API error ${res.status}: ${text}`)
+  }
+
+  const data = await res.json() as { data?: { embedding: number[]; index: number }[]; error?: { message: string } }
+  if (data.error || !data.data) {
+    throw new Error(`Embedding API error: ${data.error?.message ?? 'unexpected response format'}`)
+  }
+
+  return data.data
+    .sort((a, b) => a.index - b.index)
+    .map(item => new Float32Array(item.embedding))
+}
+
+async function embedApiBatchWithFallback(texts: string[]): Promise<Float32Array[]> {
+  // Try the whole batch first
+  try {
+    return await embedApiBatch(texts)
+  } catch (batchErr) {
+    if (texts.length === 1) {
+      // Single item still fails — try with truncated text
+      const truncated = texts[0].slice(0, 2000)
+      if (truncated === texts[0]) throw batchErr
+      try {
+        console.warn('[embedder] chunk too large, retrying truncated')
+        return await embedApiBatch([truncated])
+      } catch {
+        throw batchErr
+      }
+    }
+    // Batch failed — retry each item individually
+    console.warn('[embedder] batch failed, retrying one by one:', (batchErr as Error).message)
+    const results: Float32Array[] = []
+    for (const text of texts) {
+      const [emb] = await embedApiBatchWithFallback([text])
+      results.push(emb)
+    }
+    return results
+  }
 }
 
 async function embedLocal(texts: string[]): Promise<Float32Array[]> {

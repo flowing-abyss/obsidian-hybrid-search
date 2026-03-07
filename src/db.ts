@@ -85,6 +85,14 @@ export function openDb(): DB {
     }
   }
 
+  // Restore ignore patterns from DB if env var is not set (e.g., MCP server missing env)
+  if (!process.env.OBSIDIAN_IGNORE_PATTERNS) {
+    const stored = db.prepare("SELECT value FROM settings WHERE key = 'ignore_patterns_csv'").get() as { value: string } | undefined
+    if (stored?.value) {
+      process.env.OBSIDIAN_IGNORE_PATTERNS = stored.value
+    }
+  }
+
   _db = db
   return db
 }
@@ -310,12 +318,15 @@ export function getPathsToRemoveForIgnoreChange(patterns: string[]): string[] {
   return allPaths
 }
 
-export function saveConfigMeta(meta: { vaultPath: string; apiBaseUrl: string; apiModel: string }): void {
+export function saveConfigMeta(meta: { vaultPath: string; apiBaseUrl: string; apiModel: string; ignorePatternsCsv?: string }): void {
   const db = getDb()
   const set = db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
   set.run('vault_path', meta.vaultPath)
   set.run('api_base_url', meta.apiBaseUrl)
   set.run('api_model', meta.apiModel)
+  if (meta.ignorePatternsCsv !== undefined) {
+    set.run('ignore_patterns_csv', meta.ignorePatternsCsv)
+  }
 }
 
 export function updateLastIndexed(): void {

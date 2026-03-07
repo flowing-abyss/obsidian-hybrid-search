@@ -19,6 +19,7 @@ async function main() {
     vaultPath: config.vaultPath,
     apiBaseUrl: config.apiBaseUrl,
     apiModel: config.apiModel,
+    ignorePatternsCsv: config.ignorePatterns.join(','),
   })
 
   // Check if model changed — wipes DB if so, forces full reindex

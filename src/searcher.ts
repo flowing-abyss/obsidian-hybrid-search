@@ -84,8 +84,8 @@ export function searchBm25(query: string, limit: number): RawResult[] {
       title: row.title ?? '',
       tags: row.tags ?? '[]',
       snippet: row.snippet ?? '',
-      score: Math.max(0, 1 / (1 + Math.abs(row.rank))),
-      scores: { bm25: Math.max(0, 1 / (1 + Math.abs(row.rank))) },
+      score: Math.max(0, Math.abs(row.rank) / (1 + Math.abs(row.rank))),
+      scores: { bm25: Math.max(0, Math.abs(row.rank) / (1 + Math.abs(row.rank))) },
     }))
   } catch {
     return []
@@ -121,8 +121,8 @@ export function searchFuzzyTitle(query: string, limit: number): RawResult[] {
       title: row.title ?? '',
       tags: row.tags ?? '[]',
       snippet: '',
-      score: Math.max(0, 1 / (1 + Math.abs(row.rank))),
-      scores: { fuzzy_title: Math.max(0, 1 / (1 + Math.abs(row.rank))) },
+      score: Math.max(0, Math.abs(row.rank) / (1 + Math.abs(row.rank))),
+      scores: { fuzzy_title: Math.max(0, Math.abs(row.rank) / (1 + Math.abs(row.rank))) },
     }))
   } catch {
     return []

@@ -52,6 +52,7 @@ async function discoverConfig(dbPathOpt?: string): Promise<void> {
     const vaultPath = get('vault_path')
     const apiBaseUrl = get('api_base_url')
     const apiModel = get('api_model')
+    const ignorePatternsCsv = get('ignore_patterns_csv')
     db.close()
 
     // Env vars take precedence over DB-stored values
@@ -63,6 +64,9 @@ async function discoverConfig(dbPathOpt?: string): Promise<void> {
     }
     if (apiModel && !process.env.OPENAI_EMBEDDING_MODEL) {
       process.env.OPENAI_EMBEDDING_MODEL = apiModel
+    }
+    if (ignorePatternsCsv && !process.env.OBSIDIAN_IGNORE_PATTERNS) {
+      process.env.OBSIDIAN_IGNORE_PATTERNS = ignorePatternsCsv
     }
 
     // Fallback: infer vault path from DB location if not stored in settings
@@ -128,14 +132,17 @@ program
       return
     }
 
-    const table = new Table({
-      head: ['SCORE', 'PATH', 'SNIPPET'],
-      colWidths: [7, 45, 60],
-      wordWrap: true,
-    })
+    const hasSnippets = results.some(r => (r.snippet ?? '').trim().length > 0)
+    const table = hasSnippets
+      ? new Table({ head: ['SCORE', 'PATH', 'SNIPPET'], colWidths: [7, 45, 60], wordWrap: true })
+      : new Table({ head: ['SCORE', 'PATH'], colWidths: [7, 60], wordWrap: true })
 
     for (const r of results) {
-      table.push([r.score.toFixed(2), r.path, (r.snippet ?? '').slice(0, 120)])
+      if (hasSnippets) {
+        table.push([r.score.toFixed(2), r.path, (r.snippet ?? '').slice(0, 120)])
+      } else {
+        table.push([r.score.toFixed(2), r.path])
+      }
     }
 
     console.log(table.toString())
