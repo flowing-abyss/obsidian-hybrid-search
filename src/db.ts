@@ -221,7 +221,7 @@ export function deleteNote(notePath: string): void {
     db.prepare('DELETE FROM vec_chunks WHERE chunk_id = ?').run(id)
   }
 
-  db.prepare('DELETE FROM links WHERE from_path = ?').run(notePath)
+  db.prepare('DELETE FROM links WHERE from_path = ? OR to_path = ?').run(notePath, notePath)
   db.prepare('DELETE FROM notes WHERE id = ?').run(note.id)
 }
 
