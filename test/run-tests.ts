@@ -1,6 +1,6 @@
 /**
  * Simple test runner for Node.js 25 compatibility
- * Run: VAULT_PATH=/tmp/test-vault npx tsx test/run-tests.ts
+ * Run: OBSIDIAN_VAULT_PATH=/tmp/test-vault npx tsx test/run-tests.ts
  */
 import assert from 'node:assert/strict'
 import { chunkNote, splitBySections, slidingWindow, estimateTokens } from '../src/chunker.js'

@@ -2,11 +2,77 @@
 import { Command } from 'commander'
 import Table from 'cli-table3'
 import path from 'node:path'
+import { existsSync } from 'node:fs'
+import Database from 'better-sqlite3'
 import { openDb, initVecTable, getStats } from './db.js'
 import { getContextLength, getEmbeddingDim } from './embedder.js'
 import { search } from './searcher.js'
 import { indexVaultSync, indexFile } from './indexer.js'
 import { config } from './config.js'
+
+/**
+ * Find .obsidian-hybrid-search.db by walking up from dir,
+ * read vault_path / api_base_url / api_model from its settings table,
+ * and inject them into process.env (only if not already set).
+ */
+async function discoverConfig(dbPathOpt?: string): Promise<void> {
+  let dbFile: string | undefined = dbPathOpt
+
+  if (!dbFile) {
+    let dir = process.cwd()
+    while (true) {
+      const candidate = path.join(dir, '.obsidian-hybrid-search.db')
+      if (existsSync(candidate)) {
+        dbFile = candidate
+        break
+      }
+      const parent = path.dirname(dir)
+      if (parent === dir) break // reached filesystem root
+      dir = parent
+    }
+  }
+
+  if (!dbFile) {
+    if (!process.env.OBSIDIAN_VAULT_PATH) {
+      console.error(
+        'Error: Could not find .obsidian-hybrid-search.db\n' +
+        'Run this command from inside your Obsidian vault, use --db <path>, or set OBSIDIAN_VAULT_PATH.'
+      )
+      process.exit(1)
+    }
+    return // env vars already set — proceed normally
+  }
+
+  try {
+    // Open read-only without sqlite-vec (settings table needs no vector extension)
+    const db = new Database(dbFile, { readonly: true })
+    const get = (key: string) =>
+      (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value
+
+    const vaultPath = get('vault_path')
+    const apiBaseUrl = get('api_base_url')
+    const apiModel = get('api_model')
+    db.close()
+
+    // Env vars take precedence over DB-stored values
+    if (vaultPath && !process.env.OBSIDIAN_VAULT_PATH) {
+      process.env.OBSIDIAN_VAULT_PATH = vaultPath
+    }
+    if (apiBaseUrl && !process.env.OPENAI_BASE_URL) {
+      process.env.OPENAI_BASE_URL = apiBaseUrl
+    }
+    if (apiModel && !process.env.OPENAI_EMBEDDING_MODEL) {
+      process.env.OPENAI_EMBEDDING_MODEL = apiModel
+    }
+
+    // Fallback: infer vault path from DB location if not stored in settings
+    if (!process.env.OBSIDIAN_VAULT_PATH) {
+      process.env.OBSIDIAN_VAULT_PATH = path.dirname(dbFile)
+    }
+  } catch (err) {
+    // DB unreadable — let normal startup errors surface
+  }
+}
 
 async function init() {
   openDb()
@@ -22,6 +88,12 @@ const program = new Command()
   .name('obsidian-hybrid-search')
   .description('Hybrid search for your Obsidian vault')
   .version('0.1.0')
+  .option('--db <path>', 'Path to .obsidian-hybrid-search.db (auto-discovered from CWD by default)')
+
+program.hook('preAction', async (thisCommand) => {
+  const opts = thisCommand.opts()
+  await discoverConfig(opts.db as string | undefined)
+})
 
 program
   .command('search [query]', { isDefault: true })
@@ -96,11 +168,12 @@ program
 
 program
   .command('status')
-  .description('Show indexing status')
+  .description('Show indexing status and configuration')
   .action(async () => {
     const contextLength = await init()
     const stats = getStats()
     console.log(JSON.stringify({
+      vault: config.vaultPath,
       total: stats.total,
       indexed: stats.indexed,
       pending: stats.pending,

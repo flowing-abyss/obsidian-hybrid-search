@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURE_VAULT = path.join(__dirname, 'fixtures/vault')
 
-process.env.VAULT_PATH = FIXTURE_VAULT
+process.env.OBSIDIAN_VAULT_PATH = FIXTURE_VAULT
 
 const { openDb, initVecTable } = await import('../src/db.js')
 const { getEmbeddingDim, getContextLength } = await import('../src/embedder.js')
