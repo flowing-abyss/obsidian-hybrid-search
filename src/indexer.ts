@@ -291,7 +291,11 @@ function resolveWikilinks(content: string, fromPath: string): string[] {
   if (raw.length === 0) return []
 
   const resolved: string[] = []
-  for (const target of raw) {
+  for (const rawTarget of raw) {
+    // DB paths are stored as NFD (macOS filesystem), but wikilink text in
+    // file content is typically NFC (as written by Obsidian) — normalize to match
+    const target = rawTarget.normalize('NFD')
+
     // Try exact path match (with or without .md)
     const withMd = target.endsWith('.md') ? target : target + '.md'
     const byPath = db.prepare(
