@@ -4,3 +4,4 @@ dist/
 *.db-shm
 *.db-wal
 .env
+.mcp.json
