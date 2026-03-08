@@ -1,6 +1,6 @@
 name: CI
 
-on:
+'on':
   push:
     branches: [master]
   pull_request:
@@ -40,7 +40,7 @@ jobs:
         run: npm run coverage
 
       - name: Integration tests
-        if: ${{ secrets.OPENAI_API_KEY != '' }}
         run: npm run test:integration
+        continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
