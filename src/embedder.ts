@@ -4,45 +4,100 @@ let localPipeline: any = null
 let cachedContextLength: number | null = null
 let cachedDim: number | null = null
 
-// Known context lengths for embedding models available on OpenRouter
-// Source: https://openrouter.ai/api/v1/embeddings/models
+// Known context lengths for embedding models across all providers.
+// Used to avoid an API roundtrip on startup and ensure correct chunking.
+// Sources: OpenRouter /api/v1/embeddings/models, Ollama library,
+//          Voyage AI docs, Cohere docs, OpenAI docs.
 const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
-  // OpenAI
+  // ── OpenAI (direct API and OpenRouter) ───────────────────
   'openai/text-embedding-3-small': 8192,
   'openai/text-embedding-3-large': 8192,
   'openai/text-embedding-ada-002': 8192,
-  // Short-form aliases (for direct OpenAI API usage)
   'text-embedding-3-small': 8192,
   'text-embedding-3-large': 8192,
   'text-embedding-ada-002': 8192,
-  // Mistral
+
+  // ── Mistral ───────────────────────────────────────────────
   'mistralai/mistral-embed': 8192,
   'mistralai/mistral-embed-2312': 8192,
   'mistralai/codestral-embed-2505': 8192,
-  // Google
+  'mistral-embed': 8192,
+
+  // ── Google ────────────────────────────────────────────────
   'google/gemini-embedding-001': 20000,
-  // Qwen
+  'gemini-embedding-001': 20000,
+  'text-embedding-004': 2048,           // Google AI direct
+  'text-multilingual-embedding-002': 2048,
+
+  // ── Qwen ─────────────────────────────────────────────────
   'qwen/qwen3-embedding-8b': 32000,
   'qwen/qwen3-embedding-4b': 32768,
-  // BAAI
+  'qwen3-embedding-8b': 32000,
+  'qwen3-embedding-4b': 32768,
+
+  // ── Cohere ────────────────────────────────────────────────
+  'cohere/embed-english-v3.0': 512,
+  'cohere/embed-multilingual-v3.0': 512,
+  'cohere/embed-english-light-v3.0': 512,
+  'cohere/embed-multilingual-light-v3.0': 512,
+  'embed-english-v3.0': 512,
+  'embed-multilingual-v3.0': 512,
+  'embed-english-light-v3.0': 512,
+  'embed-multilingual-light-v3.0': 512,
+
+  // ── Voyage AI ─────────────────────────────────────────────
+  'voyage-4-large': 32000,
+  'voyage-4': 32000,
+  'voyage-4-lite': 32000,
+  'voyage-4-nano': 32000,
+  'voyage-3-large': 32000,
+  'voyage-3.5': 32000,
+  'voyage-3.5-lite': 32000,
+  'voyage-3': 32000,
+  'voyage-3-lite': 32000,
+  'voyage-code-3': 32000,
+  'voyage-finance-2': 32000,
+  'voyage-multilingual-2': 32000,
+  'voyage-large-2-instruct': 16000,
+  'voyage-large-2': 16000,
+  'voyage-law-2': 16000,
+  'voyage-code-2': 16000,
+  'voyage-2': 4000,
+
+  // ── BAAI BGE (OpenRouter + Ollama short names) ────────────
   'baai/bge-m3': 8192,
   'baai/bge-base-en-v1.5': 512,
   'baai/bge-large-en-v1.5': 512,
-  // Sentence Transformers
+  'bge-m3': 8192,
+  'bge-large': 512,
+  'bge-base': 512,
+
+  // ── Sentence Transformers ─────────────────────────────────
   'sentence-transformers/all-minilm-l6-v2': 512,
   'sentence-transformers/all-minilm-l12-v2': 512,
   'sentence-transformers/all-mpnet-base-v2': 512,
   'sentence-transformers/multi-qa-mpnet-base-dot-v1': 512,
   'sentence-transformers/paraphrase-minilm-l6-v2': 512,
-  // intfloat E5
+
+  // ── intfloat E5 ───────────────────────────────────────────
   'intfloat/e5-large-v2': 512,
   'intfloat/e5-base-v2': 512,
   'intfloat/multilingual-e5-large': 512,
-  // thenlper GTE
+
+  // ── thenlper GTE ──────────────────────────────────────────
   'thenlper/gte-base': 512,
   'thenlper/gte-large': 512,
-  // NVIDIA
+
+  // ── NVIDIA ────────────────────────────────────────────────
   'nvidia/llama-nemotron-embed-vl-1b-v2': 131072,
+
+  // ── Ollama local models (short names) ────────────────────
+  'nomic-embed-text': 8192,
+  'nomic-embed-text-v1.5': 8192,
+  'mxbai-embed-large': 512,
+  'all-minilm': 512,
+  'snowflake-arctic-embed': 512,
+  'paraphrase-multilingual': 512,
 }
 
 export async function getContextLength(): Promise<number> {
