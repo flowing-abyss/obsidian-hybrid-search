@@ -3,10 +3,10 @@
  * Run: npx tsx test/run-tests.ts
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { chunkNote, splitBySections, slidingWindow, estimateTokens } from '../src/chunker.js';
+import { chunkNote, estimateTokens, slidingWindow, splitBySections } from '../src/chunker.js';
 import { parseInlineTags } from '../src/indexer.js';
 
 let pass = 0;

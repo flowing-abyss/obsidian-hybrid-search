@@ -1,20 +1,20 @@
-import { readdirSync, statSync } from 'node:fs';
+import matter from 'gray-matter';
 import { createHash } from 'node:crypto';
+import { readdirSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import matter from 'gray-matter';
+import { chunkNote } from './chunker.js';
 import { config } from './config.js';
 import {
+  deleteNote,
   getDb,
   getNoteMeta,
-  upsertNote,
-  upsertLinks,
-  deleteNote,
-  updateLastIndexed,
   getPathsToRemoveForIgnoreChange,
+  updateLastIndexed,
+  upsertLinks,
+  upsertNote,
 } from './db.js';
 import { embed, getContextLength } from './embedder.js';
-import { chunkNote } from './chunker.js';
 
 export interface IndexResult {
   indexed: number;

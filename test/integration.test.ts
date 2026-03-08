@@ -16,10 +16,7 @@ const { search } = await import('../src/searcher.js');
 before(
   async () => {
     openDb();
-    const [, embeddingDim] = await Promise.all([
-      getContextLength(),
-      getEmbeddingDim(),
-    ]);
+    const [, embeddingDim] = await Promise.all([getContextLength(), getEmbeddingDim()]);
     initVecTable(embeddingDim);
     await indexVaultSync();
   },
