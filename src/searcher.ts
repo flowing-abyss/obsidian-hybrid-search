@@ -546,9 +546,15 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   const threshold = options.threshold ?? 0.0;
   const snippetLength = options.snippetLength ?? 300;
 
-  // Explicit notePath overrides heuristic; legacy: detect by shape of input string
+  // Path-based lookup when --path is given explicitly, OR when related mode is
+  // requested and the input looks like a note path (allows the shorthand
+  // `search('note.md', { related: true })` used in tests and the MCP server).
+  // We intentionally do NOT apply the heuristic for plain text queries: previously
+  // `input.includes('/')` would silently redirect to searchSimilar and ignore --mode,
+  // causing `ohs "some/path.md"` and `ohss "some/path.md"` to return identical results.
   const isPathLookup =
-    options.notePath !== undefined || input.includes('/') || input.endsWith('.md');
+    options.notePath !== undefined ||
+    (options.related === true && (input.includes('/') || input.endsWith('.md')));
   const resolvedPath = options.notePath ?? input;
 
   // Related mode: graph traversal, skip the normal search pipeline
