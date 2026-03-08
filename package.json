@@ -12,6 +12,7 @@
     "test": "tsx test/run-tests.ts",
     "test:integration": "tsx test/integration.test.ts"
   },
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/flowing-abyss/obsidian-hybrid-search"
