@@ -217,6 +217,40 @@ function isZeroVector(v: Float32Array): boolean {
   return true;
 }
 
+/**
+ * Embed a search query with retry logic for transient API errors.
+ *
+ * The embedder's zero-vector fallback exists so that an unembeddable *document chunk*
+ * still gets indexed for BM25. For *query* embedding that fallback is wrong: a zero
+ * query gives L2=1.0 to every stored unit-vector, producing uniform meaningless scores.
+ *
+ * This wrapper retries up to `maxAttempts` times with exponential back-off when the
+ * API returns an error or a zero vector (= silent failure fallback). Returns null only
+ * when all attempts are exhausted, letting callers degrade gracefully.
+ */
+async function embedQuery(text: string, maxAttempts = 3): Promise<Float32Array | null> {
+  const RETRY_BASE_MS = 500;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const [emb] = await embed([text]);
+      const f32 = new Float32Array(emb!);
+      if (!isZeroVector(f32)) return f32;
+      // Zero vector = embedder's silent fallback — treat as a retriable failure
+    } catch {
+      // Network / API error — retriable
+    }
+    if (i < maxAttempts - 1) {
+      const delay = RETRY_BASE_MS * (i + 1);
+      console.warn(`[searcher] embedding attempt ${i + 1} failed, retrying in ${delay}ms…`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  console.warn(
+    '[searcher] embedding failed after all retries — semantic component disabled for this query',
+  );
+  return null;
+}
+
 async function searchVector(queryEmbedding: Float32Array, limit: number): Promise<RawResult[]> {
   if (!hasVecTable()) return [];
   // Zero vector means the embedding API failed and returned the fallback (see embedder.ts).
@@ -592,16 +626,21 @@ async function searchByQuery(query: string, mode: string, limit: number): Promis
   }
 
   if (mode === 'semantic') {
-    const [embedding] = await embed([query]);
-    return searchVector(new Float32Array(embedding!), limit);
+    const f32 = await embedQuery(query);
+    // If embedding permanently failed after retries, return empty rather than
+    // polluting results with uniform zero-vector scores.
+    if (!f32) return [];
+    return searchVector(f32, limit);
   }
 
   // hybrid: RRF fusion of all three
-  const [embedding] = await embed([query]);
+  // embedQuery() retries on transient failures; on permanent failure it returns null
+  // and vectorResults becomes [], so RRF degrades to BM25 + fuzzy (still useful).
+  const f32 = await embedQuery(query);
   const [bm25Results, fuzzyResults, vectorResults] = await Promise.all([
     Promise.resolve(searchBm25(query, limit)),
     Promise.resolve(searchFuzzyTitle(query, limit)),
-    searchVector(new Float32Array(embedding!), limit),
+    f32 ? searchVector(f32, limit) : Promise.resolve([]),
   ]);
 
   return rrfFusion([vectorResults, bm25Results, fuzzyResults]);
@@ -614,11 +653,9 @@ async function searchSimilar(notePath: string, limit: number): Promise<RawResult
 
   // Embed a representative portion of the note
   const textToEmbed = note.content.slice(0, 2000);
-  const [embedding] = await embed([textToEmbed]);
-  const embArray = new Float32Array(embedding!);
-  // Zero vector means API failed — no semantic results rather than uniform garbage
-  if (isZeroVector(embArray)) return [];
-  const results = await searchVector(embArray, limit + 1);
+  const f32 = await embedQuery(textToEmbed);
+  if (!f32) return []; // embedding permanently failed — no semantic results
+  const results = await searchVector(f32, limit + 1);
 
   // Exclude the source note
   return results.filter((r) => r.path !== notePath).slice(0, limit);
