@@ -186,21 +186,21 @@ Omit `OPENAI_API_KEY` to use the local `Xenova/all-MiniLM-L6-v2` model (download
 
 The server exposes three tools:
 
-| Tool | Description |
-|------|-------------|
-| `search` | Search the vault. Use `query` for text search or `path` for similarity/graph lookup. Supports `mode`, `scope`, `tag`, `limit`, `threshold`, `related`, `depth`, `direction`, `snippet_length` |
-| `reindex` | Reindex the vault or a specific file |
-| `status` | Show total notes, indexed count, last indexed time |
+| Tool      | Description                                                                                                                                                                                   |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search`  | Search the vault. Use `query` for text search or `path` for similarity/graph lookup. Supports `mode`, `scope`, `tag`, `limit`, `threshold`, `related`, `depth`, `direction`, `snippet_length` |
+| `reindex` | Reindex the vault or a specific file                                                                                                                                                          |
+| `status`  | Show total notes, indexed count, last indexed time                                                                                                                                            |
 
 ## Configuration
 
-| Environment variable | Default | Description |
-|----------------------|---------|-------------|
-| `OBSIDIAN_VAULT_PATH` | *(required)* | Absolute path to your vault |
-| `OBSIDIAN_IGNORE_PATTERNS` | `.obsidian/**,templates/**,*.canvas` | Comma-separated ignore patterns |
-| `OPENAI_API_KEY` | — | API key; omit to use local Xenova embeddings or keyless servers (Ollama, LM Studio) |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | API base URL |
-| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model name |
+| Environment variable       | Default                              | Description                                                                         |
+| -------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------- |
+| `OBSIDIAN_VAULT_PATH`      | _(required)_                         | Absolute path to your vault                                                         |
+| `OBSIDIAN_IGNORE_PATTERNS` | `.obsidian/**,templates/**,*.canvas` | Comma-separated ignore patterns                                                     |
+| `OPENAI_API_KEY`           | —                                    | API key; omit to use local Xenova embeddings or keyless servers (Ollama, LM Studio) |
+| `OPENAI_BASE_URL`          | `https://api.openai.com/v1`          | API base URL                                                                        |
+| `OPENAI_EMBEDDING_MODEL`   | `text-embedding-3-small`             | Embedding model name                                                                |
 
 ### Ignore patterns
 

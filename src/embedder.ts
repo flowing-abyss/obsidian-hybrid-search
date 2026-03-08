@@ -1,8 +1,8 @@
-import { config } from './config.js'
+import { config } from './config.js';
 
-let localPipeline: any = null
-let cachedContextLength: number | null = null
-let cachedDim: number | null = null
+let localPipeline: any = null;
+let cachedContextLength: number | null = null;
+let cachedDim: number | null = null;
 
 // Known context lengths for embedding models across all providers.
 // Used to avoid an API roundtrip on startup and ensure correct chunking.
@@ -26,7 +26,7 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   // ── Google ────────────────────────────────────────────────
   'google/gemini-embedding-001': 20000,
   'gemini-embedding-001': 20000,
-  'text-embedding-004': 2048,           // Google AI direct
+  'text-embedding-004': 2048, // Google AI direct
   'text-multilingual-embedding-002': 2048,
 
   // ── Qwen ─────────────────────────────────────────────────
@@ -98,170 +98,175 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   'all-minilm': 512,
   'snowflake-arctic-embed': 512,
   'paraphrase-multilingual': 512,
-}
+};
 
 export async function getContextLength(): Promise<number> {
-  if (cachedContextLength !== null) return cachedContextLength
+  if (cachedContextLength !== null) return cachedContextLength;
 
   if (useApiMode()) {
     // Check known models first — avoids an API roundtrip
     if (KNOWN_CONTEXT_LENGTHS[config.apiModel]) {
-      cachedContextLength = KNOWN_CONTEXT_LENGTHS[config.apiModel]
-      return cachedContextLength
+      cachedContextLength = KNOWN_CONTEXT_LENGTHS[config.apiModel];
+      return cachedContextLength;
     }
 
     try {
-      const headers: Record<string, string> = {}
-      if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`
-      const res = await fetch(`${config.apiBaseUrl}/models/${config.apiModel}`, { headers })
-      const data = await res.json() as { context_length?: number }
-      cachedContextLength = data.context_length ?? config.chunkContextFallback
-      return cachedContextLength
+      const headers: Record<string, string> = {};
+      if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
+      const res = await fetch(`${config.apiBaseUrl}/models/${config.apiModel}`, { headers });
+      const data = (await res.json()) as { context_length?: number };
+      cachedContextLength = data.context_length ?? config.chunkContextFallback;
+      return cachedContextLength;
     } catch {
       // fall through to default
     }
   } else {
     // Local model: try to read from pipeline config
     try {
-      const pipeline = await getLocalPipeline()
-      const maxLen = pipeline.model?.config?.max_position_embeddings
+      const pipeline = await getLocalPipeline();
+      const maxLen = pipeline.model?.config?.max_position_embeddings;
       if (typeof maxLen === 'number') {
-        cachedContextLength = maxLen
-        return cachedContextLength
+        cachedContextLength = maxLen;
+        return cachedContextLength;
       }
     } catch {
       // fall through
     }
   }
 
-  cachedContextLength = config.chunkContextFallback
-  return cachedContextLength
+  cachedContextLength = config.chunkContextFallback;
+  return cachedContextLength;
 }
 
 export async function getEmbeddingDim(): Promise<number> {
-  if (cachedDim !== null) return cachedDim
-  const [embedding] = await embed(['dimension probe'])
-  cachedDim = embedding.length
-  return cachedDim
+  if (cachedDim !== null) return cachedDim;
+  const [embedding] = await embed(['dimension probe']);
+  cachedDim = embedding.length;
+  return cachedDim;
 }
 
 async function getLocalPipeline() {
   if (!localPipeline) {
-    const { pipeline } = await import('@xenova/transformers')
-    localPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2')
+    const { pipeline } = await import('@xenova/transformers');
+    localPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
   }
-  return localPipeline
+  return localPipeline;
 }
 
 // Ollama queues requests internally — parallel batches don't help and can crash
 // buggy versions (v0.12.5+ bug: requests >2KB crash the server).
 function isOllamaEndpoint(): boolean {
-  const url = config.apiBaseUrl.toLowerCase()
-  return url.includes('11434') || url.includes('ollama')
+  const url = config.apiBaseUrl.toLowerCase();
+  return url.includes('11434') || url.includes('ollama');
 }
 
 // Use API mode when an API key is set OR when a custom base URL is configured
 // (e.g. Ollama, LM Studio, local OpenAI-compatible servers — no key required)
 function useApiMode(): boolean {
-  return !!(config.apiKey || process.env.OPENAI_BASE_URL)
+  return !!(config.apiKey || process.env.OPENAI_BASE_URL);
 }
 
 export async function embed(texts: string[]): Promise<Float32Array[]> {
   if (useApiMode()) {
-    return embedViaApi(texts)
+    return embedViaApi(texts);
   }
-  return embedLocal(texts)
+  return embedLocal(texts);
 }
 
 async function embedViaApi(texts: string[]): Promise<Float32Array[]> {
-  const results: Float32Array[] = []
+  const results: Float32Array[] = [];
 
   // Ollama: send one at a time to avoid the >2KB crash bug in v0.12.5+
   // and because Ollama queues internally anyway (batching gives no speedup)
-  const batchSize = isOllamaEndpoint() ? 1 : config.batchSize
+  const batchSize = isOllamaEndpoint() ? 1 : config.batchSize;
 
   for (let i = 0; i < texts.length; i += batchSize) {
-    const batch = texts.slice(i, i + batchSize)
-    const batchResults = await embedApiBatchWithFallback(batch)
-    results.push(...batchResults)
+    const batch = texts.slice(i, i + batchSize);
+    const batchResults = await embedApiBatchWithFallback(batch);
+    results.push(...batchResults);
   }
 
-  return results
+  return results;
 }
 
 async function embedApiBatch(texts: string[]): Promise<Float32Array[]> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
 
   const res = await fetch(`${config.apiBaseUrl}/embeddings`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ model: config.apiModel, input: texts }),
-  })
+  });
 
   if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Embedding API error ${res.status}: ${text}`)
+    const text = await res.text();
+    throw new Error(`Embedding API error ${res.status}: ${text}`);
   }
 
-  const data = await res.json() as { data?: { embedding: number[]; index: number }[]; error?: { message: string } }
+  const data = (await res.json()) as {
+    data?: { embedding: number[]; index: number }[];
+    error?: { message: string };
+  };
   if (data.error || !data.data) {
-    throw new Error(`Embedding API error: ${data.error?.message ?? 'unexpected response format'}`)
+    throw new Error(`Embedding API error: ${data.error?.message ?? 'unexpected response format'}`);
   }
 
   return data.data
     .sort((a, b) => a.index - b.index)
-    .map(item => new Float32Array(item.embedding))
+    .map((item) => new Float32Array(item.embedding));
 }
 
 async function embedApiBatchWithFallback(texts: string[]): Promise<Float32Array[]> {
   // Try the whole batch first
   try {
-    return await embedApiBatch(texts)
+    return await embedApiBatch(texts);
   } catch (batchErr) {
     if (texts.length === 1) {
       // Try with progressively shorter truncations
       for (const limit of [2000, 1000, 500]) {
-        const truncated = texts[0].slice(0, limit)
-        if (truncated === texts[0]) continue // already shorter, no point retrying
+        const truncated = texts[0].slice(0, limit);
+        if (truncated === texts[0]) continue; // already shorter, no point retrying
         try {
-          console.warn(`[embedder] chunk failing, retrying at ${limit} chars`)
-          return await embedApiBatch([truncated])
+          console.warn(`[embedder] chunk failing, retrying at ${limit} chars`);
+          return await embedApiBatch([truncated]);
         } catch {
           // try next truncation level
         }
       }
       // All truncations failed — use zero vector so the note still indexes for BM25
       if (cachedDim !== null) {
-        console.warn('[embedder] chunk unembeddable, using zero vector (note still indexed for text search)')
-        return [new Float32Array(cachedDim)]
+        console.warn(
+          '[embedder] chunk unembeddable, using zero vector (note still indexed for text search)',
+        );
+        return [new Float32Array(cachedDim)];
       }
-      throw batchErr
+      throw batchErr;
     }
     // Batch failed — retry each item individually
-    console.warn('[embedder] batch failed, retrying one by one:', (batchErr as Error).message)
-    const results: Float32Array[] = []
+    console.warn('[embedder] batch failed, retrying one by one:', (batchErr as Error).message);
+    const results: Float32Array[] = [];
     for (const text of texts) {
-      const [emb] = await embedApiBatchWithFallback([text])
-      results.push(emb)
+      const [emb] = await embedApiBatchWithFallback([text]);
+      results.push(emb);
     }
-    return results
+    return results;
   }
 }
 
 async function embedLocal(texts: string[]): Promise<Float32Array[]> {
-  const pipeline = await getLocalPipeline()
-  const results: Float32Array[] = []
+  const pipeline = await getLocalPipeline();
+  const results: Float32Array[] = [];
 
   for (let i = 0; i < texts.length; i += config.batchSize) {
-    const batch = texts.slice(i, i + config.batchSize)
+    const batch = texts.slice(i, i + config.batchSize);
     await Promise.all(
       batch.map(async (text) => {
-        const output = await pipeline(text, { pooling: 'mean', normalize: true })
-        results.push(new Float32Array(output.data))
-      })
-    )
+        const output = await pipeline(text, { pooling: 'mean', normalize: true });
+        results.push(new Float32Array(output.data));
+      }),
+    );
   }
 
-  return results
+  return results;
 }
