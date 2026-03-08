@@ -121,6 +121,28 @@ function toFtsQuery(query: string): string {
   return words.map((w) => `"${w}"*`).join(' OR ');
 }
 
+/**
+ * Build an FTS OR-query from note content for similarity search.
+ * Strips markdown syntax, deduplicates, and drops tokens shorter than 3 chars
+ * so that punctuation and stop-words don't drown out meaningful terms.
+ * BM25 IDF weighting handles the remaining noise.
+ */
+function noteContentToFtsQuery(content: string): string {
+  // Strip wikilinks [[...]], inline code `...`, headings #, emphasis */_,
+  // blockquote >, footnote markers [^...], HTML tags, and bare punctuation.
+  const stripped = content
+    .replace(/\[\[[^\]]*\]\]/g, ' ') // wikilinks [[...]]
+    .replace(/`[^`]*`/g, ' ') // inline code
+    .replace(/\d+/g, ' ') // numbers — rarely useful for similarity
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ') // everything else that's not a letter/number/space
+    .toLowerCase();
+  const unique = [...new Set(stripped.split(/\s+/).filter((w) => w.length >= 3))];
+  if (unique.length === 0) return '""';
+  // Limit to 500 unique tokens to keep the FTS query from getting absurdly long
+  const tokens = unique.slice(0, 500);
+  return tokens.map((w) => `"${sanitizeFtsQuery(w)}"*`).join(' OR ');
+}
+
 export function searchBm25(query: string, limit: number): RawResult[] {
   const db = getDb();
   const ftsQuery = toFtsQuery(query);
@@ -593,7 +615,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   let results: RawResult[];
 
   if (isPathLookup) {
-    results = await searchSimilar(resolvedPath, limit);
+    results = await searchSimilar(resolvedPath, mode, limit);
   } else {
     results = await searchByQuery(input, mode, limit);
   }
@@ -652,17 +674,39 @@ async function searchByQuery(query: string, mode: string, limit: number): Promis
   return rrfFusion([vectorResults, bm25Results, fuzzyResults]);
 }
 
-async function searchSimilar(notePath: string, limit: number): Promise<RawResult[]> {
+async function searchSimilar(
+  notePath: string,
+  mode: 'hybrid' | 'semantic' | 'fulltext' | 'title',
+  limit: number,
+): Promise<RawResult[]> {
   // macOS stores filenames as NFD; normalize to match DB paths
   const note = getNoteByPath(notePath.normalize('NFD'));
   if (!note) return [];
 
-  // Embed a representative portion of the note
-  const textToEmbed = note.content.slice(0, 2000);
-  const f32 = await embedQuery(textToEmbed);
-  if (!f32) return []; // embedding permanently failed — no semantic results
-  const results = await searchVector(f32, limit + 1);
+  const exclude = (rs: RawResult[]): RawResult[] =>
+    rs.filter((r) => r.path !== note.path).slice(0, limit);
 
-  // Exclude the source note
-  return results.filter((r) => r.path !== notePath).slice(0, limit);
+  if (mode === 'fulltext') {
+    return exclude(searchBm25(noteContentToFtsQuery(note.content), limit + 1));
+  }
+
+  if (mode === 'title') {
+    return exclude(searchFuzzyTitle(note.title, limit + 1));
+  }
+
+  // semantic and hybrid both need a vector — pass full content, let the API truncate
+  const f32 = await embedQuery(note.content);
+
+  if (mode === 'semantic') {
+    if (!f32) return [];
+    return exclude(await searchVector(f32, limit + 1));
+  }
+
+  // hybrid: all three components fused with RRF
+  const [bm25Results, fuzzyResults, vectorResults] = await Promise.all([
+    Promise.resolve(searchBm25(noteContentToFtsQuery(note.content), limit + 1)),
+    Promise.resolve(searchFuzzyTitle(note.title, limit + 1)),
+    f32 ? searchVector(f32, limit + 1) : Promise.resolve([]),
+  ]);
+  return exclude(rrfFusion([vectorResults, bm25Results, fuzzyResults]));
 }
