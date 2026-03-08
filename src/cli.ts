@@ -2,13 +2,18 @@
 import Database from 'better-sqlite3';
 import Table from 'cli-table3';
 import { Command } from 'commander';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { getStats, initVecTable, openDb } from './db.js';
 import { getContextLength, getEmbeddingDim } from './embedder.js';
 import { indexFile, indexVaultSync } from './indexer.js';
 import { search } from './searcher.js';
+
+const { version } = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf-8'),
+) as { version: string };
 
 /** Truncate text at a word boundary, appending '...' if cut */
 function truncateAtWord(text: string, maxLen: number): string {
@@ -117,7 +122,7 @@ async function init() {
 const program = new Command()
   .name('obsidian-hybrid-search')
   .description('Hybrid search for your Obsidian vault')
-  .version('0.1.0')
+  .version(version)
   .option(
     '--db <path>',
     'Path to .obsidian-hybrid-search.db (auto-discovered from CWD by default)',
