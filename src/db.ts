@@ -6,13 +6,7 @@ export type DB = InstanceType<typeof Database>
 
 let _db: DB | null = null
 
-export function openDb(): DB {
-  const db = new Database(config.dbPath)
-  sqliteVec.load(db)
-
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-
+function runMigrations(db: DB): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS notes (
       id      INTEGER PRIMARY KEY,
@@ -71,30 +65,51 @@ export function openDb(): DB {
       INSERT INTO notes_fts_fuzzy(notes_fts_fuzzy, rowid, title) VALUES('delete', old.id, old.title);
     END;
   `)
+}
 
-  // Cleanup: remove notes stored with NFC paths (macOS filesystem uses NFD)
+function cleanupNfcPaths(db: DB): void {
+  const vecExists = !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_chunks'").get()
   const nfcNotes = db.prepare('SELECT id, path FROM notes').all() as { id: number; path: string }[]
   for (const note of nfcNotes) {
     if (note.path !== note.path.normalize('NFD')) {
-      const chunkIds = db.prepare('SELECT id FROM chunks WHERE note_id = ?').all(note.id) as { id: number }[]
-      for (const { id } of chunkIds) {
-        db.prepare('DELETE FROM vec_chunks WHERE chunk_id = ?').run(id)
+      if (vecExists) {
+        const chunkIds = db.prepare('SELECT id FROM chunks WHERE note_id = ?').all(note.id) as { id: number }[]
+        for (const { id } of chunkIds) {
+          db.prepare('DELETE FROM vec_chunks WHERE chunk_id = ?').run(id)
+        }
       }
       db.prepare('DELETE FROM links WHERE from_path = ?').run(note.path)
       db.prepare('DELETE FROM notes WHERE id = ?').run(note.id)
     }
   }
+}
 
-  // Restore ignore patterns from DB if env var is not set (e.g., MCP server missing env)
+function restoreIgnorePatterns(db: DB): void {
   if (!process.env.OBSIDIAN_IGNORE_PATTERNS) {
     const stored = db.prepare("SELECT value FROM settings WHERE key = 'ignore_patterns_csv'").get() as { value: string } | undefined
     if (stored?.value) {
       process.env.OBSIDIAN_IGNORE_PATTERNS = stored.value
     }
   }
+}
 
+export function openDb(): DB {
+  const db = new Database(config.dbPath)
+  sqliteVec.load(db)
+  db.pragma('journal_mode = WAL')
+  db.pragma('foreign_keys = ON')
+  runMigrations(db)
+  cleanupNfcPaths(db)
+  restoreIgnorePatterns(db)
   _db = db
   return db
+}
+
+export function closeDb(): void {
+  if (_db) {
+    _db.close()
+    _db = null
+  }
 }
 
 export function getDb(): DB {

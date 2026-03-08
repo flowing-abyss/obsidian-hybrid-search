@@ -134,7 +134,7 @@ async function main() {
               ? { indexed: 1, skipped: 0, errors: [] }
               : status === 'skipped'
                 ? { indexed: 0, skipped: 1, errors: [] }
-                : { indexed: 0, skipped: 0, errors: [{ path: String(a.path), error: 'indexing failed' }] }
+                : { indexed: 0, skipped: 0, errors: [{ path: String(a.path), error: typeof status === 'object' ? status.error : 'indexing failed' }] }
           return {
             content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
           }

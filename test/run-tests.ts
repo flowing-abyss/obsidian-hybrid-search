@@ -167,7 +167,7 @@ async function runIntegrationTests() {
     process.env.OBSIDIAN_VAULT_PATH = vaultDir
     process.env.OBSIDIAN_IGNORE_PATTERNS = 'ignored/**'
 
-    const { openDb, initVecTable, upsertNote, upsertLinks, getLinksForPaths, deleteNote } =
+    const { openDb, initVecTable, upsertNote, upsertLinks, getLinksForPaths, deleteNote, checkModelChanged } =
       await import('../src/db.js')
     const { searchBm25, searchFuzzyTitle } = await import('../src/searcher.js')
     const { isIgnored } = await import('../src/indexer.js')
@@ -350,6 +350,84 @@ async function runIntegrationTests() {
       assert.ok(isIgnored('templates/daily.md'), 'templates path ignored')
       assert.ok(isIgnored('.obsidian/config.json'), '.obsidian path ignored')
       assert.ok(!isIgnored('notes/daily.md'), 'notes path not ignored')
+    })
+
+    // ─── checkModelChanged ───────────────────────────────────
+    suite('checkModelChanged')
+
+    test('returns false when model unchanged', () => {
+      const unchanged = checkModelChanged('test-model-x')
+      assert.equal(checkModelChanged('test-model-x'), false, 'same model should return false')
+    })
+
+    test('returns true and wipes notes when model changes', () => {
+      // Set to model-A
+      checkModelChanged('test-model-a')
+      // Re-init vec table since checkModelChanged wiped it
+      initVecTable(4)
+      // Insert a note
+      upsertNote({
+        path: 'model-test.md',
+        title: 'Model Test',
+        tags: [],
+        content: 'model test content',
+        mtime: Date.now(),
+        hash: 'mt',
+        chunks: [{ text: 'model test content', embedding: fakeEmbedding }],
+      })
+      // Verify it's there
+      const before = searchBm25('model test', 10)
+      assert.ok(before.some(r => r.path === 'model-test.md'), 'note should exist before model change')
+
+      // Change model — should wipe DB
+      const changed = checkModelChanged('test-model-b')
+      assert.equal(changed, true, 'different model should return true')
+
+      // Notes should be gone
+      const after = searchBm25('model test', 10)
+      assert.ok(!after.some(r => r.path === 'model-test.md'), 'notes should be wiped after model change')
+    })
+
+    // ─── NFD path storage ────────────────────────────────────
+    suite('NFD path storage')
+
+    test('notes with NFD paths are stored and retrieved correctly', () => {
+      // Reinitialize vec table after model change wiped it
+      initVecTable(4)
+
+      const nfdPath = 'notes/caf\u00e9-note.md'.normalize('NFD')
+      upsertNote({
+        path: nfdPath,
+        title: 'Café Note',
+        tags: [],
+        content: 'A note about café culture',
+        mtime: Date.now(),
+        hash: 'nfd1',
+        chunks: [{ text: 'café culture', embedding: fakeEmbedding }],
+      })
+      upsertLinks('linker2.md', [nfdPath])
+
+      const { links } = getLinksForPaths(['linker2.md'])
+      const l = links.get('linker2.md') ?? []
+      assert.ok(l.includes(nfdPath), 'NFD path should be stored and retrievable via links')
+    })
+
+    test('BM25 search finds notes with NFD paths', () => {
+      const results = searchBm25('café', 10)
+      const nfdPath = 'notes/caf\u00e9-note.md'.normalize('NFD')
+      assert.ok(results.some(r => r.path === nfdPath), 'BM25 should find notes with NFD paths')
+    })
+
+    // ─── indexFile error message ──────────────────────────────
+    suite('indexFile error message')
+
+    await testAsync('error result includes actual error message', async () => {
+      const { indexFile } = await import('../src/indexer.js')
+      // Try to index a non-existent file
+      const status = await indexFile('/nonexistent/path/note.md', 512)
+      assert.ok(typeof status === 'object', 'error should be an object')
+      assert.ok('error' in status, 'error object should have error property')
+      assert.ok((status as any).error.length > 0, 'error message should not be empty')
     })
 
   } finally {

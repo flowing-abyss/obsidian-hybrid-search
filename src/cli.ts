@@ -163,7 +163,7 @@ program
           ? { indexed: 1, skipped: 0, errors: [] }
           : status === 'skipped'
             ? { indexed: 0, skipped: 1, errors: [] }
-            : { indexed: 0, skipped: 0, errors: [{ path: filePath, error: 'indexing failed' }] },
+            : { indexed: 0, skipped: 0, errors: [{ path: filePath, error: typeof status === 'object' ? status.error : 'indexing failed' }] },
         null, 2
       ))
     } else {

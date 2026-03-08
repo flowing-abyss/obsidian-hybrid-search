@@ -65,38 +65,27 @@ export async function indexFile(
   fullPath: string,
   contextLength?: number,
   force = false
-): Promise<'indexed' | 'skipped' | 'error'> {
+): Promise<'indexed' | 'skipped' | { error: string }> {
   try {
     const stat = statSync(fullPath)
     const mtime = stat.mtimeMs
 
-    const relPathForLookup = path.relative(config.vaultPath, fullPath).normalize('NFD')
+    const relPath = path.relative(config.vaultPath, fullPath).normalize('NFD')
+    const existing = force ? undefined : getNoteMeta(relPath)
 
-    if (!force) {
-      const existing = getNoteMeta(relPathForLookup)
-      if (existing && existing.mtime === mtime) {
-        return 'skipped'
-      }
-    }
+    // Fast skip: mtime unchanged
+    if (existing && existing.mtime === mtime) return 'skipped'
 
     const raw = await readFile(fullPath, 'utf-8')
     const hash = createHash('md5').update(raw).digest('hex')
 
-    if (!force) {
-      const existing = getNoteMeta(relPathForLookup)
-      if (existing && existing.hash === hash) {
-        // Content unchanged — only update mtime
-        getDb().prepare('UPDATE notes SET mtime = ? WHERE path = ?').run(
-          stat.mtimeMs,
-          path.relative(config.vaultPath, fullPath)
-        )
-        return 'skipped'
-      }
+    // Slow skip: content unchanged, only update mtime
+    if (existing && existing.hash === hash) {
+      getDb().prepare('UPDATE notes SET mtime = ? WHERE path = ?').run(mtime, relPath)
+      return 'skipped'
     }
 
     const { data: frontmatter, content } = matter(raw)
-    // Normalize to NFD — macOS filesystem uses NFD for filenames
-    const relPath = path.relative(config.vaultPath, fullPath).normalize('NFD')
     const title = (frontmatter.title as string | undefined) ?? path.basename(fullPath, '.md')
     const tags: string[] = Array.isArray(frontmatter.tags)
       ? frontmatter.tags.map(String)
@@ -128,10 +117,11 @@ export async function indexFile(
 
     return 'indexed'
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
     if (process.env.LOG_LEVEL === 'debug') {
       console.error('[indexer] error indexing', fullPath, err)
     }
-    return 'error'
+    return { error: msg }
   }
 }
 
@@ -193,7 +183,7 @@ export async function indexVaultSync(force = false): Promise<IndexResult> {
         const status = await indexFile(f, contextLength, force)
         if (status === 'indexed') result.indexed++
         else if (status === 'skipped') result.skipped++
-        else result.errors.push({ path: f, error: 'indexing failed' })
+        else result.errors.push({ path: f, error: typeof status === 'object' ? status.error : 'indexing failed' })
       })
     )
   }
@@ -203,20 +193,20 @@ export async function indexVaultSync(force = false): Promise<IndexResult> {
   return result
 }
 
-let indexQueue: string[] = []
-let isIndexing = false
+let _indexQueue: string[] = []
+let _isIndexing = false
 
 async function processQueue(contextLength: number): Promise<void> {
-  if (isIndexing) return
-  isIndexing = true
+  if (_isIndexing) return
+  _isIndexing = true
   try {
-    while (indexQueue.length > 0) {
-      const batch = indexQueue.splice(0, config.batchSize)
+    while (_indexQueue.length > 0) {
+      const batch = _indexQueue.splice(0, config.batchSize)
       await Promise.all(batch.map(f => indexFile(f, contextLength)))
     }
     updateLastIndexed()
   } finally {
-    isIndexing = false
+    _isIndexing = false
   }
 }
 
@@ -224,7 +214,7 @@ export async function startBackgroundIndexing(contextLength: number): Promise<vo
   const files = scanVault()
   const fsPaths = new Set(files.map(f => path.relative(config.vaultPath, f).normalize('NFD')))
   cleanupStaleNotes(fsPaths)
-  indexQueue.push(...files)
+  _indexQueue.push(...files)
   processQueue(contextLength).catch(err => {
     console.warn('[indexer] background indexing error:', err)
   })
@@ -290,30 +280,41 @@ function resolveWikilinks(content: string, fromPath: string): string[] {
   const raw = parseWikilinks(content)
   if (raw.length === 0) return []
 
+  // Load all paths + titles once — O(1) lookups instead of N queries
+  const allNotes = db.prepare('SELECT path, title FROM notes').all() as { path: string; title: string }[]
+
+  const pathSet = new Set(allNotes.map(n => n.path))
+  const titleMap = new Map(allNotes.map(n => [n.title.toLowerCase(), n.path]))
+  // basename map: 'note.md' → 'folder/sub/note.md' (first match wins, same as LIKE '%/note.md')
+  const basenameMap = new Map<string, string>()
+  for (const n of allNotes) {
+    const base = path.basename(n.path)
+    if (!basenameMap.has(base)) basenameMap.set(base, n.path)
+  }
+
   const resolved: string[] = []
   for (const rawTarget of raw) {
-    // DB paths are stored as NFD (macOS filesystem), but wikilink text in
-    // file content is typically NFC (as written by Obsidian) — normalize to match
     const target = rawTarget.normalize('NFD')
-
-    // Try exact path match (with or without .md)
     const withMd = target.endsWith('.md') ? target : target + '.md'
-    const byPath = db.prepare(
-      "SELECT path FROM notes WHERE path = ? OR path LIKE ? ESCAPE '\\'"
-    ).get(withMd, '%/' + withMd.replace(/[%_\\]/g, '\\$&')) as { path: string } | undefined
+    const base = path.basename(withMd)
 
-    if (byPath) {
-      if (byPath.path !== fromPath) resolved.push(byPath.path)
+    // 1. Exact path match
+    if (pathSet.has(withMd) && withMd !== fromPath) {
+      resolved.push(withMd)
       continue
     }
 
-    // Try title match (case-insensitive)
-    const byTitle = db.prepare(
-      'SELECT path FROM notes WHERE lower(title) = lower(?)'
-    ).get(target) as { path: string } | undefined
+    // 2. Basename match (wikilink without folder prefix)
+    const byBasename = basenameMap.get(base)
+    if (byBasename && byBasename !== fromPath) {
+      resolved.push(byBasename)
+      continue
+    }
 
-    if (byTitle && byTitle.path !== fromPath) {
-      resolved.push(byTitle.path)
+    // 3. Title match (case-insensitive)
+    const byTitle = titleMap.get(target.toLowerCase())
+    if (byTitle && byTitle !== fromPath) {
+      resolved.push(byTitle)
     }
   }
 
