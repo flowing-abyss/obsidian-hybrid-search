@@ -7,9 +7,9 @@ Works as an [MCP server](https://modelcontextprotocol.io) for Claude and other A
 ## Features
 
 - **Hybrid search** — BM25 + fuzzy title + semantic embeddings, fused with RRF
-- **Four search modes** — `hybrid`, `semantic`, `fulltext`, `title`
-- **Similar note lookup** — pass `--path` to find semantically related notes
-- **Graph traversal** — `--related` shows linked notes at configurable depth; filter by `--direction outgoing|backlinks|both`
+- **Four search modes** — `hybrid`, `semantic`, `fulltext`, `title` (for text queries)
+- **Similar note lookup** — pass `--path` to find semantically related notes (always semantic, uses title + content)
+- **Graph traversal** — `--path --related` shows linked notes at configurable depth; filter by `--direction outgoing|backlinks|both`
 - **Links & backlinks** — every result includes outgoing links and backlinks
 - **Scope filtering** — restrict to subfolder(s); supports multiple values and exclusions (`-notes/dev/`)
 - **Tag filtering** — filter by tag(s); supports multiple values and exclusions (`-category/cs`)
@@ -35,6 +35,16 @@ The tool auto-discovers the database by walking up from the current directory lo
 cd /path/to/your/vault
 obsidian-hybrid-search "zettelkasten"
 ```
+
+### Two ways to search
+
+| Scenario        | How                                              | Modes                                               |
+| --------------- | ------------------------------------------------ | --------------------------------------------------- |
+| Text query      | `ohs "some topic"`                               | `hybrid` (default), `semantic`, `fulltext`, `title` |
+| Similar notes   | `ohs --path notes/pkm/zettelkasten.md`           | Always semantic (title + content)                   |
+| Graph traversal | `ohs --path notes/pkm/zettelkasten.md --related` | Links & backlinks via BFS                           |
+
+`--mode` only affects text queries. When `--path` is given, the search is always semantic regardless of `--mode`.
 
 If you want to run it from anywhere (e.g. via shell aliases), set the environment variables explicitly. Add to your `~/.zshrc` or `~/.bashrc`:
 
@@ -186,11 +196,11 @@ Omit `OPENAI_API_KEY` to use the local `Xenova/all-MiniLM-L6-v2` model (download
 
 The server exposes three tools:
 
-| Tool      | Description                                                                                                                                                                                   |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search`  | Search the vault. Use `query` for text search or `path` for similarity/graph lookup. Supports `mode`, `scope`, `tag`, `limit`, `threshold`, `related`, `depth`, `direction`, `snippet_length` |
-| `reindex` | Reindex the vault or a specific file                                                                                                                                                          |
-| `status`  | Show total notes, indexed count, last indexed time                                                                                                                                            |
+| Tool      | Description                                                                                                                                                                                                                                                              |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `search`  | Search the vault. Use `query` for text search (`mode`: hybrid/semantic/fulltext/title) or `path` for semantic similarity. Combine `path` with `related: true` for graph traversal. Supports `scope`, `tag`, `limit`, `threshold`, `depth`, `direction`, `snippet_length` |
+| `reindex` | Reindex the vault or a specific file                                                                                                                                                                                                                                     |
+| `status`  | Show total notes, indexed count, last indexed time                                                                                                                                                                                                                       |
 
 ## Configuration
 

@@ -53,8 +53,11 @@ async function main() {
       {
         name: 'search',
         description:
-          'Search the Obsidian vault. Use "query" for text search or "path" to find similar notes / traverse the graph. ' +
-          'Supports hybrid, semantic, fulltext, and title modes.',
+          "Search the user's personal Obsidian knowledge base — their notes, ideas, and research. " +
+          'Use this tool whenever the user asks about something they may have written about, wants to find related notes, or wants to explore their knowledge graph. ' +
+          "Use 'query' for text search across all notes (default mode 'hybrid' combines BM25 keyword matching, fuzzy title, and semantic embeddings — best for most questions). " +
+          "Use 'path' to find semantically similar notes to a given note path. " +
+          "Use 'path' + 'related: true' to traverse the knowledge graph (outgoing links and backlinks).",
         inputSchema: {
           type: 'object',
           properties: {
@@ -65,12 +68,13 @@ async function main() {
             path: {
               type: 'string',
               description:
-                'Note path for similarity search or graph traversal, e.g. "notes/pkm/zettelkasten.md"',
+                'Note path for semantic similarity search, e.g. "notes/pkm/zettelkasten.md". Always uses semantic embedding (title + content). Combine with related: true for graph traversal.',
             },
             mode: {
               type: 'string',
               enum: ['hybrid', 'semantic', 'fulltext', 'title'],
-              description: 'Search mode (default: hybrid)',
+              description:
+                'Search mode for text queries (default: hybrid). Ignored when using path.',
             },
             scope: {
               description:

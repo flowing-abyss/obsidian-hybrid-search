@@ -265,41 +265,40 @@ describe('snippetLength cap', () => {
   });
 });
 
-// ─── Path-based similarity search respects --mode ────────────────────────────
+// ─── Path-based similarity is always semantic ────────────────────────────────
 
-describe('path similarity search modes', () => {
-  it('fulltext mode with --path uses note content via BM25', async () => {
-    // note-a.md content contains "Content" and "note" — searchBm25 should find
-    // other notes whose content overlaps with those terms
-    const results = await search('note-a.md', {
+describe('path similarity search is always semantic', () => {
+  it('--path returns semantic results and excludes the source note', async () => {
+    const results = await search('note-a.md', { notePath: 'note-a.md', limit: 10 });
+    assert.ok(
+      !results.some((r) => r.path === 'note-a.md'),
+      'source note should be excluded from similarity results',
+    );
+    // In unit tests embedQuery returns null (no API key), so results are empty —
+    // shape assertions only run when a real embedder is present.
+    for (const r of results) {
+      assert.ok(r.scores.semantic !== null, '--path result must have a semantic score');
+    }
+  });
+
+  it('--mode is ignored when --path is given (always semantic)', async () => {
+    const semantic = await search('note-a.md', { notePath: 'note-a.md', limit: 10 });
+    const fulltext = await search('note-a.md', {
       mode: 'fulltext',
       notePath: 'note-a.md',
       limit: 10,
     });
-    // Should not include source note itself
-    assert.ok(
-      !results.some((r) => r.path === 'note-a.md'),
-      'source note should be excluded from fulltext similarity results',
-    );
-    // Should return at least some results (other notes share the word "Content")
-    assert.ok(results.length > 0, 'fulltext path lookup should return results');
-    // Every result must have a bm25 score (no semantic in fulltext mode)
-    for (const r of results) {
-      assert.equal(r.scores.semantic, null, 'fulltext mode should have no semantic score');
-    }
-  });
-
-  it('title mode with --path uses note title via fuzzy search', async () => {
-    const results = await search('note-a.md', { mode: 'title', notePath: 'note-a.md', limit: 10 });
-    assert.ok(
-      !results.some((r) => r.path === 'note-a.md'),
-      'source note should be excluded from title similarity results',
-    );
-    // Title "Note A" shares trigrams with "Note B", "Note C" etc.
-    assert.ok(results.length > 0, 'title path lookup should return results');
-    for (const r of results) {
-      assert.equal(r.scores.semantic, null, 'title mode should have no semantic score');
-      assert.equal(r.scores.bm25, null, 'title mode should have no bm25 score');
+    const title = await search('note-a.md', { mode: 'title', notePath: 'note-a.md', limit: 10 });
+    // All three should return the same paths (semantic regardless of mode)
+    const paths = (rs: typeof semantic) => rs.map((r) => r.path).sort((a, b) => a.localeCompare(b));
+    assert.deepEqual(paths(fulltext), paths(semantic), 'fulltext mode should be ignored for path');
+    assert.deepEqual(paths(title), paths(semantic), 'title mode should be ignored for path');
+    // All results must have semantic scores
+    for (const r of [...fulltext, ...title]) {
+      assert.ok(
+        r.scores.semantic !== null,
+        'path result must have semantic score regardless of mode',
+      );
     }
   });
 });

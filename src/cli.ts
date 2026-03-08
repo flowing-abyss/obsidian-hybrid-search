@@ -131,8 +131,15 @@ program.hook('preAction', async (thisCommand) => {
 program
   .command('search [query]', { isDefault: true })
   .description('Search the vault (default command)')
-  .option('--mode <mode>', 'Search mode: hybrid|semantic|fulltext|title', 'hybrid')
-  .option('--path <path>', 'Note path for similarity/related search (overrides positional query)')
+  .option(
+    '--mode <mode>',
+    'Search mode: hybrid|semantic|fulltext|title (applies to text search only)',
+    'hybrid',
+  )
+  .option(
+    '--path <path>',
+    'Note path for semantic similarity search — always semantic, ignores --mode',
+  )
   .option(
     '--scope <scope>',
     'Limit to subfolder(s). Repeatable; prefix with "-" to exclude',
