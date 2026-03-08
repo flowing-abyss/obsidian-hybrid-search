@@ -1,6 +1,6 @@
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { chunkNote, splitBySections, slidingWindow, estimateTokens } from '../src/chunker.js';
+import { describe, it } from 'node:test';
+import { chunkNote, estimateTokens, slidingWindow, splitBySections } from '../src/chunker.js';
 
 describe('estimateTokens', () => {
   it('approximates tokens as chars/4', () => {

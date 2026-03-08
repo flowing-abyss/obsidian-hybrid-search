@@ -9,8 +9,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # needed to create GitHub Release
-      id-token: write  # needed for OIDC npm publish
+      contents: write # needed to create GitHub Release
+      id-token: write # needed for OIDC npm publish
 
     steps:
       - uses: actions/checkout@v4

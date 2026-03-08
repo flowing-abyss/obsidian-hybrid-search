@@ -11,15 +11,19 @@ A second brain is a personal knowledge management system that serves as an exter
 ## Core Principles
 
 ### Capture
+
 Capture ideas and information from everywhere — books, articles, conversations, your own mind.
 
 ### Organize
+
 Organize captured information by project, area, resource, or archive (PARA method).
 
 ### Distill
+
 Distill the most important insights from your notes using progressive summarization.
 
 ### Express
+
 Express your knowledge by creating artifacts: essays, presentations, projects.
 
 ## Relationship to Zettelkasten
