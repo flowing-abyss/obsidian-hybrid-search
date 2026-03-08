@@ -208,6 +208,8 @@ async function main() {
                   total: stats.total,
                   indexed: stats.indexed,
                   pending: stats.pending,
+                  chunks: stats.chunks,
+                  links: stats.links,
                   last_indexed: stats.lastIndexed,
                   model: config.apiKey ? config.apiModel : 'Xenova/all-MiniLM-L6-v2 (local)',
                   context_length: contextLength,

@@ -347,6 +347,8 @@ export function getStats(): {
   total: number;
   indexed: number;
   pending: number;
+  chunks: number;
+  links: number;
   lastIndexed: string | null;
 } {
   const db = getDb();
@@ -354,6 +356,8 @@ export function getStats(): {
   const indexed = (
     db.prepare('SELECT COUNT(DISTINCT note_id) as c FROM chunks').get() as { c: number }
   ).c;
+  const chunks = (db.prepare('SELECT COUNT(*) as c FROM chunks').get() as { c: number }).c;
+  const links = (db.prepare('SELECT COUNT(*) as c FROM links').get() as { c: number }).c;
   const lastIndexed =
     (
       db.prepare("SELECT value FROM settings WHERE key = 'last_indexed'").get() as
@@ -361,7 +365,7 @@ export function getStats(): {
         | undefined
     )?.value ?? null;
 
-  return { total, indexed, pending: total - indexed, lastIndexed };
+  return { total, indexed, pending: total - indexed, chunks, links, lastIndexed };
 }
 
 /**

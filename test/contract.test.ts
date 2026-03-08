@@ -61,6 +61,7 @@ describe('SearchResult shape', () => {
       assert.ok(Array.isArray(r.tags), 'tags must be an array');
       assert.ok(typeof r.score === 'number', 'score must be a number');
       assert.ok(typeof r.snippet === 'string', 'snippet must be a string');
+      assert.ok(Array.isArray(r.matchedBy), 'matchedBy must be an array');
       assert.ok(Array.isArray(r.links), 'links must be an array');
       assert.ok(Array.isArray(r.backlinks), 'backlinks must be an array');
       assert.ok(typeof r.scores === 'object', 'scores must be an object');
@@ -105,6 +106,26 @@ describe('SearchResult shape', () => {
     const alpha = results.find((r) => r.path === 'alpha.md');
     assert.ok(alpha, 'alpha.md should appear in results');
     assert.deepEqual(alpha.tags, ['pkm'], 'tags should be a parsed string array, not JSON');
+  });
+
+  it('matchedBy contains only valid signal names', async () => {
+    const results = await search('alpha', { mode: 'fulltext', limit: 5 });
+    assert.ok(results.length > 0);
+    const validSignals = new Set(['semantic', 'bm25', 'title']);
+    for (const r of results) {
+      for (const signal of r.matchedBy) {
+        assert.ok(validSignals.has(signal), `unknown matchedBy signal: ${signal}`);
+      }
+    }
+  });
+
+  it('fulltext mode results have bm25 in matchedBy and not semantic', async () => {
+    const results = await search('alpha', { mode: 'fulltext', limit: 5 });
+    assert.ok(results.length > 0);
+    for (const r of results) {
+      assert.ok(r.matchedBy.includes('bm25'), 'fulltext results must include bm25 in matchedBy');
+      assert.ok(!r.matchedBy.includes('semantic'), 'fulltext results must not include semantic');
+    }
   });
 });
 

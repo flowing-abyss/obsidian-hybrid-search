@@ -9,6 +9,7 @@ interface SearchResult {
   score: number;
   depth?: number; // only present in related mode (negative = backlink direction)
   snippet: string;
+  matchedBy: string[];
   links: string[];
   backlinks: string[];
   scores: {
@@ -91,9 +92,14 @@ function toSearchResult(r: RawResult): SearchResult {
   } catch {
     tags = [];
   }
+  const matchedBy: string[] = [];
+  if (r.scores.semantic != null) matchedBy.push('semantic');
+  if (r.scores.bm25 != null) matchedBy.push('bm25');
+  if (r.scores.fuzzy_title != null) matchedBy.push('title');
   return {
     ...r,
     tags,
+    matchedBy,
     links: [],
     backlinks: [],
     scores: {
@@ -214,7 +220,7 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
       .prepare(
         `
       SELECT vc.chunk_id, vc.distance,
-             c.note_id, c.text AS chunk_text,
+             c.note_id, c.chunk_index, c.text AS chunk_text,
              n.path, n.title, n.tags
       FROM vec_chunks AS vc
       JOIN chunks c ON c.id = vc.chunk_id
@@ -227,6 +233,7 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
       chunk_id: number;
       distance: number;
       note_id: number;
+      chunk_index: number;
       chunk_text: string;
       path: string;
       title: string;
@@ -252,7 +259,7 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
           path: row.path,
           title: row.title ?? '',
           tags: row.tags ?? '[]',
-          snippet: row.chunk_text,
+          snippet: row.chunk_index > 0 ? '...' + row.chunk_text : row.chunk_text,
           score: similarity,
           scores: { semantic: similarity },
         };
@@ -380,6 +387,7 @@ function searchRelated(
       score: 1 / (1 + Math.abs(depth)),
       depth,
       snippet,
+      matchedBy: [],
       links: [],
       backlinks: [],
       scores: { semantic: null, bm25: null, fuzzy_title: null },
