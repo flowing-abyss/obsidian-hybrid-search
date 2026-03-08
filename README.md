@@ -101,9 +101,9 @@ Then reload (`source ~/.zshrc`) and use:
 
 ```bash
 ohs "zettelkasten"                        # hybrid search
-ohss "how to build a knowledge graph"    # semantic
+ohss "how to build a knowledge graph"     # semantic
 ohst "zettleksten"                        # fuzzy title (typo-tolerant)
-ohsf "permanent notes"                   # fulltext BM25
+ohsf "permanent notes"                    # fulltext BM25
 ohsi                                      # reindex vault
 ohsst                                     # show status
 ```
@@ -135,7 +135,7 @@ Add to your Claude MCP config (`.mcp.json` or `claude_desktop_config.json`):
   "mcpServers": {
     "obsidian-hybrid-search": {
       "command": "npx",
-      "args": ["-y", "obsidian-hybrid-search"],
+      "args": ["-y", "-p", "obsidian-hybrid-search", "obsidian-hybrid-search-mcp"],
       "env": {
         "OBSIDIAN_VAULT_PATH": "/path/to/your/vault",
         "OBSIDIAN_IGNORE_PATTERNS": ".obsidian/**,templates/**,*.canvas",
