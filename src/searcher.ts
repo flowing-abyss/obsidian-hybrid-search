@@ -2,7 +2,7 @@ import path from 'node:path';
 import { getDb, getLinksForPaths, getNoteByPath, hasVecTable } from './db.js';
 import { embed } from './embedder.js';
 
-export interface SearchResult {
+interface SearchResult {
   path: string;
   title: string;
   tags: string[];
@@ -18,7 +18,7 @@ export interface SearchResult {
   };
 }
 
-export interface SearchOptions {
+interface SearchOptions {
   mode?: 'hybrid' | 'semantic' | 'fulltext' | 'title';
   scope?: string | string[];
   limit?: number;
@@ -87,7 +87,7 @@ function applyTagFilter(results: RawResult[], tag: string | string[]): RawResult
 function toSearchResult(r: RawResult): SearchResult {
   let tags: string[];
   try {
-    tags = JSON.parse(r.tags || '[]');
+    tags = JSON.parse(r.tags || '[]') as string[];
   } catch {
     tags = [];
   }
@@ -204,10 +204,7 @@ export function searchFuzzyTitle(query: string, limit: number): RawResult[] {
   }
 }
 
-export async function searchVector(
-  queryEmbedding: Float32Array,
-  limit: number,
-): Promise<RawResult[]> {
+async function searchVector(queryEmbedding: Float32Array, limit: number): Promise<RawResult[]> {
   if (!hasVecTable()) return [];
 
   const db = getDb();
@@ -342,10 +339,10 @@ function getLinkContext(contentNotePath: string, linkedNotePath: string, windowS
 
   // Snap to word boundaries so we don't cut mid-word
   if (start > 0) {
-    while (start < match.index && !/\s/.test(note.content[start])) start++;
+    while (start < match.index && !/\s/.test(note.content[start]!)) start++;
   }
   if (end < note.content.length) {
-    while (end > match.index + match[0].length && !/\s/.test(note.content[end - 1])) end--;
+    while (end > match.index + match[0].length && !/\s/.test(note.content[end - 1]!)) end--;
   }
 
   const prefix = start > 0 ? '...' : '';
@@ -354,6 +351,7 @@ function getLinkContext(contentNotePath: string, linkedNotePath: string, windowS
   return prefix + note.content.slice(start, end).trim() + suffix;
 }
 
+// eslint-disable-next-line sonarjs/cognitive-complexity -- primary search aggregation pipeline, intentionally dense
 function searchRelated(
   notePath: string,
   maxDepth: number,
@@ -371,7 +369,7 @@ function searchRelated(
     if (!note) return null;
     let tags: string[];
     try {
-      tags = JSON.parse(note.tags || '[]');
+      tags = JSON.parse(note.tags || '[]') as string[];
     } catch {
       tags = [];
     }
@@ -576,7 +574,7 @@ async function searchByQuery(query: string, mode: string, limit: number): Promis
 
   if (mode === 'semantic') {
     const [embedding] = await embed([query]);
-    return searchVector(new Float32Array(embedding), limit);
+    return searchVector(new Float32Array(embedding!), limit);
   }
 
   // hybrid: RRF fusion of all three
@@ -584,7 +582,7 @@ async function searchByQuery(query: string, mode: string, limit: number): Promis
   const [bm25Results, fuzzyResults, vectorResults] = await Promise.all([
     Promise.resolve(searchBm25(query, limit)),
     Promise.resolve(searchFuzzyTitle(query, limit)),
-    searchVector(new Float32Array(embedding), limit),
+    searchVector(new Float32Array(embedding!), limit),
   ]);
 
   return rrfFusion([vectorResults, bm25Results, fuzzyResults]);
@@ -598,7 +596,7 @@ async function searchSimilar(notePath: string, limit: number): Promise<RawResult
   // Embed a representative portion of the note
   const textToEmbed = note.content.slice(0, 2000);
   const [embedding] = await embed([textToEmbed]);
-  const results = await searchVector(new Float32Array(embedding), limit + 1);
+  const results = await searchVector(new Float32Array(embedding!), limit + 1);
 
   // Exclude the source note
   return results.filter((r) => r.path !== notePath).slice(0, limit);

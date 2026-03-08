@@ -2,6 +2,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { join } from 'node:path';
 import { config } from './config.js';
 import { checkModelChanged, getStats, initVecTable, openDb, saveConfigMeta } from './db.js';
 import { getContextLength, getEmbeddingDim } from './embedder.js';
@@ -143,21 +144,21 @@ async function main() {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    const a = (args ?? {}) as Record<string, unknown>;
+    const a: Record<string, unknown> = args ?? {};
 
     try {
       if (name === 'search') {
         const notePath = a.path as string | undefined;
-        const inputStr = notePath ?? String(a.query ?? '');
+        const inputStr = notePath ?? (a.query as string | undefined) ?? '';
         const results = await search(inputStr, {
-          mode: a.mode as any,
+          mode: a.mode as 'hybrid' | 'semantic' | 'fulltext' | 'title' | undefined,
           scope: a.scope as string | string[] | undefined,
           limit: a.limit as number | undefined,
           threshold: a.threshold as number | undefined,
           tag: a.tag as string | string[] | undefined,
           related: a.related as boolean | undefined,
           depth: a.depth as number | undefined,
-          direction: a.direction as any,
+          direction: a.direction as 'outgoing' | 'backlinks' | 'both' | undefined,
           snippetLength: a.snippet_length as number | undefined,
           notePath,
         });
@@ -168,8 +169,7 @@ async function main() {
 
       if (name === 'reindex') {
         if (a.path) {
-          const { join } = await import('node:path');
-          const fullPath = join(config.vaultPath, String(a.path));
+          const fullPath = join(config.vaultPath, a.path as string);
           const status = await indexFile(fullPath, contextLength, Boolean(a.force));
           const result =
             status === 'indexed'
@@ -181,7 +181,7 @@ async function main() {
                     skipped: 0,
                     errors: [
                       {
-                        path: String(a.path),
+                        path: a.path as string,
                         error: typeof status === 'object' ? status.error : 'indexing failed',
                       },
                     ],

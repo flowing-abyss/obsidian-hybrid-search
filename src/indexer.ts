@@ -16,7 +16,7 @@ import {
 } from './db.js';
 import { embed, getContextLength } from './embedder.js';
 
-export interface IndexResult {
+interface IndexResult {
   indexed: number;
   skipped: number;
   errors: Array<{ path: string; error: string }>;
@@ -65,7 +65,7 @@ function* walkDir(dir: string): Generator<string> {
   }
 }
 
-export function scanVault(): string[] {
+function scanVault(): string[] {
   const files: string[] = [];
   for (const fullPath of walkDir(config.vaultPath)) {
     const rel = path.relative(config.vaultPath, fullPath);
@@ -135,7 +135,7 @@ export async function indexFile(
       content,
       mtime: stat.mtimeMs,
       hash,
-      chunks: chunks.map((c, i) => ({ text: c.text, embedding: embeddings[i] })),
+      chunks: chunks.map((c, i) => ({ text: c.text, embedding: embeddings[i]! })),
     });
 
     const resolvedLinks = resolveWikilinks(content, relPath);
@@ -183,7 +183,7 @@ export async function populateMissingLinks(): Promise<void> {
  * - notes whose files were deleted from disk
  * Called on server startup and during full reindex.
  */
-export function cleanupStaleNotes(fsPaths?: Set<string>): void {
+function cleanupStaleNotes(fsPaths?: Set<string>): void {
   // Newly ignored notes: file still exists on disk, keep their link entries
   // so backlinks from ignored notes remain visible in search results
   const pathsToRemove = getPathsToRemoveForIgnoreChange(config.ignorePatterns);
@@ -269,46 +269,50 @@ const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function startWatcher(contextLength: number): void {
   // Lazy import to avoid loading chokidar at startup
-  import('chokidar').then(({ watch }) => {
-    const watcher = watch(config.vaultPath, {
-      ignored: (filePath: string) => {
-        const base = path.basename(filePath);
-        // Allow directories
-        try {
-          if (statSync(filePath).isDirectory()) {
-            const rel = path.relative(config.vaultPath, filePath);
-            return isIgnored(rel + '/');
+  import('chokidar')
+    .then(({ watch }) => {
+      const watcher = watch(config.vaultPath, {
+        ignored: (filePath: string) => {
+          const base = path.basename(filePath);
+          // Allow directories
+          try {
+            if (statSync(filePath).isDirectory()) {
+              const rel = path.relative(config.vaultPath, filePath);
+              return isIgnored(rel + '/');
+            }
+          } catch {
+            return true;
           }
-        } catch {
-          return true;
-        }
-        if (!base.endsWith('.md')) return true;
-        const rel = path.relative(config.vaultPath, filePath);
-        return isIgnored(rel);
-      },
-      persistent: true,
-      ignoreInitial: true,
-    });
+          if (!base.endsWith('.md')) return true;
+          const rel = path.relative(config.vaultPath, filePath);
+          return isIgnored(rel);
+        },
+        persistent: true,
+        ignoreInitial: true,
+      });
 
-    const handleChange = (filePath: string) => {
-      const existing = debounceTimers.get(filePath);
-      if (existing) clearTimeout(existing);
-      const timer = setTimeout(() => {
-        debounceTimers.delete(filePath);
-        indexFile(filePath, contextLength).catch((err) => {
-          console.warn('[watcher] error indexing', filePath, err);
-        });
-      }, config.debounce);
-      debounceTimers.set(filePath, timer);
-    };
+      const handleChange = (filePath: string) => {
+        const existing = debounceTimers.get(filePath);
+        if (existing) clearTimeout(existing);
+        const timer = setTimeout(() => {
+          debounceTimers.delete(filePath);
+          indexFile(filePath, contextLength).catch((err) => {
+            console.warn('[watcher] error indexing', filePath, err);
+          });
+        }, config.debounce);
+        debounceTimers.set(filePath, timer);
+      };
 
-    watcher.on('add', handleChange);
-    watcher.on('change', handleChange);
-    watcher.on('unlink', (filePath: string) => {
-      const rel = path.relative(config.vaultPath, filePath).normalize('NFD');
-      deleteNote(rel);
+      watcher.on('add', handleChange);
+      watcher.on('change', handleChange);
+      watcher.on('unlink', (filePath: string) => {
+        const rel = path.relative(config.vaultPath, filePath).normalize('NFD');
+        deleteNote(rel);
+      });
+    })
+    .catch((err) => {
+      console.warn('[watcher] chokidar load error:', err);
     });
-  });
 }
 
 /**
@@ -323,7 +327,7 @@ export function parseInlineTags(content: string): string[] {
   for (const match of stripped.matchAll(
     /(?:^|[\s,;(])#([a-zA-Z_\u00C0-\u024F][a-zA-Z0-9_\-/\u00C0-\u024F]*)/gm,
   )) {
-    seen.add(match[1]);
+    seen.add(match[1]!);
   }
   return [...seen];
 }
@@ -331,12 +335,13 @@ export function parseInlineTags(content: string): string[] {
 function parseWikilinks(content: string): string[] {
   const seen = new Set<string>();
   for (const match of content.matchAll(/\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]/g)) {
-    const target = match[1].trim();
+    const target = match[1]!.trim();
     if (target) seen.add(target);
   }
   return [...seen];
 }
 
+// eslint-disable-next-line sonarjs/cognitive-complexity -- wikilink resolution requires O(N) alias/title lookups
 function resolveWikilinks(content: string, fromPath: string): string[] {
   const db = getDb();
   const raw = parseWikilinks(content);

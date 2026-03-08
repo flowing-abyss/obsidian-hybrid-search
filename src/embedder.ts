@@ -106,7 +106,7 @@ export async function getContextLength(): Promise<number> {
   if (useApiMode()) {
     // Check known models first — avoids an API roundtrip
     if (KNOWN_CONTEXT_LENGTHS[config.apiModel]) {
-      cachedContextLength = KNOWN_CONTEXT_LENGTHS[config.apiModel];
+      cachedContextLength = KNOWN_CONTEXT_LENGTHS[config.apiModel]!;
       return cachedContextLength;
     }
 
@@ -123,7 +123,9 @@ export async function getContextLength(): Promise<number> {
   } else {
     // Local model: try to read from pipeline config
     try {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @xenova/transformers has no TypeScript types
       const pipeline = await getLocalPipeline();
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
       const maxLen = pipeline.model?.config?.max_position_embeddings;
       if (typeof maxLen === 'number') {
         cachedContextLength = maxLen;
@@ -141,7 +143,7 @@ export async function getContextLength(): Promise<number> {
 export async function getEmbeddingDim(): Promise<number> {
   if (cachedDim !== null) return cachedDim;
   const [embedding] = await embed(['dimension probe']);
-  cachedDim = embedding.length;
+  cachedDim = embedding!.length;
   return cachedDim;
 }
 
@@ -150,6 +152,7 @@ async function getLocalPipeline() {
     const { pipeline } = await import('@xenova/transformers');
     localPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
   }
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- @xenova/transformers has no TypeScript types
   return localPipeline;
 }
 
@@ -212,7 +215,7 @@ async function embedApiBatch(texts: string[]): Promise<Float32Array[]> {
     throw new Error(`Embedding API error: ${data.error?.message ?? 'unexpected response format'}`);
   }
 
-  return data.data
+  return [...data.data]
     .sort((a, b) => a.index - b.index)
     .map((item) => new Float32Array(item.embedding));
 }
@@ -225,7 +228,7 @@ async function embedApiBatchWithFallback(texts: string[]): Promise<Float32Array[
     if (texts.length === 1) {
       // Try with progressively shorter truncations
       for (const limit of [2000, 1000, 500]) {
-        const truncated = texts[0].slice(0, limit);
+        const truncated = texts[0]!.slice(0, limit);
         if (truncated === texts[0]) continue; // already shorter, no point retrying
         try {
           console.warn(`[embedder] chunk failing, retrying at ${limit} chars`);
@@ -248,13 +251,14 @@ async function embedApiBatchWithFallback(texts: string[]): Promise<Float32Array[
     const results: Float32Array[] = [];
     for (const text of texts) {
       const [emb] = await embedApiBatchWithFallback([text]);
-      results.push(emb);
+      results.push(emb!);
     }
     return results;
   }
 }
 
 async function embedLocal(texts: string[]): Promise<Float32Array[]> {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @xenova/transformers has no TypeScript types
   const pipeline = await getLocalPipeline();
   const results: Float32Array[] = [];
 
@@ -262,7 +266,9 @@ async function embedLocal(texts: string[]): Promise<Float32Array[]> {
     const batch = texts.slice(i, i + config.batchSize);
     await Promise.all(
       batch.map(async (text) => {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call -- @xenova/transformers has no TypeScript types for pipeline output
         const output = await pipeline(text, { pooling: 'mean', normalize: true });
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-member-access
         results.push(new Float32Array(output.data));
       }),
     );

@@ -7,5 +7,12 @@ export default defineConfig({
     },
     pool: 'threads',
     singleThread: true,
+    include: ['test/**/*.test.ts'],
+    exclude: ['test/integration.test.ts'],
+    coverage: {
+      provider: 'v8',
+      include: ['src/**'],
+      thresholds: { lines: 25 },
+    },
   },
 });

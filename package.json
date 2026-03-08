@@ -10,12 +10,14 @@
     "prepare": "husky",
     "build": "tsc",
     "dev": "tsx src/server.ts",
-    "test": "tsx test/run-tests.ts",
-    "test:integration": "tsx test/integration.test.ts",
+    "test": "vitest run",
+    "test:integration": "vitest run test/integration.test.ts",
+    "coverage": "vitest run --coverage",
     "lint": "eslint src test",
     "lint:fix": "eslint src test --fix",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "knip": "knip"
   },
   "lint-staged": {
     "*.{ts,js}": [
@@ -51,14 +53,17 @@
     "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^10.0.3",
+    "eslint-plugin-sonarjs": "^4.0.1",
     "husky": "^9.1.7",
+    "knip": "^5.86.0",
     "lint-staged": "^16.3.2",
     "prettier": "^3.8.1",
     "prettier-plugin-organize-imports": "^4.3.0",
     "tsx": "^4.0.0",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.56.1",
-    "vitest": "^2.1.9"
+    "vitest": "^4.0.18"
   }
 }

@@ -33,6 +33,12 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Dead code (knip)
+        run: npm run knip
+
+      - name: Coverage
+        run: npm run coverage
+
       - name: Integration tests
         run: npm run test:integration
         env:

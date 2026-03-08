@@ -18,6 +18,23 @@ function truncateAtWord(text: string, maxLen: number): string {
   return (lastSpace > maxLen * 0.7 ? cut.slice(0, lastSpace) : cut) + '...';
 }
 
+interface SearchOpts {
+  path?: string;
+  mode?: 'hybrid' | 'semantic' | 'fulltext' | 'title';
+  scope: string[];
+  limit: string;
+  threshold: string;
+  tag: string[];
+  related?: boolean;
+  depth: string;
+  direction?: 'outgoing' | 'backlinks' | 'both';
+  snippetLength?: string;
+  json?: boolean;
+}
+
+interface ReindexOpts {
+  force?: boolean;
+}
 /**
  * Find .obsidian-hybrid-search.db by walking up from dir,
  * read vault_path / api_base_url / api_model from its settings table,
@@ -138,7 +155,7 @@ program
   )
   .option('--snippet-length <n>', 'Max snippet length in characters (default: 300)')
   .option('--json', 'Output as JSON')
-  .action(async (query: string | undefined, opts) => {
+  .action(async (query: string | undefined, opts: SearchOpts) => {
     const effectiveInput = opts.path ?? query;
     if (!effectiveInput) {
       program.help();
@@ -157,7 +174,7 @@ program
       depth: parseInt(opts.depth),
       direction: opts.direction,
       snippetLength: opts.snippetLength ? parseInt(opts.snippetLength) : undefined,
-      notePath: opts.path as string | undefined,
+      notePath: opts.path,
     });
 
     if (opts.json) {
@@ -218,7 +235,7 @@ program
   .command('reindex [path]')
   .description('Reindex the vault or a specific file')
   .option('--force', 'Force reindex even if unchanged')
-  .action(async (filePath: string | undefined, opts) => {
+  .action(async (filePath: string | undefined, opts: ReindexOpts) => {
     const contextLength = await init();
 
     if (filePath) {
@@ -278,6 +295,6 @@ program
   });
 
 program.parseAsync(process.argv).catch((err) => {
-  console.error('Error:', err.message);
+  console.error('Error:', err instanceof Error ? err.message : String(err));
   process.exit(1);
 });

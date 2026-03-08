@@ -5,7 +5,8 @@
     "moduleResolution": "bundler",
     "outDir": "dist",
     "strict": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true
   },
   "include": ["src", "test"]
 }

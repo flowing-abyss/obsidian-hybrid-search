@@ -4,8 +4,10 @@
 
 ```bash
 npm run build          # TypeScript compile (must pass before committing)
-npm test               # Unit tests (40 tests, ~2s, no external deps)
+npm test               # Unit tests (40 tests, ~2s, no external deps) via vitest
 npm run test:integration  # Integration tests against fixture vault (need OPENAI_API_KEY)
+npm run coverage       # Unit tests with v8 coverage (≥25% lines required)
+npm run knip           # Dead code / unused exports check (0 issues required)
 npm run lint           # ESLint (0 errors required; warnings on `any` are ok)
 npm run format         # Prettier write (run before committing)
 npm run format:check   # Prettier check (used in CI)
@@ -68,6 +70,9 @@ All note paths stored in DB are **NFD-normalized** (`path.normalize('NFD')`). ma
 - **Don't** skip `npm run format` before committing — format:check in CI will fail.
 - Integration tests require `OPENAI_API_KEY` (they embed fixture notes). Unit tests do not.
 - The `_indexQueue` array is module-level state — tests that call `indexFile` in parallel may interfere. Unit tests use isolated temp DBs.
+- **`noUncheckedIndexedAccess` is enabled** — array/string indexing returns `T | undefined`. Use `!` assertions only when bounds are provably safe (loop guard, truthy check, or literal index 0 on a non-empty array). Never use `!` to silence real nullability.
+- **Type-aware ESLint** (`parserOptions.projectService`) is active — lint is ~3s slower than plain ESLint, this is expected. Do not disable `projectService`.
+- **`knip` must pass** — avoid adding `export` to symbols only used within their own file. Run `npm run knip` after adding any new exports.
 
 ---
 

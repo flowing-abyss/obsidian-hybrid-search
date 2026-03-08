@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 import { config } from './config.js';
 
-export type DB = InstanceType<typeof Database>;
+type DB = InstanceType<typeof Database>;
 
 let _db: DB | null = null;
 
@@ -117,13 +117,6 @@ export function openDb(): DB {
   return db;
 }
 
-export function closeDb(): void {
-  if (_db) {
-    _db.close();
-    _db = null;
-  }
-}
-
 export function getDb(): DB {
   if (!_db) throw new Error('Database not initialized. Call openDb() first.');
   return _db;
@@ -166,12 +159,12 @@ export function hasVecTable(): boolean {
     .get();
 }
 
-export interface NoteMeta {
+interface NoteMeta {
   mtime: number;
   hash: string;
 }
 
-export interface NoteRow {
+interface NoteRow {
   id: number;
   path: string;
   title: string;
@@ -273,7 +266,7 @@ function insertChunks(
   const insertVec = db.prepare('INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)');
 
   for (let i = 0; i < chunks.length; i++) {
-    const { text, embedding } = chunks[i];
+    const { text, embedding } = chunks[i]!;
     const result = insertChunk.run(noteId, i, text);
     // sqlite-vec vec0 requires INTEGER (BigInt), not REAL (JS number)
     const chunkId = BigInt(result.lastInsertRowid);
@@ -381,7 +374,7 @@ export function getPathsToRemoveForIgnoreChange(patterns: string[]): string[] {
   const stored = db.prepare(`SELECT value FROM settings WHERE key = '${key}'`).get() as
     | { value: string }
     | undefined;
-  const newJson = JSON.stringify([...patterns].sort());
+  const newJson = JSON.stringify([...patterns].sort((a, b) => a.localeCompare(b)));
 
   if (stored && stored.value === newJson) return [];
 

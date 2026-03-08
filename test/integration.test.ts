@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { beforeAll, describe, it } from 'vitest';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_VAULT = path.join(__dirname, 'fixtures/vault');
@@ -13,27 +13,24 @@ const { getEmbeddingDim, getContextLength } = await import('../src/embedder.js')
 const { indexVaultSync } = await import('../src/indexer.js');
 const { search } = await import('../src/searcher.js');
 
-before(
-  async () => {
-    openDb();
-    const [, embeddingDim] = await Promise.all([getContextLength(), getEmbeddingDim()]);
-    initVecTable(embeddingDim);
-    await indexVaultSync();
-  },
-  { timeout: 120_000 },
-);
+beforeAll(async () => {
+  openDb();
+  const [, embeddingDim] = await Promise.all([getContextLength(), getEmbeddingDim()]);
+  initVecTable(embeddingDim);
+  await indexVaultSync();
+}, 120_000);
 
 describe('search', () => {
   it('exact match ranks first', async () => {
     const results = await search('zettelkasten');
     assert.ok(results.length > 0);
-    assert.ok(results[0].path.includes('zettelkasten'));
+    assert.ok(results[0]!.path.includes('zettelkasten'));
   });
 
   it('fuzzy typo match via title mode', async () => {
     const results = await search('zettlksten', { mode: 'title' });
     assert.ok(results.length > 0);
-    assert.ok(results[0].path.includes('zettelkasten'));
+    assert.ok(results[0]!.path.includes('zettelkasten'));
   });
 
   it('scope filters results', async () => {
@@ -141,7 +138,7 @@ describe('related mode', () => {
     });
     const source = results.find((r) => r.depth === 0);
     assert.ok(source, 'source note should be in results');
-    assert.equal(source!.score, 1.0);
+    assert.equal(source.score, 1.0);
   });
 
   it('depth-1 linked notes have score 0.5', async () => {
@@ -209,6 +206,6 @@ describe('notePath option', () => {
     // similarity search should exclude the source note itself
     assert.ok(pathResults.every((r) => !r.path.endsWith('zettelkasten.md')));
     // results should differ from plain text search
-    assert.ok(textResults.length > 0 && pathResults.length >= 0);
+    assert.ok(textResults.length > 0 && pathResults.length > 0);
   });
 });

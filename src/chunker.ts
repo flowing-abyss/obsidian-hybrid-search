@@ -1,6 +1,6 @@
 import { config } from './config.js';
 
-export interface Chunk {
+interface Chunk {
   text: string;
 }
 

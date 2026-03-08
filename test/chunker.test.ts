@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import { chunkNote, estimateTokens, slidingWindow, splitBySections } from '../src/chunker.js';
 
 describe('estimateTokens', () => {
@@ -14,12 +14,12 @@ describe('splitBySections', () => {
     const content = `## Introduction\n\nThis is the intro section with enough text to pass the minimum length filter.\n\n## Conclusion\n\nThis is the conclusion section with enough text to pass the minimum length filter.`;
     const sections = splitBySections(content);
     assert.equal(sections.length, 2);
-    assert.equal(sections[0].heading, '## Introduction');
-    assert.equal(sections[1].heading, '## Conclusion');
+    assert.equal(sections[0]!.heading, '## Introduction');
+    assert.equal(sections[1]!.heading, '## Conclusion');
   });
 
   it('filters empty sections', () => {
-    const content = `## Section A\n\nSome content here that is long enough to pass.\n\n## Empty Section\n\n## Section B\n\nMore content here that is also long enough to pass the minimum filter.`;
+    const content = `## Section A\n\nSome content here that is long enough to pass the minimum filter.\n\n## Empty Section\n\n## Section B\n\nMore content here that is also long enough to pass the minimum filter.`;
     const sections = splitBySections(content);
     assert.equal(sections.length, 2);
     assert.ok(sections.some((s) => s.heading === '## Section A'));
@@ -32,7 +32,7 @@ describe('slidingWindow', () => {
     const text = 'Short text that fits within context.';
     const chunks = slidingWindow(text, 512, 64);
     assert.equal(chunks.length, 1);
-    assert.equal(chunks[0].text, text);
+    assert.equal(chunks[0]!.text, text);
   });
 
   it('splits long text into overlapping chunks', () => {
@@ -47,7 +47,7 @@ describe('chunkNote', () => {
     const content = 'A short note about Zettelkasten method for personal knowledge management.';
     const chunks = chunkNote(content, 512);
     assert.equal(chunks.length, 1);
-    assert.equal(chunks[0].text, content.trim());
+    assert.equal(chunks[0]!.text, content.trim());
   });
 
   it('note without headings uses sliding window for long content', () => {
@@ -58,7 +58,7 @@ describe('chunkNote', () => {
 
   it('empty sections are filtered', () => {
     const content = `## Introduction\n\nThis section has substantial content that passes the minimum filter length.\n\n## Empty Section\n\n## Conclusion\n\nThis conclusion also has substantial content that passes the minimum filter length.`;
-    const chunks = chunkNote(content, 512);
+    const chunks = chunkNote(content, 30);
     assert.equal(chunks.length, 2);
   });
 
