@@ -1,4 +1,3 @@
-// @ts-check
 import eslint from '@eslint/js';
 import sonarjs from 'eslint-plugin-sonarjs';
 import tseslint from 'typescript-eslint';
@@ -41,6 +40,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['dist/', 'node_modules/'],
+    ignores: ['dist/', 'node_modules/', 'eslint.config.js'],
   },
 );
