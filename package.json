@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "obsidian-hybrid-search": "./dist/cli.js",
-    "obsidian-hybrid-search-mcp": "./dist/server.js"
+    "obsidian-hybrid-search": "./dist/src/cli.js",
+    "obsidian-hybrid-search-mcp": "./dist/src/server.js"
   },
   "scripts": {
     "build": "tsc",
@@ -13,7 +13,7 @@
     "test:integration": "tsx test/integration.test.ts"
   },
   "files": [
-    "dist",
+    "dist/src",
     "README.md"
   ],
   "dependencies": {
