@@ -103,18 +103,17 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
 export async function getContextLength(): Promise<number> {
   if (cachedContextLength !== null) return cachedContextLength
 
-  if (config.apiKey) {
-    // Check known models first
+  if (useApiMode()) {
+    // Check known models first — avoids an API roundtrip
     if (KNOWN_CONTEXT_LENGTHS[config.apiModel]) {
       cachedContextLength = KNOWN_CONTEXT_LENGTHS[config.apiModel]
       return cachedContextLength
     }
 
     try {
-      const res = await fetch(
-        `${config.apiBaseUrl}/models/${config.apiModel}`,
-        { headers: { Authorization: `Bearer ${config.apiKey}` } }
-      )
+      const headers: Record<string, string> = {}
+      if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`
+      const res = await fetch(`${config.apiBaseUrl}/models/${config.apiModel}`, { headers })
       const data = await res.json() as { context_length?: number }
       cachedContextLength = data.context_length ?? config.chunkContextFallback
       return cachedContextLength
@@ -161,8 +160,14 @@ function isOllamaEndpoint(): boolean {
   return url.includes('11434') || url.includes('ollama')
 }
 
+// Use API mode when an API key is set OR when a custom base URL is configured
+// (e.g. Ollama, LM Studio, local OpenAI-compatible servers — no key required)
+function useApiMode(): boolean {
+  return !!(config.apiKey || process.env.OPENAI_BASE_URL)
+}
+
 export async function embed(texts: string[]): Promise<Float32Array[]> {
-  if (config.apiKey) {
+  if (useApiMode()) {
     return embedViaApi(texts)
   }
   return embedLocal(texts)
@@ -185,12 +190,12 @@ async function embedViaApi(texts: string[]): Promise<Float32Array[]> {
 }
 
 async function embedApiBatch(texts: string[]): Promise<Float32Array[]> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`
+
   const res = await fetch(`${config.apiBaseUrl}/embeddings`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({ model: config.apiModel, input: texts }),
   })
 

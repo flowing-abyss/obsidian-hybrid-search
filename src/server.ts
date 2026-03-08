@@ -24,7 +24,7 @@ async function main() {
   })
 
   // Check if model changed — wipes DB if so, forces full reindex
-  const modelName = config.apiKey ? config.apiModel : 'local:Xenova/all-MiniLM-L6-v2'
+  const modelName = (config.apiKey || process.env.OPENAI_BASE_URL) ? config.apiModel : 'local:Xenova/all-MiniLM-L6-v2'
   const modelChanged = checkModelChanged(modelName)
   if (modelChanged) {
     console.error('[server] embedding model changed — database cleared, full reindex will run')

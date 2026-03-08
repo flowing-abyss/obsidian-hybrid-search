@@ -187,7 +187,7 @@ program
       indexed: stats.indexed,
       pending: stats.pending,
       last_indexed: stats.lastIndexed,
-      model: config.apiKey ? config.apiModel : 'Xenova/all-MiniLM-L6-v2 (local)',
+      model: (config.apiKey || process.env.OPENAI_BASE_URL) ? config.apiModel : 'Xenova/all-MiniLM-L6-v2 (local)',
       context_length: contextLength,
     }, null, 2))
   })
