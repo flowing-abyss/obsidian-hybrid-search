@@ -135,7 +135,7 @@ Add to your Claude MCP config (`.mcp.json` or `claude_desktop_config.json`):
   "mcpServers": {
     "obsidian-hybrid-search": {
       "command": "npx",
-      "args": ["-y", "-p", "obsidian-hybrid-search", "obsidian-hybrid-search-mcp"],
+      "args": ["-y", "-p", "obsidian-hybrid-search@latest", "obsidian-hybrid-search-mcp"],
       "env": {
         "OBSIDIAN_VAULT_PATH": "/path/to/your/vault",
         "OBSIDIAN_IGNORE_PATTERNS": ".obsidian/**,templates/**,*.canvas",
