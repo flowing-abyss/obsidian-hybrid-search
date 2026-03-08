@@ -87,10 +87,17 @@ export async function indexFile(
 
     const { data: frontmatter, content } = matter(raw)
     const title = (frontmatter.title as string | undefined) ?? path.basename(fullPath, '.md')
-    const tags: string[] = Array.isArray(frontmatter.tags)
+    const frontmatterTags: string[] = Array.isArray(frontmatter.tags)
       ? frontmatter.tags.map(String)
       : typeof frontmatter.tags === 'string'
         ? frontmatter.tags.split(',').map((t: string) => t.trim())
+        : []
+    const inlineTags = parseInlineTags(content)
+    const tags = [...new Set([...frontmatterTags, ...inlineTags])]
+    const aliases: string[] = Array.isArray(frontmatter.aliases)
+      ? frontmatter.aliases.map(String).filter(Boolean)
+      : typeof frontmatter.aliases === 'string' && frontmatter.aliases.trim()
+        ? [frontmatter.aliases.trim()]
         : []
 
     const ctxLen = contextLength ?? (await getContextLength())
@@ -106,6 +113,7 @@ export async function indexFile(
       path: relPath,
       title,
       tags,
+      aliases,
       content,
       mtime: stat.mtimeMs,
       hash,
@@ -176,7 +184,11 @@ export async function indexVaultSync(force = false): Promise<IndexResult> {
   const contextLength = await getContextLength()
   const result: IndexResult = { indexed: 0, skipped: 0, errors: [] }
 
+  const logInterval = Math.max(50, Math.floor(files.length / 10))
   for (let i = 0; i < files.length; i += config.batchSize) {
+    if (i > 0 && i % logInterval === 0) {
+      console.error(`[indexer] ${i}/${files.length} files processed (${result.indexed} indexed, ${result.errors.length} errors)`)
+    }
     const batch = files.slice(i, i + config.batchSize)
     await Promise.all(
       batch.map(async (f) => {
@@ -266,6 +278,23 @@ export function startWatcher(contextLength: number): void {
   })
 }
 
+/**
+ * Extract inline tags from note body: #tag, #tag/subtag
+ * Matches # preceded by start-of-string or whitespace, followed by
+ * a letter/underscore and then any word chars, hyphens, or slashes.
+ */
+export function parseInlineTags(content: string): string[] {
+  const seen = new Set<string>()
+  // Strip code blocks to avoid matching # inside them
+  const stripped = content
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`[^`]*`/g, '')
+  for (const match of stripped.matchAll(/(?:^|[\s,;(])\#([a-zA-Z_\u00C0-\u024F][a-zA-Z0-9_\-\/\u00C0-\u024F]*)/gm)) {
+    seen.add(match[1])
+  }
+  return [...seen]
+}
+
 function parseWikilinks(content: string): string[] {
   const seen = new Set<string>()
   for (const match of content.matchAll(/\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]/g)) {
@@ -280,16 +309,28 @@ function resolveWikilinks(content: string, fromPath: string): string[] {
   const raw = parseWikilinks(content)
   if (raw.length === 0) return []
 
-  // Load all paths + titles once — O(1) lookups instead of N queries
-  const allNotes = db.prepare('SELECT path, title FROM notes').all() as { path: string; title: string }[]
+  // Load all paths, titles and aliases once — O(1) lookups instead of N queries
+  const allNotes = db.prepare('SELECT path, title, aliases FROM notes').all() as { path: string; title: string; aliases: string | null }[]
 
   const pathSet = new Set(allNotes.map(n => n.path))
   const titleMap = new Map(allNotes.map(n => [n.title.toLowerCase(), n.path]))
-  // basename map: 'note.md' → 'folder/sub/note.md' (first match wins, same as LIKE '%/note.md')
+  // basename map: 'note.md' → 'folder/sub/note.md' (first match wins)
   const basenameMap = new Map<string, string>()
+  // alias map: 'alias text' → note path
+  const aliasMap = new Map<string, string>()
   for (const n of allNotes) {
     const base = path.basename(n.path)
     if (!basenameMap.has(base)) basenameMap.set(base, n.path)
+    if (n.aliases) {
+      try {
+        const aliases = JSON.parse(n.aliases) as string[]
+        for (const alias of aliases) {
+          if (alias && !aliasMap.has(alias.toLowerCase())) {
+            aliasMap.set(alias.toLowerCase(), n.path)
+          }
+        }
+      } catch { /* ignore malformed aliases */ }
+    }
   }
 
   const resolved: string[] = []
@@ -311,7 +352,14 @@ function resolveWikilinks(content: string, fromPath: string): string[] {
       continue
     }
 
-    // 3. Title match (case-insensitive)
+    // 3. Alias match (case-insensitive)
+    const byAlias = aliasMap.get(target.toLowerCase())
+    if (byAlias && byAlias !== fromPath) {
+      resolved.push(byAlias)
+      continue
+    }
+
+    // 4. Title match (case-insensitive)
     const byTitle = titleMap.get(target.toLowerCase())
     if (byTitle && byTitle !== fromPath) {
       resolved.push(byTitle)

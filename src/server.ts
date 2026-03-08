@@ -75,6 +75,10 @@ async function main() {
               type: 'number',
               description: 'Minimum score threshold 0..1 (default: 0)',
             },
+            tag: {
+              type: 'string',
+              description: 'Filter results by tag, e.g. "pkm" or "note/basic/primary"',
+            },
           },
           required: ['input'],
         },
@@ -118,6 +122,7 @@ async function main() {
           scope: a.scope as string | undefined,
           limit: a.limit as number | undefined,
           threshold: a.threshold as number | undefined,
+          tag: a.tag as string | undefined,
         })
         return {
           content: [{ type: 'text', text: JSON.stringify({ results }, null, 2) }],

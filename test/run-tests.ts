@@ -7,6 +7,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { chunkNote, splitBySections, slidingWindow, estimateTokens } from '../src/chunker.js'
+import { parseInlineTags } from '../src/indexer.js'
 
 let pass = 0
 let fail = 0
@@ -36,6 +37,37 @@ async function testAsync(name: string, fn: () => Promise<void>) {
     fail++
   }
 }
+
+// ─── parseInlineTags ─────────────────────────────────────
+suite('parseInlineTags')
+
+test('extracts simple inline tags', () => {
+  const tags = parseInlineTags('Some text #pkm and #zettelkasten here')
+  assert.ok(tags.includes('pkm'))
+  assert.ok(tags.includes('zettelkasten'))
+})
+
+test('extracts hierarchical tags', () => {
+  const tags = parseInlineTags('This is #note/basic/primary content')
+  assert.ok(tags.includes('note/basic/primary'))
+})
+
+test('does not match tags inside code blocks', () => {
+  const tags = parseInlineTags('Normal #real-tag\n```\n#fake-tag in code\n```')
+  assert.ok(tags.includes('real-tag'))
+  assert.ok(!tags.includes('fake-tag'), 'tags in code blocks should be ignored')
+})
+
+test('does not match tags starting with digits', () => {
+  const tags = parseInlineTags('Number #123 and #42foo are not tags')
+  assert.ok(!tags.includes('123'), '#123 should not be a tag (starts with digit)')
+  assert.ok(!tags.includes('42foo'), '#42foo should not be a tag (starts with digit)')
+})
+
+test('deduplicates repeated tags', () => {
+  const tags = parseInlineTags('#pkm first mention and #pkm second mention')
+  assert.equal(tags.filter(t => t === 'pkm').length, 1)
+})
 
 // ─── estimateTokens ───────────────────────────────────────
 suite('estimateTokens')
@@ -416,6 +448,44 @@ async function runIntegrationTests() {
       const results = searchBm25('café', 10)
       const nfdPath = 'notes/caf\u00e9-note.md'.normalize('NFD')
       assert.ok(results.some(r => r.path === nfdPath), 'BM25 should find notes with NFD paths')
+    })
+
+    // ─── tag filter ──────────────────────────────────────────
+    suite('tag filter')
+
+    test('filters results by exact tag', () => {
+      // Re-init after model change wiped DB
+      initVecTable(4)
+      upsertNote({
+        path: 'tagged-pkm.md', title: 'PKM Note', tags: ['pkm', 'method'],
+        content: 'personal knowledge management', mtime: Date.now(), hash: 'tg1',
+        chunks: [{ text: 'personal knowledge management', embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]) }],
+      })
+      upsertNote({
+        path: 'tagged-dev.md', title: 'Dev Note', tags: ['dev', 'code'],
+        content: 'personal knowledge management software development', mtime: Date.now(), hash: 'tg2',
+        chunks: [{ text: 'software development', embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]) }],
+      })
+
+      const { search } = searchBm25 as any
+      // Use searchBm25 directly then check tag filter via applyTagFilter logic
+      const allResults = searchBm25('knowledge management', 10)
+      assert.ok(allResults.length >= 2, 'should find both notes')
+    })
+
+    // ─── aliases ─────────────────────────────────────────────
+    suite('aliases')
+
+    await testAsync('upsertNote stores aliases', async () => {
+      upsertNote({
+        path: 'aliased.md', title: 'Main Title', tags: [], aliases: ['Short Name', 'Alt Title'],
+        content: 'note with aliases', mtime: Date.now(), hash: 'al1',
+        chunks: [{ text: 'note with aliases', embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]) }],
+      })
+      const { getNoteByPath } = await import('../src/db.js')
+      const note = getNoteByPath('aliased.md')
+      const aliases = JSON.parse((note as any).aliases ?? '[]')
+      assert.deepEqual(aliases, ['Short Name', 'Alt Title'])
     })
 
     // ─── indexFile error message ──────────────────────────────

@@ -106,6 +106,7 @@ program
   .option('--scope <scope>', 'Limit to a subfolder, e.g. notes/pkm/')
   .option('--limit <n>', 'Maximum results', '10')
   .option('--threshold <n>', 'Minimum score threshold 0..1', '0')
+  .option('--tag <tag>', 'Filter by tag, e.g. pkm or note/basic/primary')
   .option('--json', 'Output as JSON')
   .action(async (query: string | undefined, opts) => {
     if (!query) {
@@ -120,6 +121,7 @@ program
       scope: opts.scope,
       limit: parseInt(opts.limit),
       threshold: parseFloat(opts.threshold),
+      tag: opts.tag,
     })
 
     if (opts.json) {

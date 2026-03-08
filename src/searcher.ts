@@ -21,6 +21,7 @@ export interface SearchOptions {
   scope?: string
   limit?: number
   threshold?: number
+  tag?: string
 }
 
 interface RawResult {
@@ -44,6 +45,18 @@ function applyScope(results: RawResult[], scope?: string): RawResult[] {
 
 function applyThreshold(results: RawResult[], threshold: number): RawResult[] {
   return results.filter(r => r.score >= threshold)
+}
+
+function applyTagFilter(results: RawResult[], tag: string): RawResult[] {
+  const needle = tag.toLowerCase()
+  return results.filter(r => {
+    try {
+      const tags = JSON.parse(r.tags || '[]') as string[]
+      return tags.some(t => t.toLowerCase() === needle || t.toLowerCase().includes(needle))
+    } catch {
+      return false
+    }
+  })
 }
 
 function toSearchResult(r: RawResult): SearchResult {
@@ -248,6 +261,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
 
   results = applyScope(results, options.scope)
   results = applyThreshold(results, threshold)
+  if (options.tag) results = applyTagFilter(results, options.tag)
   results = results.slice(0, limit)
 
   const paths = results.map(r => r.path)

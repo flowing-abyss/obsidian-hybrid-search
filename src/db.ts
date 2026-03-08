@@ -65,6 +65,12 @@ function runMigrations(db: DB): void {
       INSERT INTO notes_fts_fuzzy(notes_fts_fuzzy, rowid, title) VALUES('delete', old.id, old.title);
     END;
   `)
+
+  // Incremental migrations: add columns introduced after initial schema
+  const cols = db.prepare('PRAGMA table_info(notes)').all() as { name: string }[]
+  if (!cols.some(c => c.name === 'aliases')) {
+    db.exec('ALTER TABLE notes ADD COLUMN aliases TEXT')
+  }
 }
 
 function cleanupNfcPaths(db: DB): void {
@@ -158,6 +164,7 @@ export interface NoteRow {
   path: string
   title: string
   tags: string
+  aliases: string | null
   content: string
   mtime: number
   hash: string
@@ -177,12 +184,14 @@ export function upsertNote(note: {
   path: string
   title: string
   tags: string[]
+  aliases?: string[]
   content: string
   mtime: number
   hash: string
   chunks: { text: string; embedding: Float32Array }[]
 }): void {
   const db = getDb()
+  const aliasesJson = note.aliases && note.aliases.length > 0 ? JSON.stringify(note.aliases) : null
 
   const existing = db.prepare('SELECT id FROM notes WHERE path = ?').get(note.path) as { id: number } | undefined
 
@@ -194,9 +203,9 @@ export function upsertNote(note: {
     }
 
     db.prepare(`
-      UPDATE notes SET title = ?, tags = ?, content = ?, mtime = ?, hash = ?
+      UPDATE notes SET title = ?, tags = ?, aliases = ?, content = ?, mtime = ?, hash = ?
       WHERE path = ?
-    `).run(note.title, JSON.stringify(note.tags), note.content, note.mtime, note.hash, note.path)
+    `).run(note.title, JSON.stringify(note.tags), aliasesJson, note.content, note.mtime, note.hash, note.path)
 
     db.prepare('DELETE FROM chunks WHERE note_id = ?').run(existing.id)
 
@@ -204,9 +213,9 @@ export function upsertNote(note: {
     insertChunks(db, noteId, note.chunks)
   } else {
     const result = db.prepare(`
-      INSERT INTO notes (path, title, tags, content, mtime, hash)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(note.path, note.title, JSON.stringify(note.tags), note.content, note.mtime, note.hash)
+      INSERT INTO notes (path, title, tags, aliases, content, mtime, hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(note.path, note.title, JSON.stringify(note.tags), aliasesJson, note.content, note.mtime, note.hash)
 
     const noteId = result.lastInsertRowid as number
     insertChunks(db, noteId, note.chunks)
