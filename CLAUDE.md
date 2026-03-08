@@ -4,9 +4,9 @@
 
 ```bash
 npm run build          # TypeScript compile (must pass before committing)
-npm test               # Unit tests (40 tests, ~2s, no external deps) via vitest
+npm test               # Unit tests (73 tests, ~1s, no external deps) via vitest
 npm run test:integration  # Integration tests against fixture vault (need OPENAI_API_KEY)
-npm run coverage       # Unit tests with v8 coverage (≥25% lines required)
+npm run coverage       # Unit tests with v8 coverage (≥40% lines required)
 npm run knip           # Dead code / unused exports check (0 issues required)
 npm run lint           # ESLint (0 errors required; warnings on `any` are ok)
 npm run format         # Prettier write (run before committing)
@@ -14,6 +14,41 @@ npm run format:check   # Prettier check (used in CI)
 ```
 
 **Pre-commit hooks run automatically** via husky + lint-staged (format + lint on staged files).
+
+---
+
+## Agent Verification Checklist
+
+Run this sequence after any code change to get full feedback before committing:
+
+```bash
+npm run build && npm test && npm run lint && npm run knip
+```
+
+**After modifying `searcher.ts`:**
+
+- `npm test` catches BFS depth scoring regressions (`test/searcher.test.ts`)
+- `npm test` catches tag/scope filter regressions (`test/searcher.test.ts`)
+- `npm test` catches result shape contract regressions (`test/contract.test.ts`)
+
+**After modifying `db.ts`:**
+
+- `npm test` catches NFD path storage, model change wipe, link integrity (`test/db.test.ts`)
+
+**After modifying `server.ts` (MCP schema):**
+
+- `npm run build` — TypeScript enforces that MCP parameter names map to valid `SearchOptions` fields
+- If you add a new MCP parameter: update `SearchOptions` in `searcher.ts`, `server.ts`, and CLI flags in `cli.ts`
+- `npm test` catches result shape changes (`test/contract.test.ts`)
+
+**After adding new `SearchOptions` fields:**
+Update all three places: `SearchOptions` interface in `searcher.ts`, MCP tool schema in `server.ts`, and CLI flags in `cli.ts`.
+
+**Coverage gates** (enforced in CI via `npm run coverage`):
+
+- Lines ≥ 40%, Functions ≥ 45%, Branches ≥ 33%
+- `embedder.ts`, `server.ts`, `cli.ts` are intentionally low coverage (require API key or OS I/O)
+- Do not lower these thresholds — raise them as new testable code is added
 
 ---
 
