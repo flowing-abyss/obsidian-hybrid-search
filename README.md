@@ -65,6 +65,10 @@ obsidian-hybrid-search "productivity systems" --limit 5 --threshold 0.3
 # Restrict to a subfolder
 obsidian-hybrid-search "daily review" --scope notes/periodic/
 
+# Filter by tag (frontmatter tags and inline #tags are both indexed)
+obsidian-hybrid-search "productivity" --tag pkm
+obsidian-hybrid-search "machine learning" --tag note/basic/primary
+
 # Find notes similar to a specific note
 obsidian-hybrid-search "notes/pkm/zettelkasten.md"
 
@@ -156,7 +160,7 @@ The server exposes three tools:
 
 | Tool | Description |
 |------|-------------|
-| `search` | Search the vault with optional `mode`, `scope`, `limit`, `threshold` |
+| `search` | Search the vault with optional `mode`, `scope`, `limit`, `threshold`, `tag` |
 | `reindex` | Reindex the vault or a specific file |
 | `status` | Show total notes, indexed count, last indexed time |
 

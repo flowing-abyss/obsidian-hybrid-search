@@ -4,14 +4,45 @@ let localPipeline: any = null
 let cachedContextLength: number | null = null
 let cachedDim: number | null = null
 
-// Known context lengths for common embedding models
+// Known context lengths for embedding models available on OpenRouter
+// Source: https://openrouter.ai/api/v1/embeddings/models
 const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
-  'openai/text-embedding-3-small': 8191,
-  'openai/text-embedding-3-large': 8191,
-  'openai/text-embedding-ada-002': 8191,
-  'text-embedding-3-small': 8191,
-  'text-embedding-3-large': 8191,
-  'text-embedding-ada-002': 8191,
+  // OpenAI
+  'openai/text-embedding-3-small': 8192,
+  'openai/text-embedding-3-large': 8192,
+  'openai/text-embedding-ada-002': 8192,
+  // Short-form aliases (for direct OpenAI API usage)
+  'text-embedding-3-small': 8192,
+  'text-embedding-3-large': 8192,
+  'text-embedding-ada-002': 8192,
+  // Mistral
+  'mistralai/mistral-embed': 8192,
+  'mistralai/mistral-embed-2312': 8192,
+  'mistralai/codestral-embed-2505': 8192,
+  // Google
+  'google/gemini-embedding-001': 20000,
+  // Qwen
+  'qwen/qwen3-embedding-8b': 32000,
+  'qwen/qwen3-embedding-4b': 32768,
+  // BAAI
+  'baai/bge-m3': 8192,
+  'baai/bge-base-en-v1.5': 512,
+  'baai/bge-large-en-v1.5': 512,
+  // Sentence Transformers
+  'sentence-transformers/all-minilm-l6-v2': 512,
+  'sentence-transformers/all-minilm-l12-v2': 512,
+  'sentence-transformers/all-mpnet-base-v2': 512,
+  'sentence-transformers/multi-qa-mpnet-base-dot-v1': 512,
+  'sentence-transformers/paraphrase-minilm-l6-v2': 512,
+  // intfloat E5
+  'intfloat/e5-large-v2': 512,
+  'intfloat/e5-base-v2': 512,
+  'intfloat/multilingual-e5-large': 512,
+  // thenlper GTE
+  'thenlper/gte-base': 512,
+  'thenlper/gte-large': 512,
+  // NVIDIA
+  'nvidia/llama-nemotron-embed-vl-1b-v2': 131072,
 }
 
 export async function getContextLength(): Promise<number> {
