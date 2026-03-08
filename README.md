@@ -72,8 +72,13 @@ obsidian-hybrid-search "daily review" --scope notes/periodic/
 obsidian-hybrid-search "productivity" --tag pkm
 obsidian-hybrid-search "machine learning" --tag note/basic/primary
 
-# Find notes similar to a specific note
+# Find semantically similar notes (default for path input)
 obsidian-hybrid-search "notes/pkm/zettelkasten.md"
+
+# Graph traversal: show notes linked to/from this note
+# Results show depth: -1/-2 = backlinks, 0 = source, +1/+2 = outgoing links
+obsidian-hybrid-search "notes/pkm/zettelkasten.md" --related
+obsidian-hybrid-search "notes/pkm/zettelkasten.md" --related --depth 2
 
 # JSON output (for scripting)
 obsidian-hybrid-search "spaced repetition" --json
@@ -162,7 +167,7 @@ The server exposes three tools:
 
 | Tool | Description |
 |------|-------------|
-| `search` | Search the vault with optional `mode`, `scope`, `limit`, `threshold`, `tag` |
+| `search` | Search the vault with optional `mode`, `scope`, `limit`, `threshold`, `tag`, `related`, `depth` |
 | `reindex` | Reindex the vault or a specific file |
 | `status` | Show total notes, indexed count, last indexed time |
 

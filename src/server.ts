@@ -79,6 +79,14 @@ async function main() {
               type: 'string',
               description: 'Filter results by tag, e.g. "pkm" or "note/basic/primary"',
             },
+            related: {
+              type: 'boolean',
+              description: 'Graph traversal mode: find notes linked to/from the given note path. Results include depth field (negative = backlink direction, positive = outgoing link direction, 0 = source note).',
+            },
+            depth: {
+              type: 'number',
+              description: 'Max traversal depth for related mode (default: 1)',
+            },
           },
           required: ['input'],
         },
@@ -123,6 +131,8 @@ async function main() {
           limit: a.limit as number | undefined,
           threshold: a.threshold as number | undefined,
           tag: a.tag as string | undefined,
+          related: a.related as boolean | undefined,
+          depth: a.depth as number | undefined,
         })
         return {
           content: [{ type: 'text', text: JSON.stringify({ results }, null, 2) }],

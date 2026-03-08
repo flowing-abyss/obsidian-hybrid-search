@@ -10,6 +10,15 @@ import { search } from './searcher.js'
 import { indexVaultSync, indexFile } from './indexer.js'
 import { config } from './config.js'
 
+/** Truncate text at a word boundary, appending '...' if cut */
+function truncateAtWord(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text
+  const cut = text.slice(0, maxLen)
+  const lastSpace = cut.lastIndexOf(' ')
+  return (lastSpace > maxLen * 0.7 ? cut.slice(0, lastSpace) : cut) + '...'
+}
+
+
 /**
  * Find .obsidian-hybrid-search.db by walking up from dir,
  * read vault_path / api_base_url / api_model from its settings table,
@@ -107,6 +116,8 @@ program
   .option('--limit <n>', 'Maximum results', '10')
   .option('--threshold <n>', 'Minimum score threshold 0..1', '0')
   .option('--tag <tag>', 'Filter by tag, e.g. pkm or note/basic/primary')
+  .option('--related', 'Graph traversal: show notes linked to/from this note (path input only)')
+  .option('--depth <n>', 'Traversal depth for --related mode', '1')
   .option('--json', 'Output as JSON')
   .action(async (query: string | undefined, opts) => {
     if (!query) {
@@ -122,6 +133,8 @@ program
       limit: parseInt(opts.limit),
       threshold: parseFloat(opts.threshold),
       tag: opts.tag,
+      related: opts.related ?? false,
+      depth: parseInt(opts.depth),
     })
 
     if (opts.json) {
@@ -134,6 +147,26 @@ program
       return
     }
 
+    // Related mode: depth-centered table
+    if (opts.related) {
+      const table = new Table({
+        head: ['DEPTH', 'PATH', 'SNIPPET'],
+        colWidths: [7, 45, 55],
+        wordWrap: true,
+      })
+      for (const r of results) {
+        const d = r.depth ?? 0
+        const depthStr = d === 0 ? ' 0 ●' : d > 0 ? `+${d}` : `${d}`
+        const context = r.snippet
+          ? truncateAtWord(r.snippet.replace(/\t/g, ' ').replace(/ {2,}/g, ' '), 160)
+          : r.title
+        table.push([depthStr, r.path, context])
+      }
+      console.log(table.toString())
+      return
+    }
+
+    // Normal search table
     const hasSnippets = results.some(r => (r.snippet ?? '').trim().length > 0)
     const table = hasSnippets
       ? new Table({ head: ['SCORE', 'PATH', 'SNIPPET'], colWidths: [7, 45, 60], wordWrap: true })

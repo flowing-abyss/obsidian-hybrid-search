@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { getDb, hasVecTable, getNoteByPath, getLinksForPaths } from './db.js'
 import { embed } from './embedder.js'
 
@@ -6,6 +7,7 @@ export interface SearchResult {
   title: string
   tags: string[]
   score: number
+  depth?: number       // only present in related mode (negative = backlink direction)
   snippet: string
   links: string[]
   backlinks: string[]
@@ -22,6 +24,8 @@ export interface SearchOptions {
   limit?: number
   threshold?: number
   tag?: string
+  related?: boolean    // graph traversal mode (only for path input)
+  depth?: number       // max traversal depth for related mode (default 1)
 }
 
 interface RawResult {
@@ -244,6 +248,134 @@ function rrfFusion(lists: RawResult[][], k = 60): RawResult[] {
     .map(({ rrfScore, result }) => ({ ...result, score: rrfScore / maxPossibleScore }))
 }
 
+// ─── Graph traversal ─────────────────────────────────────
+
+/**
+ * Extract the sentence/line context around a wikilink [[target]] inside a note.
+ * contentNotePath: the note whose content we search in
+ * linkedNotePath:  the target note we're looking for a link to
+ */
+function getLinkContext(contentNotePath: string, linkedNotePath: string): string {
+  const db = getDb()
+  const note = db.prepare('SELECT content FROM notes WHERE path = ?')
+    .get(contentNotePath) as { content: string } | undefined
+  if (!note?.content) return ''
+
+  const basename = path.basename(linkedNotePath, '.md')
+  // Match [[basename]], [[basename|alias]], [[basename#heading]], [[folder/basename]], etc.
+  const escaped = basename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex = new RegExp(`\\[\\[(?:[^\\]|#]*\\/)?${escaped}(?:[|#][^\\]]*)?\\]\\]`, 'i')
+
+  const match = regex.exec(note.content)
+  if (!match) return ''
+
+  const window = 100
+  let start = Math.max(0, match.index - window)
+  let end = Math.min(note.content.length, match.index + match[0].length + window)
+
+  // Snap to word boundaries so we don't cut mid-word
+  if (start > 0) {
+    while (start < match.index && !/\s/.test(note.content[start])) start++
+  }
+  if (end < note.content.length) {
+    while (end > match.index + match[0].length && !/\s/.test(note.content[end - 1])) end--
+  }
+
+  const prefix = start > 0 ? '...' : ''
+  const suffix = end < note.content.length ? '...' : ''
+  // Preserve newlines so CLI can strip line-based markdown (headings, blockquotes)
+  return (prefix + note.content.slice(start, end).trim() + suffix)
+}
+
+function searchRelated(notePath: string, maxDepth: number): SearchResult[] {
+  const db = getDb()
+  const sourcePath = notePath.normalize('NFD')
+  const results: SearchResult[] = []
+
+  const makeResult = (notePth: string, depth: number, snippet: string): SearchResult | null => {
+    const note = db.prepare('SELECT path, title, tags FROM notes WHERE path = ?').get(notePth) as
+      { path: string; title: string; tags: string } | undefined
+    if (!note) return null
+    let tags: string[] = []
+    try { tags = JSON.parse(note.tags || '[]') } catch { tags = [] }
+    return {
+      path: note.path,
+      title: note.title ?? '',
+      tags,
+      score: 0,
+      depth,
+      snippet,
+      links: [],
+      backlinks: [],
+      scores: { semantic: null, bm25: null, fuzzy_title: null },
+    }
+  }
+
+  // Source note at depth 0 — no context
+  const source = makeResult(sourcePath, 0, '')
+  if (!source) return []
+  results.push(source)
+
+  // Forward BFS — follow outgoing links (+depth)
+  // Context: text in the parent note where [[child]] appears
+  const visitedFwd = new Set<string>([sourcePath])
+  let frontier = [sourcePath]
+  for (let d = 1; d <= maxDepth; d++) {
+    const next: string[] = []
+    for (const parentPath of frontier) {
+      const links = db.prepare('SELECT to_path FROM links WHERE from_path = ?')
+        .all(parentPath) as { to_path: string }[]
+      for (const { to_path } of links) {
+        if (!visitedFwd.has(to_path)) {
+          visitedFwd.add(to_path)
+          const snippet = getLinkContext(parentPath, to_path)
+          const r = makeResult(to_path, d, snippet)
+          if (r) results.push(r)
+          next.push(to_path)
+        }
+      }
+    }
+    frontier = next
+    if (frontier.length === 0) break
+  }
+
+  // Backward BFS — follow backlinks (-depth)
+  // Context: text in the child note where [[parent]] appears
+  const visitedBwd = new Set<string>([sourcePath])
+  frontier = [sourcePath]
+  for (let d = 1; d <= maxDepth; d++) {
+    const next: string[] = []
+    for (const parentPath of frontier) {
+      const backlinks = db.prepare('SELECT from_path FROM links WHERE to_path = ?')
+        .all(parentPath) as { from_path: string }[]
+      for (const { from_path } of backlinks) {
+        if (!visitedBwd.has(from_path)) {
+          visitedBwd.add(from_path)
+          const snippet = getLinkContext(from_path, parentPath)
+          const r = makeResult(from_path, -d, snippet)
+          if (r) results.push(r)
+          next.push(from_path)
+        }
+      }
+    }
+    frontier = next
+    if (frontier.length === 0) break
+  }
+
+  // Sort: -N ... -1, 0, +1 ... +N
+  results.sort((a, b) => (a.depth ?? 0) - (b.depth ?? 0))
+
+  // Populate links/backlinks for all results
+  const paths = results.map(r => r.path)
+  const { links, backlinks } = getLinksForPaths(paths)
+  for (const r of results) {
+    r.links = links.get(r.path) ?? []
+    r.backlinks = backlinks.get(r.path) ?? []
+  }
+
+  return results
+}
+
 // ─── LRU cache ───────────────────────────────────────────
 // Avoids redundant searches when the same query is repeated (common in MCP usage).
 // Path-based lookups are cached by path:mtime so stale entries auto-invalidate.
@@ -280,6 +412,17 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   const threshold = options.threshold ?? 0.0
 
   const isPathLookup = input.includes('/') || input.endsWith('.md')
+
+  // Related mode: graph traversal, skip the normal search pipeline
+  if (isPathLookup && options.related) {
+    const maxDepth = options.depth ?? 1
+    const key = `related\0${input}\0${maxDepth}`
+    const cached = searchCache.get(key)
+    if (cached) return cached
+    const related = searchRelated(input, maxDepth)
+    searchCache.set(key, related)
+    return related
+  }
 
   // For path lookups, include mtime in cache key so stale entries auto-invalidate
   let key = cacheKey(input, options)
