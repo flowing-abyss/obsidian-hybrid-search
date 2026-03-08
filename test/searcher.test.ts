@@ -171,6 +171,20 @@ describe('BFS direction filtering', () => {
       );
     }
   });
+
+  it('matchedBy reflects graph relationship: source/link/backlink', async () => {
+    const results = await search('note-a.md', { related: true, direction: 'both', depth: 1 });
+    for (const r of results) {
+      const depth = r.depth ?? 0;
+      if (depth === 0) {
+        assert.deepEqual(r.matchedBy, ['source'], 'depth=0 should be source');
+      } else if (depth > 0) {
+        assert.deepEqual(r.matchedBy, ['link'], 'positive depth should be link');
+      } else {
+        assert.deepEqual(r.matchedBy, ['backlink'], 'negative depth should be backlink');
+      }
+    }
+  });
 });
 
 // ─── Tag filter ───────────────────────────────────────────────────────────────

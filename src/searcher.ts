@@ -432,7 +432,7 @@ function searchRelated(
       score: 1 / (1 + Math.abs(depth)),
       depth,
       snippet,
-      matchedBy: [],
+      matchedBy: depth === 0 ? ['source'] : depth > 0 ? ['link'] : ['backlink'],
       links: [],
       backlinks: [],
       scores: { semantic: null, bm25: null, fuzzy_title: null },
