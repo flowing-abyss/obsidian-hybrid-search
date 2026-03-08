@@ -1,0 +1,86 @@
+# CLAUDE.md — Project Guide for AI Agents
+
+## Quick Reference
+
+```bash
+npm run build          # TypeScript compile (must pass before committing)
+npm test               # Unit tests (40 tests, ~2s, no external deps)
+npm run test:integration  # Integration tests against fixture vault (need OPENAI_API_KEY)
+npm run lint           # ESLint (0 errors required; warnings on `any` are ok)
+npm run format         # Prettier write (run before committing)
+npm run format:check   # Prettier check (used in CI)
+```
+
+**Pre-commit hooks run automatically** via husky + lint-staged (format + lint on staged files).
+
+---
+
+## Architecture
+
+```
+CLI (cli.ts) ──┐
+               ├──▶ search() in searcher.ts ──▶ db.ts (SQLite)
+MCP (server.ts)┘                           └──▶ embedder.ts (OpenAI/local)
+```
+
+- **`db.ts`** — SQLite schema, migrations, all DB queries. Uses `better-sqlite3` (sync) + `sqlite-vec` for vector similarity. Tables: `notes`, `chunks`, `links`, `settings`, FTS5 virtual tables (`notes_fts_bm25`, `notes_fts_fuzzy`).
+- **`indexer.ts`** — walks vault, parses frontmatter (gray-matter), extracts tags and wikilinks, calls embedder, writes to DB. Incremental by content hash.
+- **`embedder.ts`** — embedding via OpenAI API (or OpenRouter / Ollama / any OpenAI-compatible endpoint). Falls back to `@xenova/transformers` for local inference. Context lengths are hard-coded in `KNOWN_CONTEXT_LENGTHS` to avoid API roundtrips.
+- **`searcher.ts`** — all search logic: hybrid (BM25 + semantic RRF), fulltext-only, semantic-only, title fuzzy, related (BFS graph traversal). Results are cached in a `Map`.
+- **`chunker.ts`** — splits notes into overlapping chunks by section headers and sliding window for embedding.
+- **`config.ts`** — reads env vars: `OBSIDIAN_VAULT_PATH` (required), `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OBSIDIAN_IGNORE_PATTERNS`, `EMBEDDING_MODEL`.
+
+## Key Implementation Details
+
+### Path Normalization
+
+All note paths stored in DB are **NFD-normalized** (`path.normalize('NFD')`). macOS HFS+ uses NFD for filenames. Always normalize before DB lookups or comparisons — failing to do so causes cache misses and "note not found" bugs.
+
+### Hybrid Search (RRF)
+
+`searchByQuery()` runs BM25 (FTS5) and semantic (vec_distance_L2) in parallel, then merges with **Reciprocal Rank Fusion**: `score = 1 / (k + rank)` where `k=60`. The semantic search embeds the query on each call — results are cached so repeated identical queries don't re-embed.
+
+### Related Mode (BFS)
+
+`searchRelated()` does bidirectional BFS over the `links` table. `direction='outgoing'` follows `from_path→to_path` edges (depth > 0), `direction='backlinks'` follows reverse edges (depth < 0), `direction='both'` does both. Score = `1 / (1 + |depth|)`. The source note itself is included at depth=0 with score=1.0.
+
+### Tag/Scope Filtering
+
+`-` prefix means **exclude**: `tag="-category/cs"` removes notes with that tag. Arrays are OR for includes, AND for excludes. Scope filters match against path prefix.
+
+### Snippet Logic
+
+1. BM25 search uses SQLite `snippet()` function (context around match).
+2. Semantic search uses `getLinkContext()` — finds the wikilink in the source note and returns surrounding text.
+3. If both are empty: `getSnippetFallback()` reads first N chars from `notes.content`.
+4. All snippets are capped to `snippetLength` (default 300 chars).
+
+### DB Is a Singleton
+
+`getDb()` returns a module-level singleton. Tests must call `openDb()` explicitly with the test DB path via `OBSIDIAN_VAULT_PATH` env var pointing to `test/fixtures/vault/`.
+
+---
+
+## Common Pitfalls
+
+- **Never** modify `notes_fts_bm25` or `notes_fts_fuzzy` directly — they are FTS5 content tables kept in sync via triggers on `notes`.
+- **Don't** use `let` for arrays that are never reassigned — ESLint enforces `prefer-const`.
+- **Don't** skip `npm run format` before committing — format:check in CI will fail.
+- Integration tests require `OPENAI_API_KEY` (they embed fixture notes). Unit tests do not.
+- The `_indexQueue` array is module-level state — tests that call `indexFile` in parallel may interfere. Unit tests use isolated temp DBs.
+
+---
+
+## Environment Variables
+
+| Variable                   | Required      | Default                              | Description                           |
+| -------------------------- | ------------- | ------------------------------------ | ------------------------------------- |
+| `OBSIDIAN_VAULT_PATH`      | Yes           | —                                    | Absolute path to Obsidian vault root  |
+| `OPENAI_API_KEY`           | For embedding | —                                    | Also used for OpenRouter              |
+| `OPENAI_BASE_URL`          | No            | `https://api.openai.com/v1`          | Override for Ollama/OpenRouter        |
+| `EMBEDDING_MODEL`          | No            | `text-embedding-3-small`             | Any OpenAI-compatible embedding model |
+| `OBSIDIAN_IGNORE_PATTERNS` | No            | `.obsidian/**,templates/**,*.canvas` | Comma-separated glob patterns         |
+
+## MCP Tools
+
+The MCP server exposes 3 tools: `search`, `reindex`, `status`. Tool schema is defined inline in `server.ts`. When adding new `SearchOptions` fields, update all three places: `SearchOptions` interface in `searcher.ts`, tool schema in `server.ts`, and CLI flags in `cli.ts`.

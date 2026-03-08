@@ -7,6 +7,7 @@
     "obsidian-hybrid-search-mcp": "./dist/src/server.js"
   },
   "scripts": {
+    "prepare": "husky",
     "build": "tsc",
     "dev": "tsx src/server.ts",
     "test": "tsx test/run-tests.ts",
@@ -14,7 +15,17 @@
     "lint": "eslint src test",
     "lint:fix": "eslint src test --fix",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,js}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
   },
   "license": "MIT",
   "repository": {
@@ -40,6 +51,8 @@
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^20.0.0",
     "eslint": "^10.0.3",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.3.2",
     "prettier": "^3.8.1",
     "prettier-plugin-organize-imports": "^4.3.0",
     "tsx": "^4.0.0",
