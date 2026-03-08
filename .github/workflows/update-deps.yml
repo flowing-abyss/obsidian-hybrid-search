@@ -1,0 +1,62 @@
+name: Weekly Dependency Update
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Every Monday at 06:00 UTC
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update-deps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Update dependencies
+        run: npm update
+
+      - name: Check for changes
+        id: changes
+        run: |
+          git diff --quiet package-lock.json || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Build
+        if: steps.changes.outputs.changed == 'true'
+        run: npm run build
+
+      - name: Unit tests
+        if: steps.changes.outputs.changed == 'true'
+        run: npm test
+
+      - name: Create Pull Request
+        if: steps.changes.outputs.changed == 'true'
+        id: pr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: update dependencies'
+          branch: chore/update-deps
+          title: 'chore: weekly dependency update'
+          body: |
+            Automated weekly dependency update.
+
+            - `npm update` was run to update all dependencies within their semver ranges
+            - Build and unit tests passed ✅
+          labels: dependencies
+
+      - name: Enable auto-merge
+        if: steps.pr.outputs.pull-request-number
+        run: gh pr merge --auto --squash ${{ steps.pr.outputs.pull-request-number }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

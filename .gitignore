@@ -6,5 +6,5 @@ dist/
 .env
 .mcp.json
 .obsidian-hybrid-search.db
-.claude/
+.claude/settings.local.json
 .vscode/
