@@ -57,7 +57,10 @@ async function main() {
           'Use this tool whenever the user asks about something they may have written about, wants to find related notes, or wants to explore their knowledge graph. ' +
           "Use 'query' for text search across all notes (default mode 'hybrid' combines BM25 keyword matching, fuzzy title, and semantic embeddings — best for most questions). " +
           "Use 'path' to find semantically similar notes to a given note path. " +
-          "Use 'path' + 'related: true' to traverse the knowledge graph (outgoing links and backlinks).",
+          "Use 'path' + 'related: true' to traverse the knowledge graph (outgoing links and backlinks). " +
+          "Each result includes a 'rank' field (1 = best match). " +
+          'Score guide: 0.5+ = strong match, 0.35–0.5 = plausible, below 0.35 = likely noise. ' +
+          'Tip: when enriching a specific note with related content, that note itself often appears as rank 1 — skip it.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -83,11 +86,13 @@ async function main() {
             },
             limit: {
               type: 'number',
-              description: 'Maximum results to return (default: 10)',
+              description:
+                'Maximum results to return (default: 10). Keep at 10 or below for best signal-to-noise; results past position 10 frequently score below 0.35.',
             },
             threshold: {
               type: 'number',
-              description: 'Minimum score threshold 0..1 (default: 0)',
+              description:
+                'Minimum score threshold 0..1 (default: 0). Use 0.35 to filter out likely noise: results below 0.35 usually matched a single fuzzy-title or keyword signal and are rarely relevant.',
             },
             tag: {
               description:

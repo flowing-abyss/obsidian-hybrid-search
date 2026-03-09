@@ -60,6 +60,7 @@ describe('SearchResult shape', () => {
       assert.ok(typeof r.title === 'string', 'title must be a string');
       assert.ok(Array.isArray(r.tags), 'tags must be an array');
       assert.ok(typeof r.score === 'number', 'score must be a number');
+      assert.ok(typeof r.rank === 'number' && r.rank >= 1, 'rank must be a positive integer');
       assert.ok(typeof r.snippet === 'string', 'snippet must be a string');
       assert.ok(Array.isArray(r.matchedBy), 'matchedBy must be an array');
       assert.ok(Array.isArray(r.links), 'links must be an array');
@@ -196,6 +197,14 @@ describe('related mode result shape', () => {
     for (const r of results) {
       assert.ok(typeof r.depth === 'number', `depth should be a number, got ${typeof r.depth}`);
     }
+  });
+
+  it('rank field is 1-based and sequential in related mode results', async () => {
+    const results = await search('alpha.md', { related: true, direction: 'both', depth: 1 });
+    assert.ok(results.length > 0, 'should return at least the source note');
+    results.forEach((r, i) => {
+      assert.strictEqual(r.rank, i + 1, `rank should be ${i + 1}, got ${r.rank}`);
+    });
   });
 
   it('direction enum values work: outgoing, backlinks, both', async () => {

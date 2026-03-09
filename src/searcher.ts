@@ -7,6 +7,7 @@ interface SearchResult {
   title: string;
   tags: string[];
   score: number;
+  rank?: number; // 1-based position in the result set (populated by search())
   depth?: number; // only present in related mode (negative = backlink direction)
   snippet: string;
   matchedBy: string[];
@@ -577,6 +578,9 @@ export async function search(input: string, options: SearchOptions = {}): Promis
       if (!r.snippet) r.snippet = getSnippetFallback(r.path, snippetLength);
       if (r.snippet.length > snippetLength) r.snippet = r.snippet.slice(0, snippetLength);
     }
+    related.forEach((r, i) => {
+      r.rank = i + 1;
+    });
     searchCache.set(key, related);
     return related;
   }
@@ -608,12 +612,13 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   const paths = results.map((r) => r.path);
   const { links, backlinks } = getLinksForPaths(paths);
 
-  const final = results.map((r) => {
+  const final = results.map((r, i) => {
     const sr = toSearchResult(r);
     if (!sr.snippet) sr.snippet = getSnippetFallback(sr.path, snippetLength);
     if (sr.snippet.length > snippetLength) sr.snippet = sr.snippet.slice(0, snippetLength);
     return {
       ...sr,
+      rank: i + 1,
       links: links.get(sr.path) ?? [],
       backlinks: backlinks.get(sr.path) ?? [],
     };
