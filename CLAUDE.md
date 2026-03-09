@@ -124,3 +124,27 @@ All note paths stored in DB are **NFD-normalized** (`path.normalize('NFD')`). ma
 ## MCP Tools
 
 The MCP server exposes 3 tools: `search`, `reindex`, `status`. Tool schema is defined inline in `server.ts`. When adding new `SearchOptions` fields, update all three places: `SearchOptions` interface in `searcher.ts`, tool schema in `server.ts`, and CLI flags in `cli.ts`.
+
+---
+
+## Release Management
+
+To release a new version (triggers CI build and npm publish):
+
+```bash
+# 1. Update version in package.json (e.g., 0.8.12 → 0.8.13)
+# 2. Stage and commit changes
+git add package.json <other-files>
+git commit -m "type: description"
+
+# 3. Create and push tag
+git tag v0.8.13
+git push origin master && git push origin v0.8.13
+```
+
+**Notes:**
+
+- Tag must follow semver format: `v*.*.*` (e.g., `v0.8.13`)
+- Release workflow triggers automatically on tag push
+- Pre-commit hooks run tests automatically
+- CI creates GitHub Release and publishes to npm
