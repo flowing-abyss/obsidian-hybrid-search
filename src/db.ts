@@ -48,6 +48,13 @@ function runMigrations(db: DB): void {
       value TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS event_log (
+      id        INTEGER PRIMARY KEY,
+      action    TEXT NOT NULL,
+      path      TEXT NOT NULL,
+      timestamp TEXT NOT NULL
+    );
+
     CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
       INSERT INTO notes_fts_bm25(rowid, title, content) VALUES (new.id, new.title, new.content);
       INSERT INTO notes_fts_fuzzy(rowid, title) VALUES (new.id, new.title);
@@ -71,6 +78,29 @@ function runMigrations(db: DB): void {
   if (!cols.some((c) => c.name === 'aliases')) {
     db.exec('ALTER TABLE notes ADD COLUMN aliases TEXT');
   }
+
+  // Migration: add event_log table if it doesn't exist in older DBs
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS event_log (
+      id        INTEGER PRIMARY KEY,
+      action    TEXT NOT NULL,
+      path      TEXT NOT NULL,
+      timestamp TEXT NOT NULL
+    );
+  `);
+}
+
+function logEvent(action: 'added' | 'updated' | 'deleted', notePath: string): void {
+  const db = getDb();
+  db.prepare('INSERT INTO event_log (action, path, timestamp) VALUES (?, ?, ?)').run(
+    action,
+    notePath,
+    new Date().toISOString(),
+  );
+  // Keep only the 15 most recent events
+  db.prepare(
+    'DELETE FROM event_log WHERE id NOT IN (SELECT id FROM event_log ORDER BY id DESC LIMIT 15)',
+  ).run();
 }
 
 function cleanupNfcPaths(db: DB): void {
@@ -232,6 +262,7 @@ export function upsertNote(note: {
 
     const noteId = existing.id;
     insertChunks(db, noteId, note.chunks);
+    logEvent('updated', note.path);
   } else {
     const result = db
       .prepare(
@@ -252,6 +283,7 @@ export function upsertNote(note: {
 
     const noteId = result.lastInsertRowid as number;
     insertChunks(db, noteId, note.chunks);
+    logEvent('added', note.path);
   }
 }
 
@@ -298,6 +330,7 @@ export function deleteNote(notePath: string, keepLinks = false): void {
     db.prepare('DELETE FROM links WHERE from_path = ? OR to_path = ?').run(notePath, notePath);
   }
   db.prepare('DELETE FROM notes WHERE id = ?').run(note.id);
+  logEvent('deleted', notePath);
 }
 
 export function upsertLinks(fromPath: string, toPaths: string[]): void {
@@ -343,6 +376,12 @@ export function getLinksForPaths(paths: string[]): {
   return { links, backlinks };
 }
 
+interface EventLogEntry {
+  action: 'added' | 'updated' | 'deleted';
+  path: string;
+  timestamp: string;
+}
+
 export function getStats(): {
   total: number;
   indexed: number;
@@ -350,6 +389,7 @@ export function getStats(): {
   chunks: number;
   links: number;
   lastIndexed: string | null;
+  recentActivity: EventLogEntry[];
 } {
   const db = getDb();
   const total = (db.prepare('SELECT COUNT(*) as c FROM notes').get() as { c: number }).c;
@@ -364,8 +404,11 @@ export function getStats(): {
         | { value: string }
         | undefined
     )?.value ?? null;
+  const recentActivity = db
+    .prepare('SELECT action, path, timestamp FROM event_log ORDER BY id DESC LIMIT 15')
+    .all() as EventLogEntry[];
 
-  return { total, indexed, pending: total - indexed, chunks, links, lastIndexed };
+  return { total, indexed, pending: total - indexed, chunks, links, lastIndexed, recentActivity };
 }
 
 /**

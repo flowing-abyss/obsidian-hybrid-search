@@ -43,6 +43,7 @@ const {
   getNoteByPath,
   deleteNote,
   checkModelChanged,
+  getStats,
 } = await import('../src/db.js');
 const { searchBm25, searchFuzzyTitle, search } = await import('../src/searcher.js');
 const { isIgnored } = await import('../src/indexer.js');
@@ -419,5 +420,64 @@ describe('indexFile error handling', () => {
     assert.ok('error' in status, 'error object should have error property');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     assert.ok((status as any).error.length > 0, 'error message should not be empty');
+  });
+});
+
+// ─── event_log ───────────────────────────────────────────────────────────────
+
+describe('event_log', () => {
+  const fakeEmb = new Float32Array([0.1, 0.2, 0.3, 0.4]);
+  const noteBase = {
+    tags: [] as string[],
+    content: 'test content',
+    mtime: Date.now(),
+    hash: 'h-evt',
+    chunks: [{ text: 'test', embedding: fakeEmb }],
+  };
+
+  it('upsertNote new note logs "added"', () => {
+    upsertNote({ ...noteBase, path: 'evt-add.md', title: 'Evt Add' });
+    const { recentActivity } = getStats();
+    assert.strictEqual(recentActivity[0]?.action, 'added');
+    assert.strictEqual(recentActivity[0]?.path, 'evt-add.md');
+  });
+
+  it('upsertNote existing note logs "updated"', () => {
+    upsertNote({ ...noteBase, path: 'evt-update.md', title: 'Evt Update', hash: 'h-upd-1' });
+    upsertNote({ ...noteBase, path: 'evt-update.md', title: 'Evt Update 2', hash: 'h-upd-2' });
+    const { recentActivity } = getStats();
+    assert.strictEqual(recentActivity[0]?.action, 'updated');
+    assert.strictEqual(recentActivity[0]?.path, 'evt-update.md');
+  });
+
+  it('deleteNote logs "deleted"', () => {
+    upsertNote({ ...noteBase, path: 'evt-del.md', title: 'Evt Del' });
+    deleteNote('evt-del.md');
+    const { recentActivity } = getStats();
+    assert.strictEqual(recentActivity[0]?.action, 'deleted');
+    assert.strictEqual(recentActivity[0]?.path, 'evt-del.md');
+  });
+
+  it('event_log never exceeds 15 entries', () => {
+    for (let i = 0; i < 20; i++) {
+      upsertNote({
+        ...noteBase,
+        path: `evt-flood-${i}.md`,
+        title: `Flood ${i}`,
+        hash: `h-f${i}`,
+      });
+    }
+    const { recentActivity } = getStats();
+    assert.ok(recentActivity.length <= 15, `expected ≤15 entries, got ${recentActivity.length}`);
+  });
+
+  it('recentActivity entries have action, path, timestamp fields', () => {
+    upsertNote({ ...noteBase, path: 'evt-shape.md', title: 'Evt Shape', hash: 'h-shape' });
+    const { recentActivity } = getStats();
+    const entry = recentActivity[0]!;
+    assert.ok(typeof entry.action === 'string', 'action must be string');
+    assert.ok(typeof entry.path === 'string', 'path must be string');
+    assert.ok(typeof entry.timestamp === 'string', 'timestamp must be string');
+    assert.ok(entry.timestamp.includes('T'), 'timestamp should be ISO 8601');
   });
 });
