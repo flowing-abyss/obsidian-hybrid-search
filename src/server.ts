@@ -249,6 +249,7 @@ async function main() {
                   chunks: stats.chunks,
                   links: stats.links,
                   last_indexed: stats.lastIndexed,
+                  ignore_patterns: config.ignorePatterns,
                   model: config.apiKey ? config.apiModel : 'Xenova/all-MiniLM-L6-v2 (local)',
                   context_length: contextLength,
                   version,

@@ -296,6 +296,7 @@ program
           chunks: stats.chunks,
           links: stats.links,
           last_indexed: stats.lastIndexed,
+          ignore_patterns: config.ignorePatterns,
           model:
             config.apiKey || process.env.OPENAI_BASE_URL
               ? config.apiModel
