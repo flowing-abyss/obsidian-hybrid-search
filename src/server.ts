@@ -2,8 +2,8 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { checkModelChanged, getStats, initVecTable, openDb, saveConfigMeta } from './db.js';
@@ -17,13 +17,17 @@ import {
 } from './indexer.js';
 import { search } from './searcher.js';
 
-const { version } = JSON.parse(
-  readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf-8'),
-) as { version: string };
+const _dir = dirname(fileURLToPath(import.meta.url));
+// Resolve package.json whether running from src/ (tsx) or compiled dist/src/ (node)
+const _pkgPath = existsSync(resolve(_dir, '../package.json'))
+  ? resolve(_dir, '../package.json')
+  : resolve(_dir, '../../package.json');
+const { version } = JSON.parse(readFileSync(_pkgPath, 'utf-8')) as { version: string };
 
 async function checkForUpdates(): Promise<void> {
   try {
-    const res = await fetch('https://registry.npmjs.org/obsidian-hybrid-search/latest');
+    const signal = AbortSignal.timeout(3000);
+    const res = await fetch('https://registry.npmjs.org/obsidian-hybrid-search/latest', { signal });
     if (!res.ok) return;
     const data = (await res.json()) as { version: string };
     if (data.version !== version) {
