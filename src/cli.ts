@@ -34,10 +34,10 @@ async function openInObsidian(vaultPath: string, notePaths: string[]): Promise<v
       ? '/Applications/Obsidian.app/Contents/MacOS/obsidian'
       : 'obsidian';
 
-  for (let i = 0; i < notePaths.length; i++) {
-    const notePath = notePaths[i];
+  for (const notePath of notePaths) {
     if (!notePath) continue;
-    const escapedPath = notePath.replace(/"/g, '\\"');
+    const normalizedPath = notePath.normalize('NFC');
+    const escapedPath = normalizedPath.replace(/"/g, '\\"');
     const cmd = `"${obsidianPath}" open "vault=${vaultName}" "path=${escapedPath}" newtab`;
 
     try {
