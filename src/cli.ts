@@ -2,15 +2,18 @@
 import Database from 'better-sqlite3';
 import Table from 'cli-table3';
 import { Command } from 'commander';
-import { spawn } from 'node:child_process';
+import { exec } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { config } from './config.js';
 import { getStats, initVecTable, openDb } from './db.js';
 import { getContextLength, getEmbeddingDim } from './embedder.js';
 import { indexFile, indexVaultSync } from './indexer.js';
 import { search } from './searcher.js';
+
+const execAsync = promisify(exec);
 
 const { version } = JSON.parse(
   readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf-8'),
@@ -24,13 +27,27 @@ function truncateAtWord(text: string, maxLen: number): string {
   return (lastSpace > maxLen * 0.7 ? cut.slice(0, lastSpace) : cut) + '...';
 }
 
-function openInObsidian(vaultPath: string, notePaths: string[]): void {
+async function openInObsidian(vaultPath: string, notePaths: string[]): Promise<void> {
   const vaultName = path.basename(vaultPath);
-  for (const notePath of notePaths) {
-    // eslint-disable-next-line sonarjs/no-os-command-from-path
-    spawn('obsidian', ['open', `vault=${vaultName}`, `path=${notePath}`, 'newtab'], {
-      stdio: 'ignore',
-    });
+  const obsidianPath =
+    process.platform === 'darwin'
+      ? '/Applications/Obsidian.app/Contents/MacOS/obsidian'
+      : 'obsidian';
+
+  for (let i = 0; i < notePaths.length; i++) {
+    const notePath = notePaths[i];
+    if (!notePath) continue;
+    const escapedPath = notePath.replace(/"/g, '\\"');
+    const cmd = `"${obsidianPath}" open "vault=${vaultName}" "path=${escapedPath}" newtab`;
+
+    try {
+      await execAsync(cmd);
+    } catch (err) {
+      console.error(
+        `Failed to open ${notePath}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }
 }
 
@@ -230,7 +247,7 @@ program
       console.log(table.toString());
 
       if (opts.open) {
-        openInObsidian(
+        await openInObsidian(
           config.vaultPath,
           results.map((r) => r.path),
         );
@@ -263,7 +280,7 @@ program
     console.log(table.toString());
 
     if (opts.open) {
-      openInObsidian(
+      await openInObsidian(
         config.vaultPath,
         results.map((r) => r.path),
       );
