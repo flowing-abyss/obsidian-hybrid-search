@@ -1,23 +1,37 @@
-# obsidian-hybrid-search
+# Obsidian Hybrid Search
 
-A fast hybrid search server for [Obsidian](https://obsidian.md) vaults. Combines BM25 full-text search, fuzzy title matching, and semantic vector search via Reciprocal Rank Fusion (RRF).
+An [MCP server](https://modelcontextprotocol.io) and CLI tool that makes your Obsidian vault queryable by AI assistants. Indexes notes into SQLite with FTS5 full-text search, trigram fuzzy matching, and `sqlite-vec` vector similarity — results are merged with Reciprocal Rank Fusion (RRF) and scored 0–1.
 
-Works as an [MCP server](https://modelcontextprotocol.io) for Claude and other AI assistants, and as a standalone CLI tool.
+Once connected, any MCP-compatible AI assistant can answer questions grounded in your actual notes: finding knowledge by meaning, exact phrase, or title; traversing the wikilink graph; filtering by tag or folder; always citing the source note. No guessing from training data, no manual copy-paste.
+
+No external services required. A bundled `@xenova/transformers` model handles embeddings locally by default. Any OpenAI-compatible API (OpenRouter, Ollama, LM Studio) works as a drop-in replacement.
 
 ## Features
 
-- **Hybrid search** — BM25 + fuzzy title + semantic embeddings, fused with RRF
-- **Four search modes** — `hybrid`, `semantic`, `fulltext`, `title` (for text queries)
-- **Similar note lookup** — pass `--path` to find semantically related notes (always semantic, uses title + content)
-- **Graph traversal** — `--path --related` shows linked notes at configurable depth; filter by `--direction outgoing|backlinks|both`
-- **Links & backlinks** — every result includes outgoing links and backlinks
-- **Scope filtering** — restrict to subfolder(s); supports multiple values and exclusions (`-notes/dev/`)
-- **Tag filtering** — filter by tag(s); supports multiple values and exclusions (`-category/cs`)
-- **Snippet control** — `--snippet-length` sets the context window; empty snippets always fall back to note content
-- **Incremental indexing** — only re-indexes changed files; watches for edits in real time
-- **Local embeddings** — works offline via `@xenova/transformers` (no API key required)
-- **Remote embeddings** — OpenAI-compatible API (OpenRouter, Ollama, etc.)
-- **Ignore patterns** — exclude folders, extensions, or specific files
+- **Hybrid search**
+  - BM25 + fuzzy title + semantic embeddings, fused with RRF
+- **Four search modes**
+  - `hybrid`, `semantic`, `fulltext`, `title` (for text queries)
+- **Similar note lookup**
+  - pass `--path` to find semantically related notes (always semantic, uses title + content)
+- **Graph traversal**
+  - `--path --related` shows linked notes at configurable depth; filter by `--direction outgoing|backlinks|both`
+- **Links & backlinks**
+  - every result includes outgoing links and backlinks
+- **Scope filtering**
+  - restrict to subfolder(s); supports multiple values and exclusions (`-notes/dev/`)
+- **Tag filtering**
+  - filter by tag(s); supports multiple values and exclusions (`-category/cs`)
+- **Snippet control**
+  - `--snippet-length` sets the context window; empty snippets always fall back to note content
+- **Incremental indexing**
+  - only re-indexes changed files; watches for edits in real time
+- **Local embeddings**
+  - works offline via `@xenova/transformers` (no API key required)
+- **Remote embeddings**
+  - OpenAI-compatible API (OpenRouter, Ollama, etc.)
+- **Ignore patterns**
+  - exclude folders, extensions, or specific files
 
 ## Installation
 
@@ -38,11 +52,11 @@ obsidian-hybrid-search "zettelkasten"
 
 ### Two ways to search
 
-| Scenario        | How                                              | Modes                                               |
-| --------------- | ------------------------------------------------ | --------------------------------------------------- |
-| Text query      | `ohs "some topic"`                               | `hybrid` (default), `semantic`, `fulltext`, `title` |
-| Similar notes   | `ohs --path notes/pkm/zettelkasten.md`           | Always semantic (title + content)                   |
-| Graph traversal | `ohs --path notes/pkm/zettelkasten.md --related` | Links & backlinks via BFS                           |
+| Scenario        | How                                                                 | Modes                                               |
+| --------------- | ------------------------------------------------------------------- | --------------------------------------------------- |
+| Text query      | `obsidian-hybrid-search "some topic"`                               | `hybrid` (default), `semantic`, `fulltext`, `title` |
+| Similar notes   | `obsidian-hybrid-search --path notes/pkm/zettelkasten.md`           | Always semantic (title + content)                   |
+| Graph traversal | `obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related` | Links & backlinks via BFS                           |
 
 `--mode` only affects text queries. When `--path` is given, the search is always semantic regardless of `--mode`.
 
@@ -145,7 +159,7 @@ Then reload (`source ~/.zshrc`) and use:
 ```bash
 ohs "zettelkasten"                        # hybrid search
 ohss "how to build a knowledge graph"     # semantic
-ohst "zettleksten"                        # fuzzy title (typo-tolerant)
+ohst "zettelkasten"                        # fuzzy title (typo-tolerant)
 ohsf "permanent notes"                    # fulltext BM25
 ohsi                                      # reindex vault
 ohsst                                     # show status
@@ -169,9 +183,11 @@ Hybrid search returns a table with scores and snippets:
 
 Title mode omits the snippet column automatically.
 
-## MCP server (Claude integration)
+## MCP server
 
-Add to your Claude MCP config (`.mcp.json` or `claude_desktop_config.json`).
+Most AI assistants operate without access to your personal knowledge — they can only work with what you paste into the conversation. Adding this server gives any MCP-compatible assistant a persistent, searchable index of your entire vault. It becomes a tool call, not a copy-paste session: the assistant queries your notes the same way it calls any other tool, gets ranked results with snippets and links, and can navigate your knowledge graph on request.
+
+Add to your MCP config (`.mcp.json`, `claude_desktop_config.json`, or equivalent for your client).
 
 ### Minimal config (local embeddings, no API key)
 
@@ -242,7 +258,7 @@ The ignore configuration is persisted in the database, so it is restored automat
 ## How it works
 
 1. **Indexing** — notes are chunked by headings (with sliding-window fallback), embedded, and stored in SQLite with FTS5 and `sqlite-vec`.
-2. **Search** — BM25, fuzzy trigram title search, and vector ANN search run in parallel; results are fused with RRF and scored 0–1 (higher = more relevant).
+2. **Search** — BM25, fuzzy trigram title search, and vector KNN search run in parallel; results are fused with RRF and scored 0–1 (higher = more relevant).
 3. **Links** — wikilinks (`[[note]]`) are resolved to note paths and stored; every search result includes `links` and `backlinks` arrays.
 4. **Watcher** — `chokidar` watches for file changes and incrementally re-indexes in the background.
 
