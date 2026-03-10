@@ -128,6 +128,9 @@ obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --snippet-leng
 # JSON output (for scripting)
 obsidian-hybrid-search "spaced repetition" --json
 
+# Open results in Obsidian (each in a new tab)
+obsidian-hybrid-search "zettelkasten" --open
+
 # Reindex the vault
 obsidian-hybrid-search reindex
 

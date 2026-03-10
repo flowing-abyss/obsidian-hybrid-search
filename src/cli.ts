@@ -2,6 +2,7 @@
 import Database from 'better-sqlite3';
 import Table from 'cli-table3';
 import { Command } from 'commander';
+import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,16 @@ function truncateAtWord(text: string, maxLen: number): string {
   return (lastSpace > maxLen * 0.7 ? cut.slice(0, lastSpace) : cut) + '...';
 }
 
+function openInObsidian(vaultPath: string, notePaths: string[]): void {
+  const vaultName = path.basename(vaultPath);
+  for (const notePath of notePaths) {
+    // eslint-disable-next-line sonarjs/no-os-command-from-path
+    spawn('obsidian', ['open', `vault=${vaultName}`, `path=${notePath}`, 'newtab'], {
+      stdio: 'ignore',
+    });
+  }
+}
+
 interface SearchOpts {
   path?: string;
   mode?: 'hybrid' | 'semantic' | 'fulltext' | 'title';
@@ -35,6 +46,7 @@ interface SearchOpts {
   direction?: 'outgoing' | 'backlinks' | 'both';
   snippetLength?: string;
   json?: boolean;
+  open?: boolean;
 }
 
 interface ReindexOpts {
@@ -167,6 +179,7 @@ program
   )
   .option('--snippet-length <n>', 'Max snippet length in characters (default: 300)')
   .option('--json', 'Output as JSON')
+  .option('--open', 'Open results in Obsidian')
   .action(async (query: string | undefined, opts: SearchOpts) => {
     const effectiveInput = opts.path ?? query;
     if (!effectiveInput) {
@@ -215,6 +228,13 @@ program
         table.push([depthStr, r.path, context]);
       }
       console.log(table.toString());
+
+      if (opts.open) {
+        openInObsidian(
+          config.vaultPath,
+          results.map((r) => r.path),
+        );
+      }
       return;
     }
 
@@ -241,6 +261,13 @@ program
     }
 
     console.log(table.toString());
+
+    if (opts.open) {
+      openInObsidian(
+        config.vaultPath,
+        results.map((r) => r.path),
+      );
+    }
   });
 
 program
