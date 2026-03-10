@@ -171,7 +171,27 @@ Title mode omits the snippet column automatically.
 
 ## MCP server (Claude integration)
 
-Add to your Claude MCP config (`.mcp.json` or `claude_desktop_config.json`):
+Add to your Claude MCP config (`.mcp.json` or `claude_desktop_config.json`).
+
+### Minimal config (local embeddings, no API key)
+
+Uses the built-in `Xenova/all-MiniLM-L6-v2` model — works fully offline. Downloads ~50 MB on first run.
+
+```json
+{
+  "mcpServers": {
+    "obsidian-hybrid-search": {
+      "command": "npx",
+      "args": ["-y", "-p", "obsidian-hybrid-search@latest", "obsidian-hybrid-search-mcp"],
+      "env": {
+        "OBSIDIAN_VAULT_PATH": "/path/to/your/vault"
+      }
+    }
+  }
+}
+```
+
+### Full config (OpenRouter)
 
 ```json
 {
@@ -182,15 +202,14 @@ Add to your Claude MCP config (`.mcp.json` or `claude_desktop_config.json`):
       "env": {
         "OBSIDIAN_VAULT_PATH": "/path/to/your/vault",
         "OBSIDIAN_IGNORE_PATTERNS": ".obsidian/**,templates/**,*.canvas",
-        "OPENAI_API_KEY": "sk-...",
-        "OPENAI_EMBEDDING_MODEL": "text-embedding-3-small"
+        "OPENAI_API_KEY": "sk-or-v1-...",
+        "OPENAI_BASE_URL": "https://openrouter.ai/api/v1",
+        "OPENAI_EMBEDDING_MODEL": "openai/text-embedding-3-small"
       }
     }
   }
 }
 ```
-
-Omit `OPENAI_API_KEY` to use the local `Xenova/all-MiniLM-L6-v2` model (downloads ~50 MB on first run).
 
 > **Note:** On first run, `npx` will install the package automatically. Ignore patterns are persisted in the database and restored on every subsequent startup even if the env var is missing.
 
