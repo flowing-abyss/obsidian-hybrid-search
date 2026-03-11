@@ -313,7 +313,7 @@ export function parseInlineTags(content: string): string[] {
   return [...seen];
 }
 
-function parseWikilinks(content: string): string[] {
+export function parseWikilinks(content: string): string[] {
   const seen = new Set<string>();
   for (const match of content.matchAll(/\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]/g)) {
     const target = match[1]!.trim();
@@ -323,7 +323,7 @@ function parseWikilinks(content: string): string[] {
 }
 
 // eslint-disable-next-line sonarjs/cognitive-complexity -- wikilink resolution requires O(N) alias/title lookups
-function resolveWikilinks(content: string, fromPath: string): string[] {
+export function resolveWikilinks(content: string, fromPath: string): string[] {
   const db = getDb();
   const raw = parseWikilinks(content);
   if (raw.length === 0) return [];
@@ -336,20 +336,39 @@ function resolveWikilinks(content: string, fromPath: string): string[] {
   }[];
 
   const pathSet = new Set(allNotes.map((n) => n.path));
-  const titleMap = new Map(allNotes.map((n) => [n.title.toLowerCase(), n.path]));
-  // basename map: 'note.md' → 'folder/sub/note.md' (first match wins)
+
+  // titleMap: NFD-normalized + lowercased for reliable cross-platform matching.
+  // Titles from frontmatter may be NFC; titles derived from filenames on macOS
+  // are NFD. Normalising to NFD before lowercasing ensures both forms match.
+  const titleMap = new Map(allNotes.map((n) => [n.title.normalize('NFD').toLowerCase(), n.path]));
+
+  // basenameMap: case-insensitive (lowercase key) — Obsidian wikilinks are
+  // case-insensitive with respect to the note filename.
+  // suffixMap: for partial-path wikilinks like [[sub/note]] that don't match
+  // the exact vault-relative path but share a trailing path segment.
   const basenameMap = new Map<string, string>();
-  // alias map: 'alias text' → note path
+  const suffixMap = new Map<string, string>();
+  // aliasMap: NFD-normalized + lowercased for the same reason as titleMap.
   const aliasMap = new Map<string, string>();
+
   for (const n of allNotes) {
-    const base = path.basename(n.path);
+    const base = path.basename(n.path).toLowerCase();
     if (!basenameMap.has(base)) basenameMap.set(base, n.path);
+
+    // Build all trailing sub-paths so [[sub/note]] matches 'folder/sub/note.md'
+    const parts = n.path.split('/');
+    for (let i = 1; i < parts.length; i++) {
+      const suffix = parts.slice(i).join('/').toLowerCase();
+      if (!suffixMap.has(suffix)) suffixMap.set(suffix, n.path);
+    }
+
     if (n.aliases) {
       try {
         const aliases = JSON.parse(n.aliases) as string[];
         for (const alias of aliases) {
-          if (alias && !aliasMap.has(alias.toLowerCase())) {
-            aliasMap.set(alias.toLowerCase(), n.path);
+          const key = alias.normalize('NFD').toLowerCase();
+          if (alias && !aliasMap.has(key)) {
+            aliasMap.set(key, n.path);
           }
         }
       } catch {
@@ -364,27 +383,38 @@ function resolveWikilinks(content: string, fromPath: string): string[] {
     const withMd = target.endsWith('.md') ? target : target + '.md';
     const base = path.basename(withMd);
 
-    // 1. Exact path match
+    // 1. Exact vault-relative path match (already NFD-normalised)
     if (pathSet.has(withMd) && withMd !== fromPath) {
       resolved.push(withMd);
       continue;
     }
 
-    // 2. Basename match (wikilink without folder prefix)
-    const byBasename = basenameMap.get(base);
+    // 2. Suffix/partial-path match: [[sub/note]] → 'folder/sub/note.md'
+    //    Only applied when the target contains a directory separator so we
+    //    don't accidentally use this for plain note-name wikilinks.
+    if (withMd.includes('/')) {
+      const bySuffix = suffixMap.get(withMd.toLowerCase());
+      if (bySuffix && bySuffix !== fromPath) {
+        resolved.push(bySuffix);
+        continue;
+      }
+    }
+
+    // 3. Basename match — case-insensitive so [[My Note]] finds 'my note.md'
+    const byBasename = basenameMap.get(base.toLowerCase());
     if (byBasename && byBasename !== fromPath) {
       resolved.push(byBasename);
       continue;
     }
 
-    // 3. Alias match (case-insensitive)
+    // 4. Alias match (NFD-normalised, case-insensitive)
     const byAlias = aliasMap.get(target.toLowerCase());
     if (byAlias && byAlias !== fromPath) {
       resolved.push(byAlias);
       continue;
     }
 
-    // 4. Title match (case-insensitive)
+    // 5. Title match (NFD-normalised, case-insensitive)
     const byTitle = titleMap.get(target.toLowerCase());
     if (byTitle && byTitle !== fromPath) {
       resolved.push(byTitle);
