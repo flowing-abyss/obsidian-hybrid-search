@@ -9,6 +9,7 @@ type DB = InstanceType<typeof Database>;
 let _db: DB | null = null;
 
 function runMigrations(db: DB): void {
+  // Base schema — no FTS tables here; they are managed by the versioned migration below
   db.exec(`
     CREATE TABLE IF NOT EXISTS notes (
       id      INTEGER PRIMARY KEY,
@@ -18,18 +19,6 @@ function runMigrations(db: DB): void {
       content TEXT,
       mtime   REAL,
       hash    TEXT
-    );
-
-    CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts_bm25 USING fts5(
-      title, content,
-      content='notes', content_rowid='id',
-      tokenize = 'unicode61'
-    );
-
-    CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts_fuzzy USING fts5(
-      title,
-      content='notes', content_rowid='id',
-      tokenize = 'trigram'
     );
 
     CREATE TABLE IF NOT EXISTS chunks (
@@ -56,40 +45,74 @@ function runMigrations(db: DB): void {
       path      TEXT NOT NULL,
       timestamp TEXT NOT NULL
     );
-
-    CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
-      INSERT INTO notes_fts_bm25(rowid, title, content) VALUES (new.id, new.title, new.content);
-      INSERT INTO notes_fts_fuzzy(rowid, title) VALUES (new.id, new.title);
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
-      INSERT INTO notes_fts_bm25(notes_fts_bm25, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
-      INSERT INTO notes_fts_bm25(rowid, title, content) VALUES (new.id, new.title, new.content);
-      INSERT INTO notes_fts_fuzzy(notes_fts_fuzzy, rowid, title) VALUES('delete', old.id, old.title);
-      INSERT INTO notes_fts_fuzzy(rowid, title) VALUES (new.id, new.title);
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
-      INSERT INTO notes_fts_bm25(notes_fts_bm25, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
-      INSERT INTO notes_fts_fuzzy(notes_fts_fuzzy, rowid, title) VALUES('delete', old.id, old.title);
-    END;
   `);
 
-  // Incremental migrations: add columns introduced after initial schema
+  // Incremental column migrations
   const cols = db.prepare('PRAGMA table_info(notes)').all() as { name: string }[];
   if (!cols.some((c) => c.name === 'aliases')) {
     db.exec('ALTER TABLE notes ADD COLUMN aliases TEXT');
   }
 
-  // Migration: add event_log table if it doesn't exist in older DBs
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS event_log (
-      id        INTEGER PRIMARY KEY,
-      action    TEXT NOT NULL,
-      path      TEXT NOT NULL,
-      timestamp TEXT NOT NULL
-    );
-  `);
+  // FTS schema v2: includes aliases column in both FTS tables.
+  // Drop and recreate whenever the stored version doesn't match — the caller
+  // is expected to force-reindex the vault so the FTS index stays consistent.
+  const ftsVersion = (
+    db.prepare("SELECT value FROM settings WHERE key = 'fts_schema_version'").get() as
+      | { value: string }
+      | undefined
+  )?.value;
+
+  if (ftsVersion !== '2') {
+    db.exec(`
+      DROP TABLE IF EXISTS notes_fts_bm25;
+      DROP TABLE IF EXISTS notes_fts_fuzzy;
+      DROP TRIGGER IF EXISTS notes_ai;
+      DROP TRIGGER IF EXISTS notes_au;
+      DROP TRIGGER IF EXISTS notes_ad;
+
+      CREATE VIRTUAL TABLE notes_fts_bm25 USING fts5(
+        title, aliases, content,
+        content='notes', content_rowid='id',
+        tokenize = 'unicode61'
+      );
+
+      CREATE VIRTUAL TABLE notes_fts_fuzzy USING fts5(
+        title, aliases,
+        content='notes', content_rowid='id',
+        tokenize = 'trigram'
+      );
+
+      CREATE TRIGGER notes_ai AFTER INSERT ON notes BEGIN
+        INSERT INTO notes_fts_bm25(rowid, title, aliases, content)
+          VALUES (new.id, new.title, new.aliases, new.content);
+        INSERT INTO notes_fts_fuzzy(rowid, title, aliases)
+          VALUES (new.id, new.title, new.aliases);
+      END;
+
+      CREATE TRIGGER notes_au AFTER UPDATE ON notes BEGIN
+        INSERT INTO notes_fts_bm25(notes_fts_bm25, rowid, title, aliases, content)
+          VALUES('delete', old.id, old.title, old.aliases, old.content);
+        INSERT INTO notes_fts_bm25(rowid, title, aliases, content)
+          VALUES (new.id, new.title, new.aliases, new.content);
+        INSERT INTO notes_fts_fuzzy(notes_fts_fuzzy, rowid, title, aliases)
+          VALUES('delete', old.id, old.title, old.aliases);
+        INSERT INTO notes_fts_fuzzy(rowid, title, aliases)
+          VALUES (new.id, new.title, new.aliases);
+      END;
+
+      CREATE TRIGGER notes_ad AFTER DELETE ON notes BEGIN
+        INSERT INTO notes_fts_bm25(notes_fts_bm25, rowid, title, aliases, content)
+          VALUES('delete', old.id, old.title, old.aliases, old.content);
+        INSERT INTO notes_fts_fuzzy(notes_fts_fuzzy, rowid, title, aliases)
+          VALUES('delete', old.id, old.title, old.aliases);
+      END;
+
+      INSERT INTO notes_fts_bm25(notes_fts_bm25) VALUES('rebuild');
+      INSERT INTO notes_fts_fuzzy(notes_fts_fuzzy) VALUES('rebuild');
+
+      INSERT OR REPLACE INTO settings(key, value) VALUES('fts_schema_version', '2');
+    `);
+  }
 }
 
 function logEvent(action: 'added' | 'updated' | 'deleted', notePath: string): void {

@@ -6,6 +6,7 @@ interface SearchResult {
   path: string;
   title: string;
   tags: string[];
+  aliases: string[];
   score: number;
   rank?: number; // 1-based position in the result set (populated by search())
   depth?: number; // only present in related mode (negative = backlink direction)
@@ -38,6 +39,7 @@ interface RawResult {
   path: string;
   title: string;
   tags: string;
+  aliases?: string | null;
   snippet: string;
   score: number;
   scores: {
@@ -93,6 +95,7 @@ function toSearchResult(r: RawResult): SearchResult {
   } catch {
     tags = [];
   }
+  const aliases = parseAliases(r.aliases);
   const matchedBy: string[] = [];
   if (r.scores.semantic != null) matchedBy.push('semantic');
   if (r.scores.bm25 != null) matchedBy.push('bm25');
@@ -100,6 +103,7 @@ function toSearchResult(r: RawResult): SearchResult {
   return {
     ...r,
     tags,
+    aliases,
     matchedBy,
     links: [],
     backlinks: [],
@@ -109,6 +113,15 @@ function toSearchResult(r: RawResult): SearchResult {
       fuzzy_title: r.scores.fuzzy_title ?? null,
     },
   };
+}
+
+function parseAliases(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as string[];
+  } catch {
+    return [];
+  }
 }
 
 function sanitizeFtsQuery(query: string): string {
@@ -131,9 +144,9 @@ export function searchBm25(query: string, limit: number, snippetLength = 300): R
     const rows = db
       .prepare(
         `
-      SELECT n.path, n.title, n.tags,
-             snippet(notes_fts_bm25, 1, '', '', '...', ?) AS snippet,
-             bm25(notes_fts_bm25) AS rank
+      SELECT n.path, n.title, n.tags, n.aliases,
+             snippet(notes_fts_bm25, 2, '', '', '...', ?) AS snippet,
+             bm25(notes_fts_bm25, 10.0, 5.0, 1.0) AS rank
       FROM notes_fts_bm25
       JOIN notes n ON n.id = notes_fts_bm25.rowid
       WHERE notes_fts_bm25 MATCH ?
@@ -145,6 +158,7 @@ export function searchBm25(query: string, limit: number, snippetLength = 300): R
       path: string;
       title: string;
       tags: string;
+      aliases: string | null;
       snippet: string;
       rank: number;
     }>;
@@ -153,6 +167,7 @@ export function searchBm25(query: string, limit: number, snippetLength = 300): R
       path: row.path,
       title: row.title ?? '',
       tags: row.tags ?? '[]',
+      aliases: row.aliases,
       snippet: row.snippet ?? '',
       score: Math.max(0, Math.abs(row.rank) / (1 + Math.abs(row.rank))),
       scores: {
@@ -206,7 +221,7 @@ export function searchFuzzyTitle(query: string, limit: number): RawResult[] {
     const rows = db
       .prepare(
         `
-      SELECT n.path, n.title, n.tags,
+      SELECT n.path, n.title, n.tags, n.aliases,
              bm25(notes_fts_fuzzy) AS rank
       FROM notes_fts_fuzzy
       JOIN notes n ON n.id = notes_fts_fuzzy.rowid
@@ -219,12 +234,19 @@ export function searchFuzzyTitle(query: string, limit: number): RawResult[] {
       path: string;
       title: string;
       tags: string;
+      aliases: string | null;
       rank: number;
     }>;
 
     return rows
       .map((row) => {
-        const overlap = calculateTrigramOverlap(query, row.title ?? '');
+        const titleOverlap = calculateTrigramOverlap(query, row.title ?? '');
+        // Only consider aliases with ≥3 chars — shorter strings produce no trigrams
+        // in the FTS index and would always give overlap=0 anyway.
+        const aliasOverlap = parseAliases(row.aliases)
+          .filter((a) => a.length >= 3)
+          .reduce((max, a) => Math.max(max, calculateTrigramOverlap(query, a)), 0);
+        const overlap = Math.max(titleOverlap, aliasOverlap);
         const baseScore = Math.max(0, Math.abs(row.rank) / (1 + Math.abs(row.rank)));
         const adjustedScore = baseScore * overlap * overlap;
 
@@ -232,6 +254,7 @@ export function searchFuzzyTitle(query: string, limit: number): RawResult[] {
           path: row.path,
           title: row.title ?? '',
           tags: row.tags ?? '[]',
+          aliases: row.aliases,
           snippet: '',
           score: adjustedScore,
           scores: {
@@ -301,7 +324,7 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
         `
       SELECT vc.chunk_id, vc.distance,
              c.note_id, c.chunk_index, c.text AS chunk_text,
-             n.path, n.title, n.tags
+             n.path, n.title, n.tags, n.aliases
       FROM vec_chunks AS vc
       JOIN chunks c ON c.id = vc.chunk_id
       JOIN notes n ON n.id = c.note_id
@@ -318,6 +341,7 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
       path: string;
       title: string;
       tags: string;
+      aliases: string | null;
     }>;
 
     // Aggregate: best chunk per note
@@ -339,6 +363,7 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
           path: row.path,
           title: row.title ?? '',
           tags: row.tags ?? '[]',
+          aliases: row.aliases,
           snippet: row.chunk_index > 0 ? '...' + row.chunk_text : row.chunk_text,
           score: similarity,
           scores: { semantic: similarity },
@@ -450,8 +475,10 @@ function searchRelated(
   const results: SearchResult[] = [];
 
   const makeResult = (notePth: string, depth: number, snippet: string): SearchResult | null => {
-    const note = db.prepare('SELECT path, title, tags FROM notes WHERE path = ?').get(notePth) as
-      | { path: string; title: string; tags: string }
+    const note = db
+      .prepare('SELECT path, title, tags, aliases FROM notes WHERE path = ?')
+      .get(notePth) as
+      | { path: string; title: string; tags: string; aliases: string | null }
       | undefined;
     if (!note) return null;
     let tags: string[];
@@ -464,6 +491,7 @@ function searchRelated(
       path: note.path,
       title: note.title ?? '',
       tags,
+      aliases: parseAliases(note.aliases),
       score: 1 / (1 + Math.abs(depth)),
       depth,
       snippet,

@@ -64,6 +64,7 @@ interface SearchOpts {
   snippetLength?: string;
   json?: boolean;
   open?: boolean;
+  extended?: boolean;
 }
 
 interface ReindexOpts {
@@ -176,6 +177,80 @@ async function init() {
   return contextLength;
 }
 
+/** Format tags and aliases into a single TAGS/ALIASES cell for --extended output. */
+function formatMeta(r: { tags: string[]; aliases: string[] }): string {
+  return [...r.tags.map((t) => `#${t}`), ...r.aliases].join('\n');
+}
+
+/** Build and print the related-mode depth table. */
+function printRelatedTable(
+  results: Awaited<ReturnType<typeof import('./searcher.js').search>>,
+  extended: boolean,
+): void {
+  const table = extended
+    ? new Table({
+        head: ['DEPTH', 'PATH', 'TAGS/ALIASES', 'SNIPPET'],
+        colWidths: [7, 40, 20, 40],
+        wordWrap: true,
+      })
+    : new Table({ head: ['DEPTH', 'PATH', 'SNIPPET'], colWidths: [7, 45, 55], wordWrap: true });
+  for (const r of results) {
+    const d = r.depth ?? 0;
+    const depthStr = d === 0 ? ' 0 ●' : d > 0 ? `+${d}` : `${d}`;
+    const context = r.snippet
+      ? truncateAtWord(r.snippet.replace(/\t/g, ' ').replace(/ {2,}/g, ' '), 160)
+      : r.title;
+    if (extended) {
+      table.push([depthStr, r.path, formatMeta(r), context]);
+    } else {
+      table.push([depthStr, r.path, context]);
+    }
+  }
+  console.log(table.toString());
+}
+
+/** Build and print the normal search results table. */
+function printSearchTable(
+  results: Awaited<ReturnType<typeof import('./searcher.js').search>>,
+  extended: boolean,
+): void {
+  const hasSnippets = results.some((r) => (r.snippet ?? '').trim().length > 0);
+  let table: InstanceType<typeof Table>;
+  if (extended && hasSnippets) {
+    table = new Table({
+      head: ['SCORE', 'PATH', 'TAGS/ALIASES', 'SNIPPET'],
+      colWidths: [7, 38, 20, 47],
+      wordWrap: true,
+    });
+  } else if (extended) {
+    table = new Table({
+      head: ['SCORE', 'PATH', 'TAGS/ALIASES'],
+      colWidths: [7, 50, 25],
+      wordWrap: true,
+    });
+  } else if (hasSnippets) {
+    table = new Table({
+      head: ['SCORE', 'PATH', 'SNIPPET'],
+      colWidths: [7, 45, 60],
+      wordWrap: true,
+    });
+  } else {
+    table = new Table({ head: ['SCORE', 'PATH'], colWidths: [7, 60], wordWrap: true });
+  }
+  for (const r of results) {
+    if (extended && hasSnippets) {
+      table.push([r.score.toFixed(2), r.path, formatMeta(r), (r.snippet ?? '').slice(0, 120)]);
+    } else if (extended) {
+      table.push([r.score.toFixed(2), r.path, formatMeta(r)]);
+    } else if (hasSnippets) {
+      table.push([r.score.toFixed(2), r.path, (r.snippet ?? '').slice(0, 120)]);
+    } else {
+      table.push([r.score.toFixed(2), r.path]);
+    }
+  }
+  console.log(table.toString());
+}
+
 const program = new Command()
   .name('obsidian-hybrid-search')
   .description('Hybrid search for your Obsidian vault')
@@ -225,6 +300,7 @@ program
   .option('--snippet-length <n>', 'Max snippet length in characters (default: 300)')
   .option('--json', 'Output as JSON')
   .option('--open', 'Open results in Obsidian')
+  .option('--extended', 'Show tags and aliases column in output table')
   .action(async (query: string | undefined, opts: SearchOpts) => {
     const effectiveInput = opts.path ?? query;
     if (!effectiveInput) {
@@ -257,23 +333,8 @@ program
       return;
     }
 
-    // Related mode: depth-centered table
     if (opts.related) {
-      const table = new Table({
-        head: ['DEPTH', 'PATH', 'SNIPPET'],
-        colWidths: [7, 45, 55],
-        wordWrap: true,
-      });
-      for (const r of results) {
-        const d = r.depth ?? 0;
-        const depthStr = d === 0 ? ' 0 ●' : d > 0 ? `+${d}` : `${d}`;
-        const context = r.snippet
-          ? truncateAtWord(r.snippet.replace(/\t/g, ' ').replace(/ {2,}/g, ' '), 160)
-          : r.title;
-        table.push([depthStr, r.path, context]);
-      }
-      console.log(table.toString());
-
+      printRelatedTable(results, opts.extended ?? false);
       if (opts.open) {
         await openInObsidian(
           config.vaultPath,
@@ -283,29 +344,7 @@ program
       return;
     }
 
-    // Normal search table
-    const hasSnippets = results.some((r) => (r.snippet ?? '').trim().length > 0);
-    const table = hasSnippets
-      ? new Table({
-          head: ['SCORE', 'PATH', 'SNIPPET'],
-          colWidths: [7, 45, 60],
-          wordWrap: true,
-        })
-      : new Table({
-          head: ['SCORE', 'PATH'],
-          colWidths: [7, 60],
-          wordWrap: true,
-        });
-
-    for (const r of results) {
-      if (hasSnippets) {
-        table.push([r.score.toFixed(2), r.path, (r.snippet ?? '').slice(0, 120)]);
-      } else {
-        table.push([r.score.toFixed(2), r.path]);
-      }
-    }
-
-    console.log(table.toString());
+    printSearchTable(results, opts.extended ?? false);
 
     if (opts.open) {
       await openInObsidian(

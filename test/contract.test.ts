@@ -59,6 +59,7 @@ describe('SearchResult shape', () => {
       assert.ok(typeof r.path === 'string', 'path must be a string');
       assert.ok(typeof r.title === 'string', 'title must be a string');
       assert.ok(Array.isArray(r.tags), 'tags must be an array');
+      assert.ok(Array.isArray(r.aliases), 'aliases must be an array');
       assert.ok(typeof r.score === 'number', 'score must be a number');
       assert.ok(typeof r.rank === 'number' && r.rank >= 1, 'rank must be a positive integer');
       assert.ok(typeof r.snippet === 'string', 'snippet must be a string');
@@ -107,6 +108,38 @@ describe('SearchResult shape', () => {
     const alpha = results.find((r) => r.path === 'alpha.md');
     assert.ok(alpha, 'alpha.md should appear in results');
     assert.deepEqual(alpha.tags, ['pkm'], 'tags should be a parsed string array, not JSON');
+  });
+
+  it('aliases is an array of strings (not a JSON string)', async () => {
+    const results = await search('alpha', { mode: 'fulltext', limit: 5 });
+    assert.ok(results.length > 0);
+    const alpha = results.find((r) => r.path === 'alpha.md');
+    assert.ok(alpha, 'alpha.md should appear in results');
+    assert.ok(Array.isArray(alpha.aliases), 'aliases should be an array');
+    for (const a of alpha.aliases) {
+      assert.ok(typeof a === 'string', 'each alias should be a string');
+    }
+  });
+
+  it('note indexed with aliases exposes them in search results', async () => {
+    upsertNote({
+      path: 'aliased.md',
+      title: 'Zettelkasten',
+      tags: [],
+      aliases: ['ЗК', 'slip-box', 'карточки'],
+      content: 'A document about the zettelkasten method and slip-box system.',
+      mtime: Date.now(),
+      hash: 'h-aliased',
+      chunks: [{ text: 'zettelkasten slip-box', embedding: fakeEmbedding }],
+    });
+    const results = await search('slip-box', { mode: 'fulltext', limit: 5 });
+    const found = results.find((r) => r.path === 'aliased.md');
+    assert.ok(found, 'note should be found by alias');
+    assert.deepEqual(
+      found.aliases,
+      ['ЗК', 'slip-box', 'карточки'],
+      'aliases should be returned in result',
+    );
   });
 
   it('matchedBy contains only valid signal names', async () => {

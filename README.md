@@ -10,6 +10,8 @@ No external services required. A bundled `@xenova/transformers` model handles em
 
 - **Hybrid search**
   - BM25 + fuzzy title + semantic embeddings, fused with RRF
+- **Alias search**
+  - notes with `aliases:` in frontmatter are indexed and searchable by any alias; alias matches are boosted in BM25 (weight 5×) and fuzzy title scoring
 - **Four search modes**
   - `hybrid`, `semantic`, `fulltext`, `title` (for text queries)
 - **Similar note lookup**
@@ -24,6 +26,8 @@ No external services required. A bundled `@xenova/transformers` model handles em
   - filter by tag(s); supports multiple values and exclusions (`-category/cs`)
 - **Snippet control**
   - `--snippet-length` sets the context window; empty snippets always fall back to note content
+- **Extended output**
+  - `--extended` adds a TAGS/ALIASES column to the CLI table showing frontmatter tags (`#tag`) and aliases
 - **Incremental indexing**
   - only re-indexes changed files; watches for edits in real time
 - **Local embeddings**
@@ -125,6 +129,9 @@ obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --direction ba
 # Longer context around each link
 obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --snippet-length 500
 
+# Show tags and aliases alongside results
+obsidian-hybrid-search "zettelkasten" --extended
+
 # JSON output (for scripting)
 obsidian-hybrid-search "spaced repetition" --json
 
@@ -182,6 +189,21 @@ Hybrid search returns a table with scores and snippets:
 │  0.72 │ notes/pkm/evergreen-notes.md  │ Evergreen notes are written to evolve over │
 │       │                               │ time. Unlike fleeting notes, they are...   │
 └───────┴───────────────────────────────┴────────────────────────────────────────────┘
+```
+
+With `--extended`, a TAGS/ALIASES column is added. Tags are prefixed with `#`, aliases are shown as-is:
+
+```
+┌───────┬───────────────────────────────┬──────────────────┬──────────────────────────────┐
+│ SCORE │ PATH                          │ TAGS/ALIASES     │ SNIPPET                      │
+├───────┼───────────────────────────────┼──────────────────┼──────────────────────────────┤
+│  0.98 │ notes/pkm/zettelkasten.md     │ #pkm             │ A note-taking method...      │
+│       │                               │ ЗК               │                              │
+│       │                               │ slip-box         │                              │
+├───────┼───────────────────────────────┼──────────────────┼──────────────────────────────┤
+│  0.72 │ notes/pkm/evergreen-notes.md  │ #pkm             │ Evergreen notes are written  │
+│       │                               │ #writing         │ to evolve over time...       │
+└───────┴───────────────────────────────┴──────────────────┴──────────────────────────────┘
 ```
 
 Title mode omits the snippet column automatically.
@@ -261,7 +283,7 @@ The ignore configuration is persisted in the database, so it is restored automat
 ## How it works
 
 1. **Indexing** — notes are chunked by headings (with sliding-window fallback), embedded, and stored in SQLite with FTS5 and `sqlite-vec`.
-2. **Search** — BM25, fuzzy trigram title search, and vector KNN search run in parallel; results are fused with RRF and scored 0–1 (higher = more relevant).
+2. **Search** — BM25 (with column weights: title 10×, aliases 5×, content 1×), fuzzy trigram title/alias search, and vector KNN search run in parallel; results are fused with RRF and scored 0–1 (higher = more relevant).
 3. **Links** — wikilinks (`[[note]]`) are resolved to note paths and stored; every search result includes `links` and `backlinks` arrays.
 4. **Watcher** — `chokidar` watches for file changes and incrementally re-indexes in the background.
 
