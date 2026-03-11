@@ -192,6 +192,18 @@ function formatDuration(seconds: number): string {
   return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
 }
 
+const PROGRESS_BAR_WIDTH = 20;
+// Number of completed batches to wait before showing ETA (lets the rate stabilise)
+const ETA_WARMUP_BATCHES = 3;
+
+function renderProgressLine(processed: number, total: number, etaStr: string): string {
+  const pct = total > 0 ? processed / total : 1;
+  const filled = Math.round(pct * PROGRESS_BAR_WIDTH);
+  const bar = '█'.repeat(filled) + '░'.repeat(PROGRESS_BAR_WIDTH - filled);
+  const pctLabel = `${Math.round(pct * 100)}%`.padStart(4);
+  return `  ${bar}  ${pctLabel} (${processed}/${total} notes)${etaStr}`;
+}
+
 export async function indexVaultSync(force = false): Promise<IndexResult> {
   const files = scanVault();
   const fsPaths = new Set(files.map((f) => path.relative(config.vaultPath, f).normalize('NFD')));
@@ -206,9 +218,15 @@ export async function indexVaultSync(force = false): Promise<IndexResult> {
     return result;
   }
 
-  process.stderr.write(`[obsidian-hybrid-search] Indexing vault (${files.length} notes)...\n`);
-  const startTime = Date.now();
+  const isTTY = process.stderr.isTTY === true;
   const logEvery = Math.max(config.batchSize, Math.floor(files.length / 10));
+
+  process.stderr.write(`[obsidian-hybrid-search] Indexing vault (${files.length} notes)...\n`);
+  if (isTTY) {
+    // Print initial empty bar without newline — will be overwritten in-place
+    process.stderr.write(renderProgressLine(0, files.length, ''));
+  }
+  const startTime = Date.now();
 
   for (let i = 0; i < files.length; i += config.batchSize) {
     const batch = files.slice(i, i + config.batchSize);
@@ -226,19 +244,29 @@ export async function indexVaultSync(force = false): Promise<IndexResult> {
     );
 
     const processed = Math.min(i + config.batchSize, files.length);
-    if (processed % logEvery < config.batchSize || processed >= files.length) {
+    const completedBatches = Math.floor(i / config.batchSize) + 1;
+    const elapsedSec = (Date.now() - startTime) / 1000;
+    const rate = elapsedSec > 0 ? processed / elapsedSec : 0;
+    const remainingSec =
+      completedBatches >= ETA_WARMUP_BATCHES && rate > 0 && processed < files.length
+        ? (files.length - processed) / rate
+        : 0;
+    const etaStr = remainingSec > 5 ? ` — ${formatDuration(remainingSec)} remaining` : '';
+
+    if (isTTY) {
+      // \r\x1b[2K: return to line start and clear it, then redraw
+      process.stderr.write(`\r\x1b[2K${renderProgressLine(processed, files.length, etaStr)}`);
+    } else if (processed % logEvery < config.batchSize || processed >= files.length) {
       const pct = Math.round((processed / files.length) * 100);
-      const elapsedSec = (Date.now() - startTime) / 1000;
-      const rate = elapsedSec > 0 ? processed / elapsedSec : 0;
-      const remainingSec =
-        rate > 0 && processed < files.length ? (files.length - processed) / rate : 0;
-      const eta = remainingSec > 5 ? ` — ${formatDuration(remainingSec)} remaining` : '';
       process.stderr.write(
-        `[obsidian-hybrid-search] ${processed}/${files.length} (${pct}%)${eta}\n`,
+        `[obsidian-hybrid-search] ${processed}/${files.length} (${pct}%)${etaStr}\n`,
       );
     }
   }
 
+  if (isTTY) {
+    process.stderr.write('\n'); // finalise the progress bar line
+  }
   const elapsed = formatDuration((Date.now() - startTime) / 1000);
   process.stderr.write(`[obsidian-hybrid-search] Indexing complete in ${elapsed}\n`);
 
