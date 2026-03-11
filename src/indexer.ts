@@ -221,7 +221,7 @@ export async function indexVaultSync(force = false): Promise<IndexResult> {
   const isTTY = process.stderr.isTTY === true;
   const logEvery = Math.max(config.batchSize, Math.floor(files.length / 10));
 
-  process.stderr.write(`Indexing vault (${files.length} notes)...\n`);
+  process.stderr.write(`Indexing vault...\n`);
   if (isTTY) {
     // Print initial empty bar without newline — will be overwritten in-place
     process.stderr.write(renderProgressLine(0, files.length, ''));
@@ -316,7 +316,7 @@ async function processQueue(contextLength: number): Promise<void> {
   const startTime = Date.now();
 
   if (total > 0) {
-    process.stderr.write(`Indexing vault (${total} notes)...\n`);
+    process.stderr.write(`Indexing vault...\n`);
   }
 
   try {
