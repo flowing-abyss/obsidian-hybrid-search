@@ -44,9 +44,10 @@ const {
   deleteNote,
   checkModelChanged,
   getStats,
+  getPathsToRemoveForIgnoreChange,
 } = await import('../src/db.js');
 const { searchBm25, searchFuzzyTitle, search } = await import('../src/searcher.js');
-const { isIgnored } = await import('../src/indexer.js');
+const { isIgnored } = await import('../src/ignore.js');
 
 // ─── Shared test fixtures ────────────────────────────────────────────────────
 
@@ -281,6 +282,35 @@ describe('ignore patterns (isIgnored)', () => {
     assert.ok(isIgnored('templates/daily.md'), 'templates path ignored');
     assert.ok(isIgnored('.obsidian/config.json'), '.obsidian path ignored');
     assert.ok(!isIgnored('notes/daily.md'), 'notes path not ignored');
+  });
+});
+
+// ─── getPathsToRemoveForIgnoreChange ─────────────────────────────────────────
+
+describe('getPathsToRemoveForIgnoreChange', () => {
+  const fakeEmb = new Float32Array([0.1, 0.2, 0.3, 0.4]);
+  const noteBase = {
+    tags: [] as string[],
+    content: 'test content',
+    mtime: Date.now(),
+    chunks: [{ text: 'test', embedding: fakeEmb }],
+  };
+
+  it('returns only paths matching new ignore patterns', () => {
+    process.env.OBSIDIAN_IGNORE_PATTERNS = '';
+    getPathsToRemoveForIgnoreChange([]);
+
+    initVecTable(4);
+    upsertNote({ ...noteBase, path: 'notes/keep-me.md', title: 'Keep', hash: 'h1' });
+    upsertNote({ ...noteBase, path: 'templates/daily.md', title: 'Template', hash: 'h2' });
+    upsertNote({ ...noteBase, path: 'drafts/wip.md', title: 'Draft', hash: 'h3' });
+
+    process.env.OBSIDIAN_IGNORE_PATTERNS = 'templates/**,drafts/**';
+    const toRemove = getPathsToRemoveForIgnoreChange(['templates/**', 'drafts/**']);
+
+    assert.ok(toRemove.includes('drafts/wip.md'), 'drafts/wip.md should be removed');
+    assert.ok(toRemove.includes('templates/daily.md'), 'templates/daily.md should be removed');
+    assert.ok(!toRemove.includes('notes/keep-me.md'), 'notes/keep-me.md should not be removed');
   });
 });
 

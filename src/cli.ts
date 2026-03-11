@@ -115,7 +115,7 @@ async function discoverConfig(dbPathOpt?: string): Promise<void> {
     const vaultPath = get('vault_path');
     const apiBaseUrl = get('api_base_url');
     const apiModel = get('api_model');
-    const ignorePatternsCsv = get('ignore_patterns_csv');
+    const ignorePatternsJson = get('ignore_patterns');
     db.close();
 
     // Env vars take precedence over DB-stored values
@@ -128,8 +128,13 @@ async function discoverConfig(dbPathOpt?: string): Promise<void> {
     if (apiModel && !process.env.OPENAI_EMBEDDING_MODEL) {
       process.env.OPENAI_EMBEDDING_MODEL = apiModel;
     }
-    if (ignorePatternsCsv && !process.env.OBSIDIAN_IGNORE_PATTERNS) {
-      process.env.OBSIDIAN_IGNORE_PATTERNS = ignorePatternsCsv;
+    if (ignorePatternsJson && !process.env.OBSIDIAN_IGNORE_PATTERNS) {
+      try {
+        const patterns = JSON.parse(ignorePatternsJson) as string[];
+        process.env.OBSIDIAN_IGNORE_PATTERNS = patterns.join(',');
+      } catch {
+        // Invalid JSON, ignore
+      }
     }
 
     // Fallback: infer vault path from DB location if not stored in settings

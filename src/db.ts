@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 import { config } from './config.js';
+import { isIgnored } from './ignore.js';
 
 type DB = InstanceType<typeof Database>;
 
@@ -126,11 +127,16 @@ function cleanupNfcPaths(db: DB): void {
 
 function restoreIgnorePatterns(db: DB): void {
   if (!process.env.OBSIDIAN_IGNORE_PATTERNS) {
-    const stored = db
-      .prepare("SELECT value FROM settings WHERE key = 'ignore_patterns_csv'")
-      .get() as { value: string } | undefined;
+    const stored = db.prepare("SELECT value FROM settings WHERE key = 'ignore_patterns'").get() as
+      | { value: string }
+      | undefined;
     if (stored?.value) {
-      process.env.OBSIDIAN_IGNORE_PATTERNS = stored.value;
+      try {
+        const patterns = JSON.parse(stored.value) as string[];
+        process.env.OBSIDIAN_IGNORE_PATTERNS = patterns.join(',');
+      } catch {
+        // Invalid JSON, ignore
+      }
     }
   }
 }
@@ -427,12 +433,18 @@ export function getPathsToRemoveForIgnoreChange(patterns: string[]): string[] {
 
   db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('${key}', ?)`).run(newJson);
 
-  if (!stored) return []; // first run — nothing to remove
+  if (!stored) {
+    // No stored patterns — check if DB has notes
+    // If yes, this is a "reset" scenario, need to filter by new patterns
+    // If no, this is truly a first run
+    const noteCount = (db.prepare('SELECT COUNT(*) as c FROM notes').get() as { c: number }).c;
+    if (noteCount === 0) return [];
+  }
 
   // Return all DB paths that match the new ignore patterns
-  const allPaths = (db.prepare('SELECT path FROM notes').all() as { path: string }[]).map(
-    (r) => r.path,
-  );
+  const allPaths = (db.prepare('SELECT path FROM notes').all() as { path: string }[])
+    .map((r) => r.path)
+    .filter((p) => isIgnored(p));
   return allPaths;
 }
 
@@ -448,7 +460,11 @@ export function saveConfigMeta(meta: {
   set.run('api_base_url', meta.apiBaseUrl);
   set.run('api_model', meta.apiModel);
   if (meta.ignorePatternsCsv !== undefined) {
-    set.run('ignore_patterns_csv', meta.ignorePatternsCsv);
+    const patterns = meta.ignorePatternsCsv
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    set.run('ignore_patterns', JSON.stringify(patterns.sort((a, b) => a.localeCompare(b))));
   }
 }
 
