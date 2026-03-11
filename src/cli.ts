@@ -8,8 +8,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { config } from './config.js';
-import { getStats, initVecTable, openDb } from './db.js';
-import { getContextLength, getEmbeddingDim } from './embedder.js';
+import { getStats, getStoredEmbeddingDim, initVecTable, openDb } from './db.js';
+import { getContextLength, getEmbeddingDim, primeEmbeddingDim } from './embedder.js';
 import { indexFile, indexVaultSync } from './indexer.js';
 import { search } from './searcher.js';
 
@@ -148,8 +148,31 @@ async function discoverConfig(dbPathOpt?: string): Promise<void> {
 
 async function init() {
   openDb();
-  const [contextLength, embeddingDim] = await Promise.all([getContextLength(), getEmbeddingDim()]);
-  initVecTable(embeddingDim);
+  // Read stored dim from DB first — avoids an API round-trip when the vault was
+  // already indexed.  This is the common case and ensures that fulltext / title
+  // searches (which never need the embedding API) keep working when offline.
+  // Only fall back to getEmbeddingDim() on a fresh install where no dim is stored yet.
+  const storedDim = getStoredEmbeddingDim();
+  const [contextLength, apiDim] = await Promise.all([
+    getContextLength(),
+    storedDim === null
+      ? getEmbeddingDim().catch((err: unknown) => {
+          console.error(
+            '[cli] embedding API unavailable — semantic search and indexing disabled,' +
+              ' fulltext/title search still works:',
+            err instanceof Error ? err.message : String(err),
+          );
+          return null;
+        })
+      : Promise.resolve(null),
+  ]);
+  const embeddingDim = storedDim ?? apiDim;
+  if (embeddingDim !== null) {
+    // Seed in-memory dim cache so the zero-vector fallback in the indexer works
+    // even if getEmbeddingDim() was never called this session.
+    primeEmbeddingDim(embeddingDim);
+    initVecTable(embeddingDim);
+  }
   return contextLength;
 }
 

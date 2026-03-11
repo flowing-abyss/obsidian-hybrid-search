@@ -147,6 +147,17 @@ export async function getEmbeddingDim(): Promise<number> {
   return cachedDim;
 }
 
+/**
+ * Pre-seed the in-memory embedding dimension cache from a value read out of the
+ * DB settings table.  Call this instead of getEmbeddingDim() when the dimension
+ * is already stored so we avoid an unnecessary API round-trip on startup.
+ * Also ensures the zero-vector fallback in embedApiBatchWithFallback works
+ * correctly when the embedding API later becomes unavailable mid-session.
+ */
+export function primeEmbeddingDim(dim: number): void {
+  if (cachedDim === null) cachedDim = dim;
+}
+
 async function getLocalPipeline() {
   if (!localPipeline) {
     const { pipeline } = await import('@xenova/transformers');

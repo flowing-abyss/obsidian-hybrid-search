@@ -188,6 +188,21 @@ export function initVecTable(dim: number): void {
   );
 }
 
+/**
+ * Read the embedding vector dimension stored in the settings table.
+ * Returns null if the DB has never been indexed (first run) or the value is invalid.
+ * Use this to avoid an API round-trip on startup when the dimension is already known.
+ */
+export function getStoredEmbeddingDim(): number | null {
+  const db = getDb();
+  const stored = db.prepare("SELECT value FROM settings WHERE key = 'embedding_dim'").get() as
+    | { value: string }
+    | undefined;
+  if (!stored) return null;
+  const dim = parseInt(stored.value, 10);
+  return dim > 0 ? dim : null;
+}
+
 export function hasVecTable(): boolean {
   const db = getDb();
   return !!db

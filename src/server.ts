@@ -6,8 +6,15 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
-import { checkModelChanged, getStats, initVecTable, openDb, saveConfigMeta } from './db.js';
-import { getContextLength, getEmbeddingDim } from './embedder.js';
+import {
+  checkModelChanged,
+  getStats,
+  getStoredEmbeddingDim,
+  initVecTable,
+  openDb,
+  saveConfigMeta,
+} from './db.js';
+import { getContextLength, getEmbeddingDim, primeEmbeddingDim } from './embedder.js';
 import {
   indexFile,
   indexVaultSync,
@@ -86,10 +93,36 @@ async function main() {
     console.error('[server] embedding model changed — database cleared, full reindex will run');
   }
 
-  // Phase 2: determine embedding dimension and context length
-  const [contextLength, embeddingDim] = await Promise.all([getContextLength(), getEmbeddingDim()]);
+  // Phase 2: determine embedding dimension and context length.
+  // Read stored dim from DB first — avoids an API round-trip when the vault was
+  // already indexed.  This is the common case and ensures that fulltext / title
+  // searches (which never need the embedding API) keep working when offline.
+  // Only fall back to getEmbeddingDim() on a fresh install where the DB has no
+  // stored value yet.
+  const storedDim = getStoredEmbeddingDim();
+  const [contextLength, apiDim] = await Promise.all([
+    getContextLength(),
+    storedDim === null
+      ? getEmbeddingDim().catch((err: unknown) => {
+          console.error(
+            '[server] embedding API unavailable — semantic search and indexing disabled,' +
+              ' fulltext/title search still works:',
+            err instanceof Error ? err.message : String(err),
+          );
+          return null;
+        })
+      : Promise.resolve(null),
+  ]);
+  const embeddingDim = storedDim ?? apiDim;
 
-  initVecTable(embeddingDim);
+  if (embeddingDim !== null) {
+    // Seed in-memory dim cache so the zero-vector fallback in the indexer works
+    // even if getEmbeddingDim() was never called this session.
+    primeEmbeddingDim(embeddingDim);
+    initVecTable(embeddingDim);
+  } else {
+    console.error('[server] embedding dimension unknown — vector table not initialized');
+  }
 
   // Phase 3: start MCP server — ready before indexing completes
   const server = new Server(
