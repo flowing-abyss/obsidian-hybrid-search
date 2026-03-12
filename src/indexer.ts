@@ -16,6 +16,7 @@ import {
 } from './db.js';
 import { embed, getContextLength } from './embedder.js';
 import { isIgnored } from './ignore.js';
+import { bumpIndexVersion } from './searcher.js';
 
 interface IndexResult {
   indexed: number;
@@ -122,6 +123,7 @@ export async function indexFile(
     const resolvedLinks = resolveWikilinks(content, relPath);
     upsertLinks(relPath, resolvedLinks);
 
+    bumpIndexVersion();
     return 'indexed';
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

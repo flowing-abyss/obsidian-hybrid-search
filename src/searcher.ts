@@ -600,10 +600,17 @@ class LRUCache<V> {
 
 const searchCache = new LRUCache<SearchResult[]>(20);
 
+let indexVersion = 0;
+
+/** Increment the index version, invalidating all cached search results. */
+export function bumpIndexVersion(): void {
+  indexVersion++;
+}
+
 function cacheKey(input: string, options: SearchOptions): string {
   const scopeStr = Array.isArray(options.scope) ? options.scope.join(',') : (options.scope ?? '');
   const tagStr = Array.isArray(options.tag) ? options.tag.join(',') : (options.tag ?? '');
-  return `${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}`;
+  return `v${indexVersion}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}`;
 }
 
 // eslint-disable-next-line sonarjs/cognitive-complexity -- primary search entry-point; complexity is inherent in the multi-mode, multi-filter pipeline
