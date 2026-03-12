@@ -275,14 +275,15 @@ async function embedLocal(texts: string[]): Promise<Float32Array[]> {
 
   for (let i = 0; i < texts.length; i += config.batchSize) {
     const batch = texts.slice(i, i + config.batchSize);
-    await Promise.all(
+    const batchResults = await Promise.all(
       batch.map(async (text) => {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call -- @xenova/transformers has no TypeScript types for pipeline output
         const output = await pipeline(text, { pooling: 'mean', normalize: true });
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-member-access
-        results.push(new Float32Array(output.data));
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        return new Float32Array(output.data);
       }),
     );
+    results.push(...batchResults);
   }
 
   return results;
