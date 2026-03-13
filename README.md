@@ -31,7 +31,7 @@ No external services required. A bundled `@xenova/transformers` model handles em
 - **Incremental indexing**
   - only re-indexes changed files; watches for edits in real time
 - **Local embeddings**
-  - works offline via `@xenova/transformers` (no API key required)
+  - works offline via `@xenova/transformers` (no API key required); default model: Xenova/multilingual-e5-small, 100+ languages
 - **Remote embeddings**
   - OpenAI-compatible API (OpenRouter, Ollama, etc.)
 - **Ignore patterns**
@@ -78,7 +78,7 @@ export OPENAI_API_KEY="sk-..."
 export OPENAI_EMBEDDING_MODEL="text-embedding-3-small"
 ```
 
-Without `OPENAI_API_KEY` the local `Xenova/all-MiniLM-L6-v2` model is used automatically (no API key needed, ~50 MB download on first run).
+Without `OPENAI_API_KEY` the local `Xenova/multilingual-e5-small` model is used automatically — works offline, no API key needed. Downloads ~117 MB on first run. Supports 100+ languages including Russian, Chinese, Japanese, and more.
 
 ```bash
 # Hybrid search (default)
@@ -216,7 +216,7 @@ Add to your MCP config (`.mcp.json`, `claude_desktop_config.json`, or equivalent
 
 ### Minimal config (local embeddings, no API key)
 
-Uses the built-in `Xenova/all-MiniLM-L6-v2` model — works fully offline. Downloads ~50 MB on first run.
+Uses the built-in `Xenova/multilingual-e5-small` model — works fully offline, supports 100+ languages. Downloads ~117 MB on first run.
 
 ```json
 {

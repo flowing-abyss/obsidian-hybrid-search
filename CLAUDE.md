@@ -4,7 +4,7 @@
 
 ```bash
 npm run build          # TypeScript compile (must pass before committing)
-npm test               # Unit tests (73 tests, ~1s, no external deps) via vitest
+npm test               # Unit tests (154 tests, ~1s, no external deps) via vitest
 npm run test:integration  # Integration tests against fixture vault (need OPENAI_API_KEY)
 npm run coverage       # Unit tests with v8 coverage (≥40% lines required)
 npm run knip           # Dead code / unused exports check (0 issues required)
@@ -62,7 +62,7 @@ MCP (server.ts)┘                           └──▶ embedder.ts (OpenAI/lo
 
 - **`db.ts`** — SQLite schema, migrations, all DB queries. Uses `better-sqlite3` (sync) + `sqlite-vec` for vector similarity. Tables: `notes`, `chunks`, `links`, `settings`, FTS5 virtual tables (`notes_fts_bm25`, `notes_fts_fuzzy`).
 - **`indexer.ts`** — walks vault, parses frontmatter (gray-matter), extracts tags and wikilinks, calls embedder, writes to DB. Incremental by content hash.
-- **`embedder.ts`** — embedding via OpenAI API (or OpenRouter / Ollama / any OpenAI-compatible endpoint). Falls back to `@xenova/transformers` for local inference. Context lengths are hard-coded in `KNOWN_CONTEXT_LENGTHS` to avoid API roundtrips.
+- **`embedder.ts`** — embedding via OpenAI API (or OpenRouter / Ollama / any OpenAI-compatible endpoint). Falls back to `@xenova/transformers` for local inference. Context lengths are hard-coded in `KNOWN_CONTEXT_LENGTHS` to avoid API roundtrips. Default local model: `Xenova/multilingual-e5-small` (hardcoded, 512 tokens, 384d, 100+ languages). Requires `"query: "` / `"passage: "` prefix — added automatically by `embedLocal()`. Users who need a different local model should configure Ollama via `OPENAI_BASE_URL`.
 - **`searcher.ts`** — all search logic: hybrid (BM25 + semantic RRF), fulltext-only, semantic-only, title fuzzy, related (BFS graph traversal). Results are cached in a `Map`.
 - **`chunker.ts`** — splits notes into overlapping chunks by section headers and sliding window for embedding.
 - **`config.ts`** — reads env vars: `OBSIDIAN_VAULT_PATH` (required), `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OBSIDIAN_IGNORE_PATTERNS`, `EMBEDDING_MODEL`.
@@ -108,6 +108,23 @@ All note paths stored in DB are **NFD-normalized** (`path.normalize('NFD')`). ma
 - **`noUncheckedIndexedAccess` is enabled** — array/string indexing returns `T | undefined`. Use `!` assertions only when bounds are provably safe (loop guard, truthy check, or literal index 0 on a non-empty array). Never use `!` to silence real nullability.
 - **Type-aware ESLint** (`parserOptions.projectService`) is active — lint is ~3s slower than plain ESLint, this is expected. Do not disable `projectService`.
 - **`knip` must pass** — avoid adding `export` to symbols only used within their own file. Run `npm run knip` after adding any new exports.
+
+---
+
+## Testing the Local Embedding Model
+
+To test the local model path (no API key), integration tests can be run without any API credentials:
+
+```bash
+# Unset API credentials to force local model
+unset OPENAI_API_KEY
+unset OPENAI_BASE_URL
+npm run test:integration
+```
+
+The local model (`Xenova/multilingual-e5-small`) downloads ~117 MB on first run and is cached in `~/.cache/`. Fixture vault includes Russian notes in `test/fixtures/vault/notes/ru/` to validate multilingual indexing.
+
+**Note:** The local model is slow for the first inference (~10s warmup). Integration test timeout is set to 120s.
 
 ---
 
