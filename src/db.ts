@@ -22,10 +22,11 @@ function runMigrations(db: DB): void {
     );
 
     CREATE TABLE IF NOT EXISTS chunks (
-      id          INTEGER PRIMARY KEY,
-      note_id     INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-      chunk_index INTEGER NOT NULL,
-      text        TEXT NOT NULL
+      id               INTEGER PRIMARY KEY,
+      note_id          INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+      chunk_index      INTEGER NOT NULL,
+      text             TEXT NOT NULL,
+      embedding_status TEXT NOT NULL DEFAULT 'ok'
     );
 
     CREATE TABLE IF NOT EXISTS links (
@@ -51,6 +52,11 @@ function runMigrations(db: DB): void {
   const cols = db.prepare('PRAGMA table_info(notes)').all() as { name: string }[];
   if (!cols.some((c) => c.name === 'aliases')) {
     db.exec('ALTER TABLE notes ADD COLUMN aliases TEXT');
+  }
+
+  const chunkCols = db.prepare('PRAGMA table_info(chunks)').all() as { name: string }[];
+  if (!chunkCols.some((c) => c.name === 'embedding_status')) {
+    db.exec("ALTER TABLE chunks ADD COLUMN embedding_status TEXT NOT NULL DEFAULT 'ok'");
   }
 
   // FTS schema v3: unicode61 tokenchars '+#' so C++/C# are full tokens.
@@ -270,7 +276,7 @@ export function upsertNote(note: {
   content: string;
   mtime: number;
   hash: string;
-  chunks: { text: string; embedding: Float32Array }[];
+  chunks: { text: string; embedding: Float32Array | null }[];
 }): void {
   const db = getDb();
   const aliasesJson = note.aliases && note.aliases.length > 0 ? JSON.stringify(note.aliases) : null;
@@ -335,19 +341,22 @@ export function upsertNote(note: {
 function insertChunks(
   db: DB,
   noteId: number,
-  chunks: { text: string; embedding: Float32Array }[],
+  chunks: { text: string; embedding: Float32Array | null }[],
 ): void {
   const insertChunk = db.prepare(
-    'INSERT INTO chunks (note_id, chunk_index, text) VALUES (?, ?, ?)',
+    'INSERT INTO chunks (note_id, chunk_index, text, embedding_status) VALUES (?, ?, ?, ?)',
   );
   const insertVec = db.prepare('INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)');
 
   for (let i = 0; i < chunks.length; i++) {
     const { text, embedding } = chunks[i]!;
-    const result = insertChunk.run(noteId, i, text);
-    // sqlite-vec vec0 requires INTEGER (BigInt), not REAL (JS number)
-    const chunkId = BigInt(result.lastInsertRowid);
-    insertVec.run(chunkId, embedding);
+    const status = embedding !== null ? 'ok' : 'failed';
+    const result = insertChunk.run(noteId, i, text, status);
+    if (embedding !== null) {
+      // sqlite-vec vec0 requires INTEGER (BigInt), not REAL (JS number)
+      const chunkId = BigInt(result.lastInsertRowid);
+      insertVec.run(chunkId, embedding);
+    }
   }
 }
 
@@ -432,6 +441,7 @@ export function getStats(): {
   indexed: number;
   pending: number;
   chunks: number;
+  failedChunks: number;
   links: number;
   lastIndexed: string | null;
   embeddingModel: string | null;
@@ -445,6 +455,11 @@ export function getStats(): {
     db.prepare('SELECT COUNT(DISTINCT note_id) as c FROM chunks').get() as { c: number }
   ).c;
   const chunks = (db.prepare('SELECT COUNT(*) as c FROM chunks').get() as { c: number }).c;
+  const failedChunks = (
+    db.prepare("SELECT COUNT(*) as c FROM chunks WHERE embedding_status = 'failed'").get() as {
+      c: number;
+    }
+  ).c;
   const links = (db.prepare('SELECT COUNT(*) as c FROM links').get() as { c: number }).c;
   const lastIndexed =
     (
@@ -480,6 +495,7 @@ export function getStats(): {
     indexed,
     pending: total - indexed,
     chunks,
+    failedChunks,
     links,
     lastIndexed,
     embeddingModel,

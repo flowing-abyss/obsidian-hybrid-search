@@ -115,7 +115,7 @@ export async function indexFile(
       hash,
       chunks: chunks.map((c, i) => ({
         text: c.text,
-        embedding: embeddings[i] ?? (null as unknown as Float32Array),
+        embedding: embeddings[i] ?? null,
       })),
     });
 

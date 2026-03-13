@@ -320,11 +320,16 @@ async function main() {
         if (a.include_activity) {
           output.recent_activity = stats.recentActivity;
         }
+        const statusText =
+          JSON.stringify(output, null, 2) +
+          (stats.failedChunks > 0
+            ? `\n⚠️  ${stats.failedChunks} chunk(s) have no embeddings (text search still works)`
+            : '');
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify(output, null, 2),
+              text: statusText,
             },
           ],
         };

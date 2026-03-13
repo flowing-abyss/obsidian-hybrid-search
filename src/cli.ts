@@ -438,6 +438,11 @@ program
       output.recent_activity = stats.recentActivity;
     }
     console.log(JSON.stringify(output, null, 2));
+    if (stats.failedChunks > 0) {
+      console.warn(
+        `⚠️  ${stats.failedChunks} chunk(s) have no embeddings (text search still works)`,
+      );
+    }
   });
 
 program.parseAsync(process.argv).catch((err) => {
