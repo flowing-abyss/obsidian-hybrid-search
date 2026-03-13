@@ -101,6 +101,29 @@ beforeAll(() => {
     chunks: [{ text: 'Overview of PKM practices.', embedding: fakeEmbedding }],
   });
 
+  // S-60: BM25-only note vs fuzzy-title-only note for weighted RRF test
+  // "BSONLYTERM60" appears verbatim in s60-bm25 content but not in s60-fuzzy content.
+  // s60-fuzzy title "bsonlyterm relevant idea" gets strong trigram overlap (8/10)
+  // but doesn't match the BM25 prefix query "BSONLYTERM60"* (missing "60" suffix).
+  upsertNote({
+    path: 's60-bm25.md',
+    title: 'Unrelated Zeta Delta',
+    content: 'BSONLYTERM60 is here',
+    tags: [],
+    mtime: Date.now(),
+    hash: 'hash-s60-bm25',
+    chunks: [{ text: 'BSONLYTERM60 is here', embedding: fakeEmbedding }],
+  });
+  upsertNote({
+    path: 's60-fuzzy.md',
+    title: 'bsonlyterm relevant idea',
+    content: 'nothing matches here',
+    tags: [],
+    mtime: Date.now(),
+    hash: 'hash-s60-fuzzy',
+    chunks: [{ text: 'nothing matches here', embedding: fakeEmbedding }],
+  });
+
   // BFS graph: note-a → note-b → note-c → note-a (cycle)
   upsertLinks('note-a.md', ['note-b.md']);
   upsertLinks('note-b.md', ['note-c.md']);
@@ -470,9 +493,8 @@ describe('alias exact-match search', () => {
 describe('RRF normalization with empty semantic list', () => {
   it('top hybrid result has score <= 1.0 and >= 0.9 when only BM25+fuzzy are active', async () => {
     // Unit tests have no OPENAI_API_KEY, so semantic list is always empty.
-    // With the fix, active lists = 2 (BM25 + fuzzy), maxPossibleScore = 2/61.
-    // A note ranked #1 in both BM25 and fuzzy gets rrfScore = 2/61 → score = 1.0.
-    // Without the fix, maxPossibleScore = 3/61 → top score ≈ 0.67 (< 0.9 threshold).
+    // Active lists = BM25 (w=2.0) + fuzzy (w=0.5), maxPossibleScore = 2.5/61.
+    // A note ranked #1 in both BM25 and fuzzy gets rrfScore = 2.5/61 → score = 1.0.
     const results = await search('note', { mode: 'hybrid', limit: 5 });
     assert.ok(results.length > 0, 'should return at least one result');
     const top = results[0]!;
@@ -480,6 +502,28 @@ describe('RRF normalization with empty semantic list', () => {
     assert.ok(
       top.score >= 0.9,
       `top result score should be ≥ 0.9 when only 2 of 3 lists are active, got ${top.score}`,
+    );
+  });
+});
+
+// ─── Weighted RRF: BM25 outweighs fuzzy-title (S-60) ─────────────────────────
+// Before the fix, both BM25-only and fuzzy-only notes scored 0.5 (structural tie).
+// With weights bm25=2.0 / fuzzy=0.5, BM25-only at rank 0 scores 0.8 while
+// fuzzy-only at rank 0 scores 0.2 — correctly reflecting signal strength.
+
+describe('weighted RRF: BM25 outweighs fuzzy-title for single-signal notes (S-60)', () => {
+  it('BM25-only rank-0 note scores higher than fuzzy-title-only rank-0 note', async () => {
+    // s60-bm25.md: "BSONLYTERM60" in content, generic title → BM25 match only
+    // s60-fuzzy.md: title "bsonlyterm relevant idea" → trigram overlap ~0.8 → fuzzy match only
+    //   (FTS5 prefix query "BSONLYTERM60"* doesn't match shorter "bsonlyterm" token)
+    const results = await search('BSONLYTERM60', { mode: 'hybrid', limit: 20 });
+    const bm25Note = results.find((r) => r.path === 's60-bm25.md');
+    const fuzzyNote = results.find((r) => r.path === 's60-fuzzy.md');
+    assert.ok(bm25Note, 's60-bm25.md should appear (BM25 content match)');
+    assert.ok(fuzzyNote, 's60-fuzzy.md should appear (fuzzy title match)');
+    assert.ok(
+      bm25Note.score > fuzzyNote.score,
+      `BM25 note (${bm25Note.score}) should outrank fuzzy note (${fuzzyNote.score}) with weighted RRF`,
     );
   });
 });

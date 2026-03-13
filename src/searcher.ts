@@ -421,12 +421,13 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
   }
 }
 
-function rrfFusion(lists: RawResult[][], k = 60): RawResult[] {
+function rrfFusion(lists: RawResult[][], k = 60, weights?: number[]): RawResult[] {
   const scores = new Map<string, { rrfScore: number; result: RawResult }>();
 
-  for (const list of lists) {
+  for (const [listIndex, list] of lists.entries()) {
+    const w = weights?.[listIndex] ?? 1;
     list.forEach((result, rank) => {
-      const rrfScore = 1 / (k + rank + 1);
+      const rrfScore = w / (k + rank + 1);
       const existing = scores.get(result.path);
       if (existing) {
         existing.rrfScore += rrfScore;
@@ -451,14 +452,17 @@ function rrfFusion(lists: RawResult[][], k = 60): RawResult[] {
     });
   }
 
-  const activeLists = lists.filter((l) => l.length > 0);
-  const maxPossibleScore = activeLists.length > 0 ? activeLists.length / (k + 1) : 1;
+  const activeLists = lists
+    .map((l, i) => ({ list: l, weight: weights?.[i] ?? 1 }))
+    .filter(({ list }) => list.length > 0);
+  const maxPossibleScore =
+    activeLists.length > 0 ? activeLists.reduce((sum, { weight }) => sum + weight, 0) / (k + 1) : 1;
 
   return Array.from(scores.values())
     .sort((a, b) => b.rrfScore - a.rrfScore)
     .map(({ rrfScore, result }) => ({
       ...result,
-      score: rrfScore / maxPossibleScore,
+      score: Math.min(1, rrfScore / maxPossibleScore),
     }));
 }
 
@@ -783,7 +787,8 @@ async function searchByQuery(
     f32 ? searchVector(f32, limit) : Promise.resolve([]),
   ]);
 
-  return rrfFusion([vectorResults, bm25Results, fuzzyResults]);
+  // Weights reflect signal reliability: BM25 (exact keyword) > semantic > fuzzy_title (partial)
+  return rrfFusion([vectorResults, bm25Results, fuzzyResults], 60, [1.0, 2.0, 0.5]);
 }
 
 async function searchSimilar(notePath: string, limit: number): Promise<RawResult[]> {
