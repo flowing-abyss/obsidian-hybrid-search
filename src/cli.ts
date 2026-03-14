@@ -72,6 +72,7 @@ interface SearchOpts {
   json?: boolean;
   open?: boolean;
   extended?: boolean;
+  rerank?: boolean;
 }
 
 interface ReindexOpts {
@@ -322,6 +323,10 @@ program
   .option('--json', 'Output as JSON')
   .option('--open', 'Open results in Obsidian')
   .option('--extended', 'Show tags and aliases column in output table')
+  .option(
+    '--rerank',
+    'Enable cross-encoder re-ranking (downloads ~560MB model on first use, hybrid mode only)',
+  )
   .action(async (query: string | undefined, opts: SearchOpts) => {
     const effectiveInput = opts.path ?? query;
     if (!effectiveInput) {
@@ -342,6 +347,7 @@ program
       direction: opts.direction,
       snippetLength: opts.snippetLength ? parseInt(opts.snippetLength) : undefined,
       notePath: opts.path,
+      rerank: opts.rerank ?? false,
     });
 
     if (opts.json) {
