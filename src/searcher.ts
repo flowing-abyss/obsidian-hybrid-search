@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { config } from './config.js';
 import { getDb, getLinksForPaths, getNoteByPath, hasVecTable } from './db.js';
 import { embed } from './embedder.js';
 
@@ -34,6 +35,7 @@ interface SearchOptions {
   snippetLength?: number;
   /** Explicit note path for similarity/related lookup — overrides the input heuristic */
   notePath?: string;
+  rerank?: boolean;
 }
 
 interface RawResult {
@@ -631,7 +633,9 @@ export function bumpIndexVersion(): void {
 function cacheKey(input: string, options: SearchOptions): string {
   const scopeStr = Array.isArray(options.scope) ? options.scope.join(',') : (options.scope ?? '');
   const tagStr = Array.isArray(options.tag) ? options.tag.join(',') : (options.tag ?? '');
-  return `v${indexVersion}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}`;
+  // Include reranker model so that changing RERANKER_MODEL invalidates the cache
+  const rerankStr = options.rerank ? config.rerankerModel : '';
+  return `v${indexVersion}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}\0${rerankStr}`;
 }
 
 // eslint-disable-next-line sonarjs/cognitive-complexity -- primary search entry-point; complexity is inherent in the multi-mode, multi-filter pipeline
