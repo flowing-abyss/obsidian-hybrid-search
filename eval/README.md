@@ -5,15 +5,25 @@ Runs a golden set of queries against an indexed vault and computes nDCG, MRR, Hi
 ## Quick start
 
 ```bash
-# Run eval (first run downloads local model ~30s)
+# Shortest form — all defaults apply (local model, obsidian-help vault, auto-named output)
+npm run eval
+
+# Specify vault only (golden set and output are inferred)
+npm run eval -- --vault fixtures/obsidian-help/en
+
+# Full form — explicit control over every parameter
 npm run eval -- \
   --vault fixtures/obsidian-help/en \
   --golden-set eval/golden-sets/obsidian-help.json \
-  --output eval/results/baseline-$(date +%Y%m%d).json
+  --output eval/results/baseline.json \
+  --k 10
 
 # A/B comparison
 npm run eval:compare -- eval/results/baseline.json eval/results/after-change.json
 ```
+
+Defaults: `--vault fixtures/obsidian-help/en`, `--golden-set eval/golden-sets/obsidian-help.json`, `--k 10`.
+Output filename is auto-generated as `eval/results/<date>_<vault>_<model>.json` when `--output` is omitted.
 
 ## Configuration
 
