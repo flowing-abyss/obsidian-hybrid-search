@@ -114,6 +114,10 @@ export class CrossEncoderReranker {
         text_pair: docs,
         padding: true,
         truncation: true,
+        // Cap at 128 tokens: attention is O(seq²), so 512→128 is 16× less memory.
+        // Our chunkText/snippet is already ≤300 chars (~80-100 tokens) + ~15 token query,
+        // so almost nothing is truncated in practice.
+        max_length: 128,
       }) as unknown;
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- no types
       const { logits } = (await (model as any)(encoded)) as {

@@ -165,14 +165,14 @@ The local model (`Xenova/multilingual-e5-small`) downloads ~117 MB on first run 
 
 ## Environment Variables
 
-| Variable                   | Required      | Default                                  | Description                                                |
-| -------------------------- | ------------- | ---------------------------------------- | ---------------------------------------------------------- |
-| `OBSIDIAN_VAULT_PATH`      | Yes           | —                                        | Absolute path to Obsidian vault root                       |
-| `OPENAI_API_KEY`           | For embedding | —                                        | Also used for OpenRouter                                   |
-| `OPENAI_BASE_URL`          | No            | `https://api.openai.com/v1`              | Override for Ollama/OpenRouter                             |
-| `EMBEDDING_MODEL`          | No            | `text-embedding-3-small`                 | Any OpenAI-compatible embedding model                      |
-| `OBSIDIAN_IGNORE_PATTERNS` | No            | `.obsidian/**,templates/**,*.canvas`     | Comma-separated glob patterns                              |
-| `RERANKER_MODEL`           | No            | `onnx-community/bge-reranker-v2-m3-ONNX` | Cross-encoder model for `--rerank` (int8 quantized, ~32MB) |
+| Variable                   | Required      | Default                                  | Description                                                                                |
+| -------------------------- | ------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `OBSIDIAN_VAULT_PATH`      | Yes           | —                                        | Absolute path to Obsidian vault root                                                       |
+| `OPENAI_API_KEY`           | For embedding | —                                        | Also used for OpenRouter                                                                   |
+| `OPENAI_BASE_URL`          | No            | `https://api.openai.com/v1`              | Override for Ollama/OpenRouter                                                             |
+| `EMBEDDING_MODEL`          | No            | `text-embedding-3-small`                 | Any OpenAI-compatible embedding model                                                      |
+| `OBSIDIAN_IGNORE_PATTERNS` | No            | `.obsidian/**,templates/**,*.canvas`     | Comma-separated glob patterns                                                              |
+| `RERANKER_MODEL`           | No            | `onnx-community/bge-reranker-v2-m3-ONNX` | Cross-encoder model for `--rerank` (int8 quantized, ~570MB — 568M param xlm-roberta-large) |
 
 ## MCP Tools
 

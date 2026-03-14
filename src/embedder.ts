@@ -181,8 +181,12 @@ async function getLocalPipeline() {
   if (!localPipeline) {
     const { pipeline } = await import('@huggingface/transformers');
     localPipeline = await pipeline('feature-extraction', LOCAL_MODEL, {
-      // device:'auto' enables CoreML on Apple Silicon, CUDA on Linux GPU servers
-      device: 'auto',
+      // device:'cpu' avoids silent fp32 fallback that occurs when 'auto' selects
+      // an EP (CoreML/CUDA) that doesn't support the model's ONNX opsets.
+      device: 'cpu',
+      // dtype:'q8' loads model_quantized.onnx (~30 MB) instead of the fp32
+      // model.onnx (~470 MB), halving RSS with no meaningful quality drop.
+      dtype: 'q8',
     });
   }
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- @huggingface/transformers has no TypeScript types
