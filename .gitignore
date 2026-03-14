@@ -14,3 +14,4 @@ coverage/
 reports/
 opencode.json
 .zed/
+.worktrees/
