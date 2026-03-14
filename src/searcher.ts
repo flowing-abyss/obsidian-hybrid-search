@@ -179,7 +179,7 @@ export function searchBm25(query: string, limit: number, snippetLength = 300): R
     // match for every other term in the query.
     const rows = stmt.all(numTokens, toFtsQuery(query, 'OR'), limit);
 
-    return rows.map((row) => ({
+    const results = rows.map((row) => ({
       path: row.path,
       title: row.title ?? '',
       tags: row.tags ?? '[]',
@@ -190,6 +190,12 @@ export function searchBm25(query: string, limit: number, snippetLength = 300): R
         bm25: Math.max(0, Math.abs(row.rank) / (1 + Math.abs(row.rank))),
       },
     }));
+    // Enrich BM25 snippets with heading breadcrumb from the chunks table
+    for (const result of results) {
+      const headingPath = getHeadingPathForSnippet(result.path, result.snippet);
+      if (headingPath) result.snippet = `${headingPath}\n${result.snippet}`;
+    }
+    return results;
   } catch {
     return [];
   }
@@ -335,6 +341,82 @@ async function embedQuery(text: string): Promise<Float32Array | null> {
   return null;
 }
 
+/**
+ * Format a chunk snippet with optional heading breadcrumb.
+ * Strips the leading heading line from chunk text to avoid repeating what's in headingPath.
+ */
+function formatChunkSnippet(
+  headingPath: string | null,
+  chunkText: string,
+  isNonFirst: boolean,
+): string {
+  const continuationPrefix = isNonFirst ? '...' : '';
+  if (!headingPath) return continuationPrefix + chunkText;
+  // Strip the leading heading line (e.g. "## Section\n") from chunk text — it's already
+  // shown in the breadcrumb above, so displaying it again is redundant.
+  const body = chunkText.replace(/^#{1,6}\s+[^\n]*\n?/, '');
+  return `${headingPath}\n${continuationPrefix}${body}`;
+}
+
+/**
+ * Look up the heading_path for the section containing the given BM25 snippet text.
+ *
+ * Strategy 1 — chunk lookup: works when the note was split into section chunks
+ * (contextLength < note size). Finds the chunk whose text contains the snippet key.
+ *
+ * Strategy 2 — content scan fallback: used when the entire note is stored as one
+ * chunk (large-context models like OpenAI text-embedding-3-small fit whole notes).
+ * Finds the snippet position in notes.content, then walks backwards to build the
+ * heading chain from surrounding headings.
+ */
+function getHeadingPathForSnippet(notePath: string, snippetText: string): string | null {
+  const db = getDb();
+  const clean = snippetText
+    .replace(/^\.\.\./, '')
+    .replace(/\.\.\.$/, '')
+    .trim();
+  if (clean.length < 15) return null;
+  const key = clean.slice(0, 60);
+
+  // Strategy 1: chunk-based lookup
+  try {
+    const row = db
+      .prepare(
+        `SELECT c.heading_path FROM chunks c
+         JOIN notes n ON n.id = c.note_id
+         WHERE n.path = ? AND instr(c.text, ?) > 0
+           AND c.heading_path IS NOT NULL
+         ORDER BY c.chunk_index LIMIT 1`,
+      )
+      .get(notePath, key) as { heading_path: string } | undefined;
+    if (row?.heading_path) return row.heading_path;
+  } catch {
+    // heading_path column may not exist yet (pre-reindex) — fall through to strategy 2
+  }
+
+  // Strategy 2: scan note content up to the snippet position
+  const note = db.prepare('SELECT content FROM notes WHERE path = ?').get(notePath) as
+    | { content: string }
+    | undefined;
+  if (!note?.content) return null;
+
+  const pos = note.content.indexOf(key);
+  if (pos === -1) return null;
+
+  const before = note.content.slice(0, pos);
+  const headingSlots: (string | null)[] = [null, null, null, null, null, null];
+  for (const line of before.split('\n')) {
+    const m = /^(#{1,6})\s+(.+)$/.exec(line.trim());
+    if (m) {
+      const level = m[1]!.length;
+      headingSlots[level - 1] = `${m[1]} ${m[2]}`;
+      for (let i = level; i < 6; i++) headingSlots[i] = null;
+    }
+  }
+  const chain = headingSlots.filter((s): s is string => s !== null);
+  return chain.length > 0 ? chain.join(' > ') : null;
+}
+
 async function searchVector(queryEmbedding: Float32Array, limit: number): Promise<RawResult[]> {
   if (!hasVecTable()) return [];
 
@@ -345,7 +427,7 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
       .prepare(
         `
       SELECT vc.chunk_id, vc.distance,
-             c.note_id, c.chunk_index, c.text AS chunk_text,
+             c.note_id, c.chunk_index, c.text AS chunk_text, c.heading_path,
              n.path, n.title, n.tags, n.aliases
       FROM vec_chunks AS vc
       JOIN chunks c ON c.id = vc.chunk_id
@@ -360,6 +442,7 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
       note_id: number;
       chunk_index: number;
       chunk_text: string;
+      heading_path: string | null;
       path: string;
       title: string;
       tags: string;
@@ -386,7 +469,7 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
           title: row.title ?? '',
           tags: row.tags ?? '[]',
           aliases: row.aliases,
-          snippet: row.chunk_index > 0 ? '...' + row.chunk_text : row.chunk_text,
+          snippet: formatChunkSnippet(row.heading_path, row.chunk_text, row.chunk_index > 0),
           chunkText: row.chunk_text,
           score: similarity,
           scores: { semantic: similarity },

@@ -26,6 +26,7 @@ function runMigrations(db: DB): void {
       note_id          INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
       chunk_index      INTEGER NOT NULL,
       text             TEXT NOT NULL,
+      heading_path     TEXT,
       embedding_status TEXT NOT NULL DEFAULT 'ok'
     );
 
@@ -296,7 +297,7 @@ export function upsertNote(note: {
   content: string;
   mtime: number;
   hash: string;
-  chunks: { text: string; embedding: Float32Array | null }[];
+  chunks: { text: string; headingPath?: string | null; embedding: Float32Array | null }[];
 }): void {
   const db = getDb();
   const aliasesJson = note.aliases && note.aliases.length > 0 ? JSON.stringify(note.aliases) : null;
@@ -361,17 +362,17 @@ export function upsertNote(note: {
 function insertChunks(
   db: DB,
   noteId: number,
-  chunks: { text: string; embedding: Float32Array | null }[],
+  chunks: { text: string; headingPath?: string | null; embedding: Float32Array | null }[],
 ): void {
   const insertChunk = db.prepare(
-    'INSERT INTO chunks (note_id, chunk_index, text, embedding_status) VALUES (?, ?, ?, ?)',
+    'INSERT INTO chunks (note_id, chunk_index, text, heading_path, embedding_status) VALUES (?, ?, ?, ?, ?)',
   );
   const insertVec = db.prepare('INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)');
 
   for (let i = 0; i < chunks.length; i++) {
-    const { text, embedding } = chunks[i]!;
+    const { text, headingPath, embedding } = chunks[i]!;
     const status = embedding !== null ? 'ok' : 'failed';
-    const result = insertChunk.run(noteId, i, text, status);
+    const result = insertChunk.run(noteId, i, text, headingPath ?? null, status);
     if (embedding !== null) {
       // sqlite-vec vec0 requires INTEGER (BigInt), not REAL (JS number)
       const chunkId = BigInt(result.lastInsertRowid);

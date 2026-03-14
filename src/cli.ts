@@ -262,11 +262,11 @@ function printSearchTable(
   }
   for (const r of results) {
     if (extended && hasSnippets) {
-      table.push([r.score.toFixed(2), r.path, formatMeta(r), (r.snippet ?? '').slice(0, 120)]);
+      table.push([r.score.toFixed(2), r.path, formatMeta(r), r.snippet ?? '']);
     } else if (extended) {
       table.push([r.score.toFixed(2), r.path, formatMeta(r)]);
     } else if (hasSnippets) {
-      table.push([r.score.toFixed(2), r.path, (r.snippet ?? '').slice(0, 120)]);
+      table.push([r.score.toFixed(2), r.path, r.snippet ?? '']);
     } else {
       table.push([r.score.toFixed(2), r.path]);
     }

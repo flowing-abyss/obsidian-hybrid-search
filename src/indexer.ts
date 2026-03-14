@@ -121,6 +121,7 @@ export async function indexFile(
       hash,
       chunks: chunks.map((c, i) => ({
         text: c.text,
+        headingPath: c.headingChain.length > 0 ? c.headingChain.join(' > ') : null,
         embedding: embeddings[i] ?? null,
       })),
     });
