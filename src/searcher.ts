@@ -817,16 +817,33 @@ async function searchByQuery(
           (c): RerankCandidate => ({ title: c.title, chunkText: c.chunkText, snippet: c.snippet }),
         ),
       );
-      // Sort by reranker logit. Reranker logits are unbounded and can be negative
-      // for moderately-relevant documents, so we convert to rank-based scores
-      // (always positive) to avoid the downstream threshold filter (default 0.0)
-      // silently discarding valid candidates.
-      const withLogits = candidates.map((c, i) => ({ c, logit: rerankScores[i] ?? 0 }));
-      withLogits.sort((a, b) => b.logit - a.logit);
-      results = withLogits.map(({ c }, rank) => ({
-        ...c,
-        score: 1 / (rank + 1), // rank-based: always positive, order preserved
+      // Position-aware blending: mix normalized hybrid score with sigmoid(logit).
+      // Pre-rerank hybrid position determines how much we trust retrieval vs reranker:
+      //   ranks  0-9  → 75% hybrid + 25% reranker  (high retrieval confidence)
+      //   ranks 10-19 → 60% hybrid + 40% reranker
+      //   ranks 20+   → 40% hybrid + 60% reranker  (low retrieval confidence)
+      // Hybrid scores are min-max normalized within the candidate batch so both
+      // signals live in [0, 1] before blending.
+      const withLogits = candidates.map((c, i) => ({
+        c,
+        logit: rerankScores[i] ?? 0,
+        origRank: i,
       }));
+
+      const hybridScores = withLogits.map(({ c }) => c.scores.hybrid ?? c.score);
+      const minH = Math.min(...hybridScores);
+      const maxH = Math.max(...hybridScores);
+      const rangeH = maxH - minH || 1; // guard against single-candidate edge case
+
+      const blended = withLogits.map(({ c, logit, origRank }) => {
+        const normHybrid = ((c.scores.hybrid ?? c.score) - minH) / rangeH;
+        const sigmaScore = 1 / (1 + Math.exp(-logit));
+        const w = origRank < 10 ? 0.75 : origRank < 20 ? 0.6 : 0.4;
+        return { c, score: w * normHybrid + (1 - w) * sigmaScore };
+      });
+
+      blended.sort((a, b) => b.score - a.score);
+      results = blended.map(({ c, score }) => ({ ...c, score }));
     } catch (err) {
       process.stderr.write(
         `Reranking failed: ${err instanceof Error ? err.message : String(err)}. Returning original order.\n`,
