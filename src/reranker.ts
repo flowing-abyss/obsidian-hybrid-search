@@ -84,10 +84,12 @@ export class CrossEncoderReranker {
       (AutoTokenizer as any).from_pretrained(this.modelName) as Promise<unknown>,
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- no types
       (AutoModelForSequenceClassification as any).from_pretrained(this.modelName, {
-        // v3 API: dtype replaces quantized:true; 'q8' = int8 quantized (32MB vs 571MB fp32)
-        dtype: 'q8',
-        // device:'auto' enables CoreML on Apple Silicon, CUDA on Linux GPU servers
-        device: 'auto',
+        // dtype:'int8' loads model_int8.onnx (~32MB vs ~571MB fp32/fp16).
+        // device:'cpu' is required — CoreML/CUDA (device:'auto') do not support
+        // q8 ONNX dtype and silently fall back to fp32, causing ~36GB memory usage.
+        // onnxruntime-node (native C++) on CPU is still leak-free unlike WASM.
+        dtype: 'int8',
+        device: 'cpu',
       }) as Promise<unknown>,
     ]);
 

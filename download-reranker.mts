@@ -5,7 +5,7 @@ console.log(`Downloading ${MODEL} (int8 quantized, ~32MB)...`);
 
 const [tokenizer, model] = await Promise.all([
   (AutoTokenizer as any).from_pretrained(MODEL),
-  (AutoModelForSequenceClassification as any).from_pretrained(MODEL, { dtype: 'q8', device: 'auto' }),
+  (AutoModelForSequenceClassification as any).from_pretrained(MODEL, { dtype: 'int8', device: 'cpu' }),
 ]);
 
 // Quick smoke test
@@ -14,4 +14,4 @@ const doc = 'Obsidian is a note-taking app.';
 const encoded = (tokenizer as any)([query], { text_pair: [doc], padding: true, truncation: true });
 const { logits } = await (model as any)(encoded);
 console.log('Smoke test logit:', logits.data[0]);
-console.log('Done! Model cached in node_modules/@huggingface/transformers/.cache/');
+console.log('Done!');
