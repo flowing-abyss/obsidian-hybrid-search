@@ -38,7 +38,8 @@ function parseArgs(): {
     ? goldenSetArg
     : path.join(repoRoot, goldenSetArg);
 
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
   const defaultOutput = path.join(repoRoot, `eval/results/${dateStr}.json`);
   const outputArg = get('--output') ?? defaultOutput;
   const outputPath = path.isAbsolute(outputArg) ? outputArg : path.join(repoRoot, outputArg);
