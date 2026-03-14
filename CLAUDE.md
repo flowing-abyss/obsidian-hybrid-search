@@ -30,6 +30,7 @@ npm run build && npm test && npm run lint && npm run knip
 - `npm test` catches BFS depth scoring regressions (`test/searcher.test.ts`)
 - `npm test` catches tag/scope filter regressions (`test/searcher.test.ts`)
 - `npm test` catches result shape contract regressions (`test/contract.test.ts`)
+- Run eval before and after to measure ranking quality impact (see below)
 
 **After modifying `db.ts`:**
 
@@ -53,6 +54,30 @@ Omitting "when not to use" for overlapping modes causes agents to misinterpret c
 
 **After adding new `SearchOptions` fields:**
 Update all three places: `SearchOptions` interface in `searcher.ts`, MCP tool schema in `server.ts`, and CLI flags in `cli.ts`.
+
+**After any change that affects ranking quality** (`searcher.ts`, `embedder.ts`, `chunker.ts`, indexing logic):
+
+Run eval before and after the change, then compare:
+
+```bash
+# Before your change — save baseline
+npm run eval -- \
+  --vault fixtures/obsidian-help/en \
+  --output eval/results/before-<feature>.json
+
+# Make your change, then run again
+npm run eval -- \
+  --vault fixtures/obsidian-help/en \
+  --output eval/results/after-<feature>.json
+
+# Compare
+npm run eval:compare -- \
+  eval/results/before-<feature>.json \
+  eval/results/after-<feature>.json
+```
+
+Baseline to beat: **nDCG@5 = 0.603** (hybrid, local model). See `eval/README.md` for full
+benchmark table and model configuration options (OpenAI, Ollama, OpenRouter).
 
 **Coverage gates** (enforced in CI via `npm run coverage`):
 
