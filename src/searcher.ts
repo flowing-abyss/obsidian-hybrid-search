@@ -2,6 +2,7 @@ import path from 'node:path';
 import { config } from './config.js';
 import { getDb, getLinksForPaths, getNoteByPath, hasVecTable } from './db.js';
 import { embed } from './embedder.js';
+import { reranker, type RerankCandidate } from './reranker.js';
 
 interface SearchResult {
   path: string;
@@ -700,7 +701,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   if (isPathLookup) {
     results = await searchSimilar(resolvedPath, limit);
   } else {
-    results = await searchByQuery(input, mode, limit, snippetLength);
+    results = await searchByQuery(input, mode, limit, snippetLength, options.rerank ?? false);
   }
 
   results = applyScope(results, options.scope);
@@ -731,12 +732,40 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   return final;
 }
 
+/**
+ * For candidates that don't yet have chunkText (BM25/fuzzy results),
+ * fetch the first chunk text from the DB. Mutates candidates in place.
+ * better-sqlite3 is synchronous — no async needed.
+ */
+function fetchMissingChunkTexts(candidates: RawResult[]): void {
+  const db = getDb();
+  const stmt = db.prepare<[string], { text: string }>(
+    `SELECT c.text
+     FROM chunks c
+     JOIN notes n ON n.id = c.note_id
+     WHERE n.path = ?
+     ORDER BY c.chunk_index
+     LIMIT 1`,
+  );
+  for (const r of candidates) {
+    if (r.chunkText) continue;
+    const row = stmt.get(r.path);
+    if (row) r.chunkText = row.text;
+  }
+}
+
 async function searchByQuery(
   query: string,
   mode: string,
   limit: number,
   snippetLength: number,
+  rerank = false,
 ): Promise<RawResult[]> {
+  if (rerank && mode !== 'hybrid') {
+    process.stderr.write('Reranking is only supported in hybrid mode. Ignoring --rerank.\n');
+    rerank = false;
+  }
+
   if (mode === 'fulltext') {
     return searchBm25(query, limit, snippetLength);
   }
@@ -770,7 +799,34 @@ async function searchByQuery(
   ]);
 
   // Weights reflect signal reliability: BM25 (exact keyword) > semantic > fuzzy_title (partial)
-  return rrfFusion([vectorResults, bm25Results, fuzzyResults], 60, [1.0, 2.0, 0.5]);
+  let results = rrfFusion([vectorResults, bm25Results, fuzzyResults], 60, [1.0, 2.0, 0.5]);
+
+  // Populate scores.hybrid for hybrid mode — always, regardless of rerank flag
+  for (const r of results) {
+    r.scores.hybrid = r.score;
+  }
+
+  if (rerank && results.length > 1) {
+    try {
+      const candidates = results.slice(0, candidateLimit);
+      fetchMissingChunkTexts(candidates); // sync — better-sqlite3 has no async API
+      const rerankScores = await reranker.scoreAll(
+        query,
+        candidates.map(
+          (c): RerankCandidate => ({ title: c.title, chunkText: c.chunkText, snippet: c.snippet }),
+        ),
+      );
+      results = candidates
+        .map((c, i) => ({ ...c, score: rerankScores[i] ?? 0 }))
+        .sort((a, b) => b.score - a.score);
+    } catch (err) {
+      process.stderr.write(
+        `Reranking failed: ${err instanceof Error ? err.message : String(err)}. Returning original order.\n`,
+      );
+    }
+  }
+
+  return results;
 }
 
 async function searchSimilar(notePath: string, limit: number): Promise<RawResult[]> {
