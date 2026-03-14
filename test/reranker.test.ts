@@ -7,7 +7,7 @@ process.env.OBSIDIAN_VAULT_PATH = '/tmp/ohs-reranker-test';
 const { CrossEncoderReranker } = await import('../src/reranker.js');
 
 // ─── Mock pipeline factory ────────────────────────────────────────────────────
-// Simulates @xenova/transformers text-classification output:
+// Simulates @huggingface/transformers text-classification output:
 // batch input → Array<Array<{label, score}>> (one array of labels per candidate)
 function makeMockPipeline(
   scoreFn: (inputIndex: number) => number,

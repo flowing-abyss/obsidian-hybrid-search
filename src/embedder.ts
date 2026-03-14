@@ -101,7 +101,7 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   'snowflake-arctic-embed': 512,
   'paraphrase-multilingual': 512,
 
-  // ── Xenova / @xenova/transformers local models ────────────────────
+  // ── Xenova-prefix models (compatible with @huggingface/transformers v3) ────────────────────
   'Xenova/multilingual-e5-small': 512,
   'Xenova/multilingual-e5-base': 512,
   'Xenova/nomic-embed-text-v1.5': 8192,
@@ -138,9 +138,9 @@ export async function getContextLength(): Promise<number> {
     }
     // Fallback: read from pipeline config
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @xenova/transformers has no TypeScript types
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
       const pipeline = await getLocalPipeline();
-      /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- @xenova/transformers has no TypeScript types */
+      /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- @huggingface/transformers has no TypeScript types */
       const tokenizerMax: number | undefined = pipeline.tokenizer?.model_max_length;
       const modelMax: number | undefined = pipeline.model?.config?.max_position_embeddings;
       const maxLen: number | undefined = tokenizerMax ?? modelMax;
@@ -179,10 +179,13 @@ export function primeEmbeddingDim(dim: number): void {
 
 async function getLocalPipeline() {
   if (!localPipeline) {
-    const { pipeline } = await import('@xenova/transformers');
-    localPipeline = await pipeline('feature-extraction', LOCAL_MODEL);
+    const { pipeline } = await import('@huggingface/transformers');
+    localPipeline = await pipeline('feature-extraction', LOCAL_MODEL, {
+      // device:'auto' enables CoreML on Apple Silicon, CUDA on Linux GPU servers
+      device: 'auto',
+    });
   }
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- @xenova/transformers has no TypeScript types
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- @huggingface/transformers has no TypeScript types
   return localPipeline;
 }
 
@@ -308,7 +311,7 @@ async function embedLocal(
   texts: string[],
   type: 'query' | 'document',
 ): Promise<(Float32Array | null)[]> {
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @xenova/transformers has no TypeScript types
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
   const pipeline = await getLocalPipeline();
   const results: (Float32Array | null)[] = [];
   const prefix = type === 'query' ? 'query: ' : 'passage: ';
@@ -317,7 +320,7 @@ async function embedLocal(
     const batch = texts.slice(i, i + config.batchSize);
     const batchResults = await Promise.all(
       batch.map(async (text) => {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call -- @xenova/transformers has no TypeScript types for pipeline output
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call -- @huggingface/transformers has no TypeScript types for pipeline output
         const output = await pipeline(prefix + text, { pooling: 'mean', normalize: true });
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
         return new Float32Array(output.data);

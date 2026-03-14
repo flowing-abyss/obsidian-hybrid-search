@@ -1,12 +1,11 @@
-import { AutoTokenizer, AutoModelForSequenceClassification } from '@xenova/transformers';
+import { AutoTokenizer, AutoModelForSequenceClassification } from '@huggingface/transformers';
 
 const MODEL = 'onnx-community/bge-reranker-v2-m3-ONNX';
-console.log(`Downloading ${MODEL} (~32MB int8 quantized)...`);
+console.log(`Downloading ${MODEL} (int8 quantized, ~32MB)...`);
 
-// Load tokenizer + model directly (same path as reranker.ts uses)
 const [tokenizer, model] = await Promise.all([
   (AutoTokenizer as any).from_pretrained(MODEL),
-  (AutoModelForSequenceClassification as any).from_pretrained(MODEL, { quantized: true }),
+  (AutoModelForSequenceClassification as any).from_pretrained(MODEL, { dtype: 'q8', device: 'auto' }),
 ]);
 
 // Quick smoke test
@@ -15,4 +14,4 @@ const doc = 'Obsidian is a note-taking app.';
 const encoded = (tokenizer as any)([query], { text_pair: [doc], padding: true, truncation: true });
 const { logits } = await (model as any)(encoded);
 console.log('Smoke test logit:', logits.data[0]);
-console.log('Done! Model cached in ~/.cache/');
+console.log('Done! Model cached in node_modules/@huggingface/transformers/.cache/');

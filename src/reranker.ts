@@ -37,7 +37,7 @@ export class CrossEncoderReranker {
         text_pair: `${c.title}\n\n${c.chunkText ?? c.snippet}`,
       }));
 
-      // @xenova/transformers text-classification batch output:
+      // @huggingface/transformers text-classification batch output:
       // Array<Array<{label: string; score: number}>> — one array of labels per input
       // BGE reranker labels: LABEL_0 = not relevant, LABEL_1 = relevant
       // Do not cast to a concrete type — noUncheckedIndexedAccess must stay active
@@ -71,21 +71,24 @@ export class CrossEncoderReranker {
   }
 
   /** Separated for testability — tests can override _loadModel to count invocations. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @xenova/transformers has no types
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @huggingface/transformers has no types
   protected async _loadModel(): Promise<any> {
     // We intentionally bypass the high-level pipeline() here. TextClassificationPipeline:
     // 1. Does not pass text_pair to the tokenizer, so pairs are never encoded together.
     // 2. Always applies softmax — useless for BGE reranker (1 output neuron → always 1.0).
     // Instead, load tokenizer + model directly and return raw logits as relevance scores.
     const { AutoTokenizer, AutoModelForSequenceClassification } =
-      await import('@xenova/transformers');
+      await import('@huggingface/transformers');
     const [tokenizer, model] = await Promise.all([
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- no types
       (AutoTokenizer as any).from_pretrained(this.modelName) as Promise<unknown>,
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- no types
-      (AutoModelForSequenceClassification as any).from_pretrained(
-        this.modelName,
-      ) as Promise<unknown>,
+      (AutoModelForSequenceClassification as any).from_pretrained(this.modelName, {
+        // v3 API: dtype replaces quantized:true; 'q8' = int8 quantized (32MB vs 571MB fp32)
+        dtype: 'q8',
+        // device:'auto' enables CoreML on Apple Silicon, CUDA on Linux GPU servers
+        device: 'auto',
+      }) as Promise<unknown>,
     ]);
 
     // Return a function with the same signature as the pipeline mock used in tests:
