@@ -22,6 +22,7 @@ function parseArgs(): {
   goldenSet: string;
   outputArg: string | undefined;
   k: number;
+  rerank: boolean;
 } {
   const args = process.argv.slice(2);
   const get = (flag: string): string | undefined => {
@@ -32,13 +33,14 @@ function parseArgs(): {
   const vaultArg = get('--vault') ?? 'fixtures/obsidian-help/en';
   const goldenSetArg = get('--golden-set') ?? 'eval/golden-sets/obsidian-help.json';
   const k = parseInt(get('--k') ?? '10', 10);
+  const rerank = args.includes('--rerank');
 
   const vaultPath = path.isAbsolute(vaultArg) ? vaultArg : path.join(repoRoot, vaultArg);
   const goldenSetPath = path.isAbsolute(goldenSetArg)
     ? goldenSetArg
     : path.join(repoRoot, goldenSetArg);
 
-  return { vault: vaultPath, goldenSet: goldenSetPath, outputArg: get('--output'), k };
+  return { vault: vaultPath, goldenSet: goldenSetPath, outputArg: get('--output'), k, rerank };
 }
 
 function buildOutputPath(outputArg: string | undefined, vault: string, model: string): string {
@@ -68,7 +70,7 @@ interface GoldenQuery {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const { vault, goldenSet, outputArg, k } = parseArgs();
+  const { vault, goldenSet, outputArg, k, rerank } = parseArgs();
 
   // 1. Set vault path BEFORE importing src modules
   process.env.OBSIDIAN_VAULT_PATH = vault;
@@ -76,6 +78,7 @@ async function main(): Promise<void> {
   console.log(`[eval] vault:      ${vault}`);
   console.log(`[eval] golden set: ${goldenSet}`);
   console.log(`[eval] k:          ${k}`);
+  console.log(`[eval] rerank:     ${String(rerank)}`);
   console.log();
 
   // 2. Dynamic imports (after env is set)
@@ -135,7 +138,7 @@ async function main(): Promise<void> {
 
   for (const q of queries) {
     process.stdout.write(`[eval] running ${q.id}: "${q.query}"...`);
-    const results = await search(q.query, { mode: 'hybrid', limit: k });
+    const results = await search(q.query, { mode: 'hybrid', limit: k, rerank });
     const resultPaths = results.map((r) => r.path);
 
     const qNdcg5 = ndcg(resultPaths, q.relevant_paths, q.partial_paths, 5);
@@ -184,6 +187,7 @@ async function main(): Promise<void> {
       date: new Date().toISOString(),
       ohs_version: pkg.version,
       model,
+      rerank,
       vault: path.relative(repoRoot, vault),
       note_count: noteCount,
       golden_set: path.relative(repoRoot, goldenSet),
