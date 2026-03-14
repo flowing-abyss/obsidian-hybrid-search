@@ -172,6 +172,7 @@ The local model (`Xenova/multilingual-e5-small`) downloads ~117 MB on first run 
 | `OPENAI_BASE_URL`          | No            | `https://api.openai.com/v1`          | Override for Ollama/OpenRouter        |
 | `EMBEDDING_MODEL`          | No            | `text-embedding-3-small`             | Any OpenAI-compatible embedding model |
 | `OBSIDIAN_IGNORE_PATTERNS` | No            | `.obsidian/**,templates/**,*.canvas` | Comma-separated glob patterns         |
+| `RERANKER_MODEL`           | No            | `Xenova/bge-reranker-v2-m3`          | Cross-encoder model for `--rerank`    |
 
 ## MCP Tools
 
