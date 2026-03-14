@@ -37,15 +37,25 @@ export class CrossEncoderReranker {
         text_pair: `${c.title}\n\n${c.chunkText ?? c.snippet}`,
       }));
 
-      // @huggingface/transformers text-classification batch output:
-      // Array<Array<{label: string; score: number}>> — one array of labels per input
-      // BGE reranker labels: LABEL_0 = not relevant, LABEL_1 = relevant
-      // Do not cast to a concrete type — noUncheckedIndexedAccess must stay active
-      const outputs: Array<Array<{ label: string; score: number }> | undefined> = (await (
-        this.pipeline as (i: unknown[], o?: unknown) => Promise<unknown>
-      )(inputs, {
-        truncation: true,
-      })) as Array<Array<{ label: string; score: number }> | undefined>;
+      // Process in small sub-batches to cap peak attention memory.
+      // Attention activations grow O(batch × seq_len²): batch=20 with seq=512
+      // causes ~10 GB of float32 intermediates per transformer layer.
+      // batch=4 reduces this 25x while adding minimal latency overhead.
+      const BATCH_SIZE = 4;
+      const outputs: Array<Array<{ label: string; score: number }> | undefined> = [];
+      for (let i = 0; i < inputs.length; i += BATCH_SIZE) {
+        const batch = inputs.slice(i, i + BATCH_SIZE);
+        // @huggingface/transformers text-classification batch output:
+        // Array<Array<{label: string; score: number}>> — one array of labels per input
+        // BGE reranker labels: LABEL_0 = not relevant, LABEL_1 = relevant
+        // Do not cast to a concrete type — noUncheckedIndexedAccess must stay active
+        const batchOutputs = (await (
+          this.pipeline as (i: unknown[], o?: unknown) => Promise<unknown>
+        )(batch, {
+          truncation: true,
+        })) as Array<Array<{ label: string; score: number }> | undefined>;
+        outputs.push(...batchOutputs);
+      }
 
       return candidates.map((_, i) => outputs[i]?.find((x) => x.label === 'LABEL_1')?.score ?? 0);
     } catch (err) {

@@ -47,6 +47,7 @@
     "cli-table3": "^0.6.3",
     "commander": "^12.0.0",
     "gray-matter": "^4.0.3",
+    "onnxruntime-node": "^1.24.3",
     "sqlite-vec": "latest"
   },
   "devDependencies": {
