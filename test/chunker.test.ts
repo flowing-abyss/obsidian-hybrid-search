@@ -42,6 +42,102 @@ describe('slidingWindow', () => {
   });
 });
 
+describe('splitBySections heading chain', () => {
+  it('single-level heading gets chain with itself', () => {
+    const content = `## Methods\n\nContent about methods that is long enough to pass filter.\n\n## Results\n\nContent about results that is long enough to pass filter.`;
+    const sections = splitBySections(content);
+    assert.deepEqual(sections[0]!.headingChain, ['## Methods']);
+    assert.deepEqual(sections[1]!.headingChain, ['## Results']);
+  });
+
+  it('nested headings build full ancestor chain', () => {
+    const body = 'Body content that is long enough to pass the minimum length filter.';
+    const content = `# Guide\n\n${body}\n\n## Installation\n\n${body}\n\n### Requirements\n\n${body}`;
+    const sections = splitBySections(content);
+    assert.deepEqual(sections[0]!.headingChain, ['# Guide']);
+    assert.deepEqual(sections[1]!.headingChain, ['# Guide', '## Installation']);
+    assert.deepEqual(sections[2]!.headingChain, ['# Guide', '## Installation', '### Requirements']);
+  });
+
+  it('same-level heading resets deeper ancestors', () => {
+    const body = 'Body content that is long enough to pass the minimum length filter.';
+    const content = `# Top\n\n${body}\n\n## Alpha\n\n${body}\n\n### Alpha sub\n\n${body}\n\n## Beta\n\n${body}`;
+    const sections = splitBySections(content);
+    const beta = sections.find((s) => s.heading === '## Beta')!;
+    assert.deepEqual(beta.headingChain, ['# Top', '## Beta']);
+  });
+
+  it('skipped heading level does not crash and includes available ancestors', () => {
+    const body = 'Body content that is long enough to pass the minimum length filter.';
+    const content = `# Top\n\n${body}\n\n### Skipped level\n\n${body}`;
+    const sections = splitBySections(content);
+    assert.equal(sections.length, 2);
+    assert.deepEqual(sections[1]!.headingChain, ['# Top', '### Skipped level']);
+  });
+
+  it('heading with no space after # treated as body text, not heading', () => {
+    const content = `## Real Heading\n\nBody text and ##NotAHeading is just inline text that is long enough.`;
+    const sections = splitBySections(content);
+    assert.equal(sections.length, 1);
+    assert.deepEqual(sections[0]!.headingChain, ['## Real Heading']);
+  });
+
+  it('# lines inside fenced code blocks are not treated as headings', () => {
+    const body = 'Body content that is long enough to pass the minimum length filter.';
+    const content = `## Real Section\n\n${body}\n\n\`\`\`shell\n# this is a comment\nobsidian daily:append content="test"\n\`\`\`\n\nMore body content after code block.\n\n## Next Section\n\n${body}`;
+    const sections = splitBySections(content);
+    // Should have exactly 2 sections (Real Section and Next Section), not 3
+    assert.equal(sections.length, 2);
+    assert.equal(sections[0]!.heading, '## Real Section');
+    assert.equal(sections[1]!.heading, '## Next Section');
+    assert.deepEqual(sections[0]!.headingChain, ['## Real Section']);
+    assert.deepEqual(sections[1]!.headingChain, ['## Next Section']);
+  });
+
+  it('handles unclosed code fence without crashing', () => {
+    const body = 'Body content that is long enough to pass the minimum length filter.';
+    const content = `## Section\n\n${body}\n\n\`\`\`\n# orphan comment with no closing fence\nsome code\n`;
+    const sections = splitBySections(content);
+    assert.equal(sections.length, 1);
+    assert.equal(sections[0]!.heading, '## Section');
+  });
+
+  it('content before any heading has empty chain', () => {
+    const body = 'Body content that is long enough to pass the minimum length filter.';
+    const content = `${body}\n\n## Later Heading\n\n${body}`;
+    const sections = splitBySections(content);
+    assert.deepEqual(sections[0]!.headingChain, []);
+    assert.deepEqual(sections[1]!.headingChain, ['## Later Heading']);
+  });
+});
+
+describe('chunkNote heading chain', () => {
+  it('chunks from sections carry headingChain', () => {
+    const body = 'Body content that is long enough to pass the minimum length filter.';
+    const content = `# Guide\n\n${body}\n\n## Details\n\n${body}`;
+    // Use small contextLength to force section-based splitting
+    const chunks = chunkNote(content, 30);
+    assert.equal(chunks.length, 2);
+    assert.deepEqual(chunks[0]!.headingChain, ['# Guide']);
+    assert.deepEqual(chunks[1]!.headingChain, ['# Guide', '## Details']);
+  });
+
+  it('sliding-window chunks on notes without headings have empty chain', () => {
+    const content = 'word '.repeat(3000);
+    const chunks = chunkNote(content, 100);
+    assert.ok(chunks.length > 1);
+    for (const chunk of chunks) {
+      assert.deepEqual(chunk.headingChain, []);
+    }
+  });
+
+  it('short note with no heading has empty chain', () => {
+    const content = 'A short note about Zettelkasten.';
+    const chunks = chunkNote(content, 512);
+    assert.deepEqual(chunks[0]!.headingChain, []);
+  });
+});
+
 describe('chunkNote', () => {
   it('short note returns single chunk', () => {
     const content = 'A short note about Zettelkasten method for personal knowledge management.';

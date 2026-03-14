@@ -100,9 +100,15 @@ export async function indexFile(
       return 'skipped';
     }
 
-    // Prepend title to first chunk — improves semantic recall for the note as a whole
-    // (idea from obsidian-similar-notes plugin)
-    const textsToEmbed = chunks.map((c, i) => (i === 0 && title ? `${title}\n${c.text}` : c.text));
+    // Prepend title + heading chain to every chunk so embeddings carry document context.
+    // Heading markers (# / ## / ###) are stripped for readability in the prefix.
+    // Chunks with no headings get just the title. This improves semantic recall for
+    // non-first chunks that would otherwise be context-free.
+    const textsToEmbed = chunks.map((c) => {
+      const cleanChain = c.headingChain.map((h) => h.replace(/^#{1,6}\s+/, ''));
+      const prefix = cleanChain.length > 0 ? `${title} > ${cleanChain.join(' > ')}` : title;
+      return prefix ? `${prefix}\n${c.text}` : c.text;
+    });
     const embeddings = await embed(textsToEmbed, 'document');
 
     upsertNote({
