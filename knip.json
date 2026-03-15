@@ -1,4 +1,5 @@
 {
   "entry": ["src/cli.ts", "src/server.ts", "eval/evaluate.ts", "eval/compare.ts"],
-  "project": ["src/**/*.ts", "eval/**/*.ts"]
+  "project": ["src/**/*.ts", "eval/**/*.ts"],
+  "ignoreExportsUsedInFile": true
 }

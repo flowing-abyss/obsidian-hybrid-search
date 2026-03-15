@@ -4,6 +4,25 @@ import { getDb, getLinksForPaths, getNoteByPath, hasVecTable } from './db.js';
 import { embed } from './embedder.js';
 import { reranker, type RerankCandidate } from './reranker.js';
 
+export interface NoteReadResult {
+  path: string;
+  found: true;
+  title: string;
+  aliases: string[];
+  tags: string[];
+  content: string;
+  links: string[];
+  backlinks: string[];
+}
+
+export interface NoteReadMiss {
+  path: string;
+  found: false;
+  suggestions: string[];
+}
+
+export type ReadResult = NoteReadResult | NoteReadMiss;
+
 interface SearchResult {
   path: string;
   title: string;
@@ -947,4 +966,65 @@ async function searchSimilar(notePath: string, limit: number): Promise<RawResult
   if (!f32) return [];
 
   return (await searchVector(f32, limit + 1)).filter((r) => r.path !== note.path).slice(0, limit);
+}
+
+/**
+ * Fetch one or more notes by vault-relative path.
+ * Returns enriched note data (title, aliases, tags, content, links, backlinks).
+ * On path miss: returns found:false with top-3 fuzzy title suggestions.
+ * Results are returned in the same order as the input paths array.
+ */
+export function readNotes(
+  paths: string[],
+  options: { snippetLength?: number; related?: boolean } = {},
+): ReadResult[] {
+  const { snippetLength, related = true } = options;
+  const results: ReadResult[] = [];
+
+  for (const inputPath of paths) {
+    const normalizedPath = inputPath.normalize('NFD');
+    const note = getNoteByPath(normalizedPath);
+
+    if (!note) {
+      const basename = path.basename(inputPath, '.md');
+      const suggestions = searchFuzzyTitle(basename, 3).map((r) => r.path);
+      results.push({ path: inputPath, found: false, suggestions });
+      continue;
+    }
+
+    let tags: string[];
+    try {
+      tags = JSON.parse(note.tags || '[]') as string[];
+    } catch {
+      tags = [];
+    }
+
+    const aliases = parseAliases(note.aliases);
+    let content = note.content ?? '';
+    if (snippetLength !== undefined && content.length > snippetLength) {
+      content = content.slice(0, snippetLength);
+    }
+
+    let links: string[] = [];
+    let backlinks: string[] = [];
+
+    if (related) {
+      const linkMap = getLinksForPaths([normalizedPath]);
+      links = linkMap.links.get(normalizedPath) ?? [];
+      backlinks = linkMap.backlinks.get(normalizedPath) ?? [];
+    }
+
+    results.push({
+      path: note.path,
+      found: true,
+      title: note.title ?? '',
+      aliases,
+      tags,
+      content,
+      links,
+      backlinks,
+    });
+  }
+
+  return results;
 }
