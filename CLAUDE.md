@@ -22,7 +22,7 @@ npm run format:check   # Prettier check (used in CI)
 Run this sequence after any code change to get full feedback before committing:
 
 ```bash
-npm run build && npm test && npm run lint && npm run knip
+npm run format && npm run build && npm test && npm run lint && npm run knip
 ```
 
 **After modifying `searcher.ts`:**
