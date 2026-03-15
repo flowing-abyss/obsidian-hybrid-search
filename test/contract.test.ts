@@ -18,7 +18,7 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 // ─── Module imports ───────────────────────────────────────────────────────────
 
 const { openDb, initVecTable, upsertNote } = await import('../src/db.js');
-const { search } = await import('../src/searcher.js');
+const { readNotes, search } = await import('../src/searcher.js');
 
 const fakeEmbedding = new Float32Array([0.5, 0.5, 0.5, 0.5]);
 
@@ -272,5 +272,37 @@ describe('related mode result shape', () => {
     const source = results.find((r) => r.path === 'beta.md');
     assert.ok(source, 'source note should always be in related results');
     assert.strictEqual(source.depth, 0, 'source note should be at depth 0');
+  });
+});
+
+// ─── readNotes() contract ─────────────────────────────────────────────────────
+
+describe('readNotes() result shape contract', () => {
+  it('hit result has all required fields', () => {
+    const [result] = readNotes(['alpha.md']);
+    assert.ok(result?.found === true);
+    if (!result.found) return;
+    assert.ok(typeof result.path === 'string');
+    assert.ok(typeof result.title === 'string');
+    assert.ok(Array.isArray(result.aliases));
+    assert.ok(Array.isArray(result.tags));
+    assert.ok(typeof result.content === 'string');
+    assert.ok(Array.isArray(result.links));
+    assert.ok(Array.isArray(result.backlinks));
+  });
+
+  it('miss result has path, found:false, suggestions[]', () => {
+    const [result] = readNotes(['does-not-exist.md']);
+    assert.ok(result);
+    assert.strictEqual(result.found, false);
+    assert.ok(typeof result.path === 'string');
+    assert.ok(Array.isArray(result.suggestions));
+  });
+
+  it('batch returns one result per input path in order', () => {
+    const results = readNotes(['alpha.md', 'beta.md']);
+    assert.strictEqual(results.length, 2);
+    assert.strictEqual(results[0]?.path, 'alpha.md');
+    assert.strictEqual(results[1]?.path, 'beta.md');
   });
 });
