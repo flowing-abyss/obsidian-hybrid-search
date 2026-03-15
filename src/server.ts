@@ -25,7 +25,7 @@ import {
   startBackgroundIndexing,
   startWatcher,
 } from './indexer.js';
-import { search } from './searcher.js';
+import { readNotes, search } from './searcher.js';
 
 const _dir = dirname(fileURLToPath(import.meta.url));
 // Resolve package.json whether running from src/ (tsx) or compiled dist/src/ (node)
@@ -284,6 +284,41 @@ async function main() {
         },
       },
       {
+        name: 'read',
+        description:
+          "Fetch one or more Obsidian notes by vault-relative path and return their full content with metadata. " +
+          'Use after search or related traversal to read the actual content of notes you found. ' +
+          'Returns title, aliases, tags, content (full text), links (outgoing wikilinks), and backlinks. ' +
+          'On path miss: returns found:false with top-3 fuzzy title suggestions — does not throw. ' +
+          'Accepts a single path string or an array of paths for batch reading. ' +
+          'Use snippet_length to cap content size when reading many notes at once. ' +
+          'related:false skips link/backlink lookup (faster when you only need content).',
+        inputSchema: {
+          type: 'object',
+          required: ['paths'],
+          properties: {
+            paths: {
+              description:
+                'Vault-relative path(s) to read, e.g. "notes/foo.md" or ["notes/foo.md", "notes/bar.md"]. ' +
+                'Accepts a single string or an array.',
+              oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+            },
+            snippet_length: {
+              type: 'number',
+              description:
+                'Max characters of content returned per note (default: full content). ' +
+                'Use to limit context window usage when reading multiple notes, e.g. 2000.',
+            },
+            related: {
+              type: 'boolean',
+              description:
+                'Include links[] and backlinks[] in the response (default: true). ' +
+                'Set to false for faster reads when you only need the content.',
+            },
+          },
+        },
+      },
+      {
         name: 'status',
         description: 'Get indexing status and configuration',
         inputSchema: {
@@ -367,6 +402,22 @@ async function main() {
               text: statusText,
             },
           ],
+        };
+      }
+
+      if (name === 'read') {
+        const rawPaths = parseArrayParam(a.paths);
+        const pathsArray: string[] = Array.isArray(rawPaths)
+          ? rawPaths
+          : rawPaths
+            ? [rawPaths]
+            : [];
+        const results = readNotes(pathsArray, {
+          snippetLength: a.snippet_length as number | undefined,
+          related: a.related !== false,
+        });
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ results }, null, 2) }],
         };
       }
 
