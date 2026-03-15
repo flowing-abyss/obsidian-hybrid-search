@@ -101,6 +101,32 @@ afterAll(() => {
   rmSync(vaultDir, { recursive: true, force: true });
 });
 
+// ─── frontmatter storage ─────────────────────────────────────────────────────
+
+describe('upsertNote frontmatter storage', () => {
+  it('stores frontmatter and retrieves it via getNoteByPath', () => {
+    upsertNote({
+      path: 'fm-test.md',
+      title: 'Frontmatter Test',
+      tags: [],
+      content: 'body content',
+      frontmatter: 'category:\n  - "[[pkm-overview]]"\n',
+      mtime: Date.now(),
+      hash: 'fm-test',
+      chunks: [{ text: 'body content', embedding: fakeEmbedding }],
+    });
+    const note = getNoteByPath('fm-test.md');
+    assert.ok(note, 'note should be found');
+    assert.equal(note.frontmatter, 'category:\n  - "[[pkm-overview]]"\n');
+  });
+
+  it('returns empty string when frontmatter is not provided', () => {
+    const note = getNoteByPath('zettelkasten-deep.md');
+    assert.ok(note, 'note should be found');
+    assert.equal(note.frontmatter, '');
+  });
+});
+
 // ─── title prepended to first chunk ──────────────────────────────────────────
 
 describe('title prepended to first chunk', () => {

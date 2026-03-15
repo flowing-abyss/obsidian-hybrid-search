@@ -82,7 +82,9 @@ export async function indexFile(
       return 'skipped';
     }
 
-    const { data: frontmatter, content } = matter(raw);
+    const parsed = matter(raw);
+    const { data: frontmatter, content } = parsed;
+    const frontmatterRaw: string = parsed.matter;
     const title = (frontmatter.title as string | undefined) ?? path.basename(fullPath, '.md');
     const frontmatterTags: string[] = Array.isArray(frontmatter.tags)
       ? frontmatter.tags.map(String)
@@ -117,6 +119,7 @@ export async function indexFile(
       tags,
       aliases,
       content,
+      frontmatter: frontmatterRaw,
       mtime: stat.mtimeMs,
       hash,
       chunks: chunks.map((c, i) => ({
@@ -126,7 +129,7 @@ export async function indexFile(
       })),
     });
 
-    const resolvedLinks = resolveWikilinks(content, relPath);
+    const resolvedLinks = resolveWikilinks(frontmatterRaw + '\n' + content, relPath);
     upsertLinks(relPath, resolvedLinks);
 
     bumpIndexVersion();
@@ -154,12 +157,15 @@ export async function populateMissingLinks(): Promise<void> {
   )?.value;
   if (done) return;
 
-  const notes = db.prepare('SELECT path, content FROM notes WHERE content IS NOT NULL').all() as {
+  const notes = db
+    .prepare('SELECT path, content, frontmatter FROM notes WHERE content IS NOT NULL')
+    .all() as {
     path: string;
     content: string;
+    frontmatter: string;
   }[];
   for (const note of notes) {
-    const links = resolveWikilinks(note.content, note.path);
+    const links = resolveWikilinks((note.frontmatter || '') + '\n' + note.content, note.path);
     upsertLinks(note.path, links);
   }
 
@@ -173,12 +179,15 @@ export async function populateMissingLinks(): Promise<void> {
  */
 async function resolveAllLinks(): Promise<void> {
   const db = getDb();
-  const notes = db.prepare('SELECT path, content FROM notes WHERE content IS NOT NULL').all() as {
+  const notes = db
+    .prepare('SELECT path, content, frontmatter FROM notes WHERE content IS NOT NULL')
+    .all() as {
     path: string;
     content: string;
+    frontmatter: string;
   }[];
   for (const note of notes) {
-    const links = resolveWikilinks(note.content, note.path);
+    const links = resolveWikilinks((note.frontmatter || '') + '\n' + note.content, note.path);
     upsertLinks(note.path, links);
   }
 }

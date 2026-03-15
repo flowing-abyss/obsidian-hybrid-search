@@ -54,6 +54,9 @@ function runMigrations(db: DB): void {
   if (!cols.some((c) => c.name === 'aliases')) {
     db.exec('ALTER TABLE notes ADD COLUMN aliases TEXT');
   }
+  if (!cols.some((c) => c.name === 'frontmatter')) {
+    db.exec("ALTER TABLE notes ADD COLUMN frontmatter TEXT NOT NULL DEFAULT ''");
+  }
 
   const chunkCols = db.prepare('PRAGMA table_info(chunks)').all() as { name: string }[];
   if (!chunkCols.some((c) => c.name === 'embedding_status')) {
@@ -273,6 +276,7 @@ interface NoteRow {
   tags: string;
   aliases: string | null;
   content: string;
+  frontmatter: string;
   mtime: number;
   hash: string;
 }
@@ -295,6 +299,7 @@ export function upsertNote(note: {
   tags: string[];
   aliases?: string[];
   content: string;
+  frontmatter?: string;
   mtime: number;
   hash: string;
   chunks: { text: string; headingPath?: string | null; embedding: Float32Array | null }[];
@@ -317,7 +322,7 @@ export function upsertNote(note: {
 
     db.prepare(
       `
-      UPDATE notes SET title = ?, tags = ?, aliases = ?, content = ?, mtime = ?, hash = ?
+      UPDATE notes SET title = ?, tags = ?, aliases = ?, content = ?, frontmatter = ?, mtime = ?, hash = ?
       WHERE path = ?
     `,
     ).run(
@@ -325,6 +330,7 @@ export function upsertNote(note: {
       JSON.stringify(note.tags),
       aliasesJson,
       note.content,
+      note.frontmatter ?? '',
       note.mtime,
       note.hash,
       note.path,
@@ -339,8 +345,8 @@ export function upsertNote(note: {
     const result = db
       .prepare(
         `
-      INSERT INTO notes (path, title, tags, aliases, content, mtime, hash)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO notes (path, title, tags, aliases, content, frontmatter, mtime, hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
       )
       .run(
@@ -349,6 +355,7 @@ export function upsertNote(note: {
         JSON.stringify(note.tags),
         aliasesJson,
         note.content,
+        note.frontmatter ?? '',
         note.mtime,
         note.hash,
       );
