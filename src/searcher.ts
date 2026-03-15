@@ -56,6 +56,13 @@ interface SearchOptions {
   /** Explicit note path for similarity/related lookup — overrides the input heuristic */
   notePath?: string;
   rerank?: boolean;
+  /**
+   * Multi-query fan-out: run parallel searches for each query and merge via RRF.
+   * Use when you have 2–4 reformulations of the same question.
+   * Reranking (if enabled) is applied once after all results are merged.
+   * When length ≤ 1, falls back to single-query behaviour.
+   */
+  queries?: string[];
 }
 
 interface RawResult {
@@ -739,7 +746,8 @@ function cacheKey(input: string, options: SearchOptions): string {
   const tagStr = Array.isArray(options.tag) ? options.tag.join(',') : (options.tag ?? '');
   // Include reranker model so that changing RERANKER_MODEL invalidates the cache
   const rerankStr = options.rerank ? config.rerankerModel : '';
-  return `v${indexVersion}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}\0${rerankStr}`;
+  const queriesStr = options.queries && options.queries.length > 1 ? options.queries.join('|') : '';
+  return `v${indexVersion}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}\0${rerankStr}\0${queriesStr}`;
 }
 
 // eslint-disable-next-line sonarjs/cognitive-complexity -- primary search entry-point; complexity is inherent in the multi-mode, multi-filter pipeline
@@ -803,6 +811,26 @@ export async function search(input: string, options: SearchOptions = {}): Promis
 
   if (isPathLookup) {
     results = await searchSimilar(resolvedPath, limit);
+  } else if (options.queries && options.queries.length > 1) {
+    // Multi-query fan-out: run each query in parallel, merge via RRF, then rerank once.
+    // Each sub-search uses a larger candidate pool so RRF has enough signal to rank correctly.
+    const candidateLimit = Math.max(limit * 2, 20);
+    const perQueryResults = await Promise.all(
+      options.queries.map((q) => searchByQuery(q, mode, candidateLimit, snippetLength, false)),
+    );
+    results = rrfFusion(perQueryResults, 60);
+    // Populate scores.hybrid on merged results (mirrors single-query hybrid path)
+    for (const r of results) {
+      r.scores.hybrid = r.score;
+    }
+    // Rerank after full merge — only in hybrid mode
+    if (options.rerank) {
+      if (mode !== 'hybrid') {
+        process.stderr.write('Reranking is only supported in hybrid mode. Ignoring --rerank.\n');
+      } else {
+        results = await applyRerank(results, options.queries[0]!, candidateLimit);
+      }
+    }
   } else {
     results = await searchByQuery(input, mode, limit, snippetLength, options.rerank ?? false);
   }
@@ -854,6 +882,61 @@ function fetchMissingChunkTexts(candidates: RawResult[]): void {
     if (r.chunkText) continue;
     const row = stmt.get(r.path);
     if (row) r.chunkText = row.text;
+  }
+}
+
+/**
+ * Apply cross-encoder re-ranking to a candidate list.
+ * `query` is used as the reranker prompt (use primary query for multi-query).
+ * Mutates nothing — returns a new sorted array.
+ */
+async function applyRerank(
+  results: RawResult[],
+  query: string,
+  candidateLimit: number,
+): Promise<RawResult[]> {
+  if (results.length <= 1) return results;
+  try {
+    const candidates = results.slice(0, candidateLimit);
+    fetchMissingChunkTexts(candidates); // sync — better-sqlite3 has no async API
+    const rerankScores = await reranker.scoreAll(
+      query,
+      candidates.map(
+        (c): RerankCandidate => ({ title: c.title, chunkText: c.chunkText, snippet: c.snippet }),
+      ),
+    );
+    // Position-aware blending: mix normalized hybrid score with sigmoid(logit).
+    // Pre-rerank hybrid position determines how much we trust retrieval vs reranker:
+    //   ranks  0-9  → 75% hybrid + 25% reranker  (high retrieval confidence)
+    //   ranks 10-19 → 60% hybrid + 40% reranker
+    //   ranks 20+   → 40% hybrid + 60% reranker  (low retrieval confidence)
+    // Hybrid scores are min-max normalized within the candidate batch so both
+    // signals live in [0, 1] before blending.
+    const withLogits = candidates.map((c, i) => ({
+      c,
+      logit: rerankScores[i] ?? 0,
+      origRank: i,
+    }));
+
+    const hybridScores = withLogits.map(({ c }) => c.scores.hybrid ?? c.score);
+    const minH = Math.min(...hybridScores);
+    const maxH = Math.max(...hybridScores);
+    const rangeH = maxH - minH || 1; // guard against single-candidate edge case
+
+    const blended = withLogits.map(({ c, logit, origRank }) => {
+      const normHybrid = ((c.scores.hybrid ?? c.score) - minH) / rangeH;
+      const sigmaScore = 1 / (1 + Math.exp(-logit));
+      const w = origRank < 10 ? 0.75 : origRank < 20 ? 0.6 : 0.4;
+      return { c, score: w * normHybrid + (1 - w) * sigmaScore };
+    });
+
+    blended.sort((a, b) => b.score - a.score);
+    return blended.map(({ c, score }) => ({ ...c, score }));
+  } catch (err) {
+    process.stderr.write(
+      `Reranking failed: ${err instanceof Error ? err.message : String(err)}. Returning original order.\n`,
+    );
+    return results;
   }
 }
 
@@ -916,48 +999,8 @@ async function searchByQuery(
     r.scores.hybrid = r.score;
   }
 
-  if (rerank && results.length > 1) {
-    try {
-      const candidates = results.slice(0, candidateLimit);
-      fetchMissingChunkTexts(candidates); // sync — better-sqlite3 has no async API
-      const rerankScores = await reranker.scoreAll(
-        query,
-        candidates.map(
-          (c): RerankCandidate => ({ title: c.title, chunkText: c.chunkText, snippet: c.snippet }),
-        ),
-      );
-      // Position-aware blending: mix normalized hybrid score with sigmoid(logit).
-      // Pre-rerank hybrid position determines how much we trust retrieval vs reranker:
-      //   ranks  0-9  → 75% hybrid + 25% reranker  (high retrieval confidence)
-      //   ranks 10-19 → 60% hybrid + 40% reranker
-      //   ranks 20+   → 40% hybrid + 60% reranker  (low retrieval confidence)
-      // Hybrid scores are min-max normalized within the candidate batch so both
-      // signals live in [0, 1] before blending.
-      const withLogits = candidates.map((c, i) => ({
-        c,
-        logit: rerankScores[i] ?? 0,
-        origRank: i,
-      }));
-
-      const hybridScores = withLogits.map(({ c }) => c.scores.hybrid ?? c.score);
-      const minH = Math.min(...hybridScores);
-      const maxH = Math.max(...hybridScores);
-      const rangeH = maxH - minH || 1; // guard against single-candidate edge case
-
-      const blended = withLogits.map(({ c, logit, origRank }) => {
-        const normHybrid = ((c.scores.hybrid ?? c.score) - minH) / rangeH;
-        const sigmaScore = 1 / (1 + Math.exp(-logit));
-        const w = origRank < 10 ? 0.75 : origRank < 20 ? 0.6 : 0.4;
-        return { c, score: w * normHybrid + (1 - w) * sigmaScore };
-      });
-
-      blended.sort((a, b) => b.score - a.score);
-      results = blended.map(({ c, score }) => ({ ...c, score }));
-    } catch (err) {
-      process.stderr.write(
-        `Reranking failed: ${err instanceof Error ? err.message : String(err)}. Returning original order.\n`,
-      );
-    }
+  if (rerank) {
+    results = await applyRerank(results, query, candidateLimit);
   }
 
   return results;

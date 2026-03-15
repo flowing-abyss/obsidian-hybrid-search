@@ -4,7 +4,7 @@
 
 ```bash
 npm run build          # TypeScript compile (must pass before committing)
-npm test               # Unit tests (154 tests, ~1s, no external deps) via vitest
+npm test               # Unit tests (221 tests, ~1s, no external deps) via vitest
 npm run test:integration  # Integration tests against fixture vault (need OPENAI_API_KEY)
 npm run coverage       # Unit tests with v8 coverage (≥40% lines required)
 npm run knip           # Dead code / unused exports check (0 issues required)
@@ -35,6 +35,15 @@ npm run format && npm run build && npm test && npm run lint && npm run knip
 **After modifying `db.ts`:**
 
 - `npm test` catches NFD path storage, model change wipe, link integrity (`test/db.test.ts`)
+- If you changed the DB **schema** (new columns, new tables, altered FTS structure): delete the eval
+  fixture DB and regenerate the baseline so `test/eval/regression.test.ts` reflects the new state:
+  ```bash
+  rm -f fixtures/obsidian-help/en/.obsidian-hybrid-search.db
+  npm run eval -- --vault fixtures/obsidian-help/en --output eval/results/baseline-no-rerank.json
+  ```
+  Then commit the updated `baseline-no-rerank.json`. Do NOT update the thresholds in
+  `test/eval/regression.test.ts` unless the new metrics are genuinely better — the thresholds
+  are a quality floor, not a mirror of the latest run.
 
 **After modifying `server.ts` (MCP schema):**
 
@@ -76,8 +85,19 @@ npm run eval:compare -- \
   eval/results/after-<feature>.json
 ```
 
-Baseline to beat: **nDCG@5 = 0.603** (hybrid, local model). See `eval/README.md` for full
-benchmark table and model configuration options (OpenAI, Ollama, OpenRouter).
+Files in `eval/results/` are **working artifacts** — generate as many as you need and delete
+freely. The regression test (`test/eval/regression.test.ts`) does NOT read them; it only reads
+`eval/results/baseline-no-rerank.json` (the committed reference) and checks absolute thresholds.
+
+Current committed baseline: **nDCG@5 = 0.780** (hybrid, local model, no rerank, 20 queries).
+See `eval/README.md` for full benchmark table and model configuration options.
+
+**Updating regression test thresholds** — only when a change genuinely improves ranking:
+
+1. Run eval and confirm the new metrics are higher than the current thresholds
+2. Update `eval/results/baseline-no-rerank.json` with the new run
+3. Raise (never lower) the `FLOOR` values in `test/eval/regression.test.ts`
+4. Update the "Measured baseline" comment in that file to match
 
 **Coverage gates** (enforced in CI via `npm run coverage`):
 

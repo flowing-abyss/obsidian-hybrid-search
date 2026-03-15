@@ -196,7 +196,18 @@ async function main() {
           properties: {
             query: {
               type: 'string',
-              description: 'Text search query (use this for keyword/semantic search)',
+              description:
+                'Text search query. For multi-query fan-out (better recall), use queries[] instead or alongside this field.',
+            },
+            queries: {
+              type: 'array',
+              items: { type: 'string' },
+              description:
+                'Multi-query fan-out: pass 2–4 reformulations of the same question to improve recall. ' +
+                'The server runs all queries in parallel and merges results via RRF fusion — a note that ranks highly in any one query floats to the top. ' +
+                'Especially useful when the note may use different vocabulary (e.g. ["task management", "GTD productivity", "organizing todos"]). ' +
+                'If query is also provided, it is prepended to this list. ' +
+                'Reranking (rerank: true) is applied once after all results are merged, not per-query.',
             },
             path: {
               type: 'string',
@@ -342,7 +353,14 @@ async function main() {
     try {
       if (name === 'search') {
         const notePath = a.path as string | undefined;
-        const inputStr = notePath ?? (a.query as string | undefined) ?? '';
+        const singleQuery = (a.query as string | undefined) ?? '';
+        const extraQueriesRaw = a.queries;
+        const extraQueries: string[] = Array.isArray(extraQueriesRaw)
+          ? (extraQueriesRaw as string[])
+          : [];
+        // Combine query + queries into a unified list; filter empty strings
+        const allQueries = [singleQuery, ...extraQueries].filter(Boolean);
+        const inputStr = notePath ?? allQueries[0] ?? '';
         const results = await search(inputStr, {
           mode: a.mode as 'hybrid' | 'semantic' | 'fulltext' | 'title' | undefined,
           scope: parseArrayParam(a.scope),
@@ -355,6 +373,7 @@ async function main() {
           snippetLength: a.snippet_length as number | undefined,
           rerank: a.rerank as boolean | undefined,
           notePath,
+          queries: allQueries.length > 1 ? allQueries : undefined,
         });
         return {
           content: [{ type: 'text', text: JSON.stringify({ results }, null, 2) }],

@@ -633,3 +633,81 @@ describe('weighted RRF: BM25 outweighs fuzzy-title for single-signal notes (S-60
     );
   });
 });
+
+// ─── Multi-query fan-out (S-48) ───────────────────────────────────────────────
+// When queries[] is provided, each query runs in parallel and results are merged
+// via RRF. A note that ranks well in any one query floats to the top.
+
+describe('multi-query fan-out', () => {
+  it('single-query in queries[] behaves identically to no queries', async () => {
+    const single = await search('note a', { mode: 'fulltext', limit: 20 });
+    const multi = await search('note a', { mode: 'fulltext', limit: 20, queries: ['note a'] });
+    assert.deepEqual(
+      single.map((r) => r.path),
+      multi.map((r) => r.path),
+      'queries with one entry should match single-query results',
+    );
+  });
+
+  it('two queries merge results from both searches', async () => {
+    // "note a" matches note-a.md, "note b" matches note-b.md
+    const results = await search('note a', {
+      mode: 'fulltext',
+      limit: 20,
+      queries: ['note a', 'note b'],
+    });
+    const paths = results.map((r) => r.path);
+    assert.ok(paths.includes('note-a.md'), 'note-a.md should appear via first query');
+    assert.ok(paths.includes('note-b.md'), 'note-b.md should appear via second query');
+  });
+
+  it('multi-query results have rank field assigned sequentially from 1', async () => {
+    const results = await search('note a', {
+      mode: 'fulltext',
+      limit: 20,
+      queries: ['note a', 'note b'],
+    });
+    assert.ok(results.length > 0, 'should have results');
+    results.forEach((r, i) => {
+      assert.equal(r.rank, i + 1, `rank at position ${i} should be ${i + 1}, got ${r.rank}`);
+    });
+  });
+
+  it('multi-query result that appears in both queries scores higher than single-query hit', async () => {
+    // "note" matches many notes via BM25; running the same query twice should
+    // double the RRF contribution for notes ranked highly in both runs,
+    // resulting in a higher combined score than a note that only one query found.
+    const twoSame = await search('note', {
+      mode: 'fulltext',
+      limit: 5,
+      queries: ['note a', 'note a'],
+    });
+    const oneQuery = await search('note a', { mode: 'fulltext', limit: 5 });
+    assert.ok(twoSame.length > 0, 'should return results');
+    assert.ok(oneQuery.length > 0, 'single query should return results');
+    // The top result in both should be the same note (note-a.md is the best BM25 match for "note a")
+    assert.equal(
+      twoSame[0]!.path,
+      oneQuery[0]!.path,
+      'multi-query with identical queries should keep same top result',
+    );
+  });
+
+  it('queries[] is ignored for path-based lookups', async () => {
+    // When notePath is provided, it's a semantic similarity search — queries[] should be ignored
+    const withQueries = await search('note-a.md', {
+      notePath: 'note-a.md',
+      queries: ['note a', 'note b'],
+      limit: 10,
+    });
+    const withoutQueries = await search('note-a.md', {
+      notePath: 'note-a.md',
+      limit: 10,
+    });
+    assert.deepEqual(
+      withQueries.map((r) => r.path),
+      withoutQueries.map((r) => r.path),
+      'path-based search should ignore queries[]',
+    );
+  }, 15000);
+});

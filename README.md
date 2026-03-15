@@ -30,8 +30,10 @@ No external services required. A bundled `@huggingface/transformers` model handl
   - `--extended` adds a TAGS/ALIASES column to the CLI table showing frontmatter tags (`#tag`) and aliases
 - **Incremental indexing**
   - only re-indexes changed files; watches for edits in real time
+- **Multi-query fan-out**
+  - pass multiple queries at once (`ohs search "q1" "q2"` or `queries[]` in MCP); results are merged via RRF — a note that ranks well in any one query floats to the top; useful when the note may use different vocabulary than the query
 - **Cross-encoder reranking**
-  - `--rerank` re-scores results with `bge-reranker-v2-m3` (ONNX int8, ~570 MB download once); improves precision for conceptual and multilingual queries
+  - `--rerank` re-scores results with `bge-reranker-v2-m3` (ONNX int8, ~570 MB download once); improves precision for conceptual and multilingual queries; applied after multi-query merge
 - **Local embeddings**
   - works offline via `@huggingface/transformers` (no API key required); default model: Xenova/multilingual-e5-small, 100+ languages
 - **Remote embeddings**
@@ -278,12 +280,12 @@ Uses the built-in `Xenova/multilingual-e5-small` model — works fully offline, 
 
 The server exposes four tools:
 
-| Tool      | Description                                                                                                                                                                                                                                                                        |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search`  | Search the vault. Use `query` for text search (`mode`: hybrid/semantic/fulltext/title) or `path` for semantic similarity. Combine `path` with `related: true` for graph traversal. Supports `scope`, `tag`, `limit`, `threshold`, `depth`, `direction`, `snippet_length`, `rerank` |
-| `read`    | Fetch one or more notes by vault-relative path. Returns full content, title, aliases, tags, links, and backlinks. On path miss: returns `found: false` with top-3 fuzzy suggestions. Accepts a single path or an array. Use `snippet_length` to cap content size                   |
-| `reindex` | Reindex the vault or a specific file                                                                                                                                                                                                                                               |
-| `status`  | Show total notes, indexed count, last indexed time                                                                                                                                                                                                                                 |
+| Tool      | Description                                                                                                                                                                                                                                                                                                                                               |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search`  | Search the vault. Use `query` for text search (`mode`: hybrid/semantic/fulltext/title) or `path` for semantic similarity. Combine `path` with `related: true` for graph traversal. Pass `queries[]` for multi-query fan-out (parallel search, RRF merge). Supports `scope`, `tag`, `limit`, `threshold`, `depth`, `direction`, `snippet_length`, `rerank` |
+| `read`    | Fetch one or more notes by vault-relative path. Returns full content, title, aliases, tags, links, and backlinks. On path miss: returns `found: false` with top-3 fuzzy suggestions. Accepts a single path or an array. Use `snippet_length` to cap content size                                                                                          |
+| `reindex` | Reindex the vault or a specific file                                                                                                                                                                                                                                                                                                                      |
+| `status`  | Show total notes, indexed count, last indexed time                                                                                                                                                                                                                                                                                                        |
 
 ## Configuration
 

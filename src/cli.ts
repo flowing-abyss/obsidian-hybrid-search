@@ -289,8 +289,8 @@ program.hook('preAction', async (thisCommand) => {
 });
 
 program
-  .command('search [query]', { isDefault: true })
-  .description('Search the vault (default command)')
+  .command('search [queries...]', { isDefault: true })
+  .description('Search the vault (default command). Pass multiple queries for fan-out search.')
   .option(
     '--mode <mode>',
     'Search mode: hybrid|semantic|fulltext|title (applies to text search only)',
@@ -328,8 +328,8 @@ program
     '--rerank',
     'Enable cross-encoder re-ranking (downloads ~32MB model on first use, hybrid mode only)',
   )
-  .action(async (query: string | undefined, opts: SearchOpts) => {
-    const effectiveInput = opts.path ?? query;
+  .action(async (queries: string[], opts: SearchOpts) => {
+    const effectiveInput = opts.path ?? queries[0];
     if (!effectiveInput) {
       program.help();
       return;
@@ -349,6 +349,7 @@ program
       snippetLength: opts.snippetLength ? parseInt(opts.snippetLength, 10) : undefined,
       notePath: opts.path,
       rerank: opts.rerank ?? false,
+      queries: !opts.path && queries.length > 1 ? queries : undefined,
     });
 
     if (opts.json) {
