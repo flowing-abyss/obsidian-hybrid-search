@@ -36,6 +36,8 @@ No external services required. A bundled `@huggingface/transformers` model handl
   - works offline via `@huggingface/transformers` (no API key required); default model: Xenova/multilingual-e5-small, 100+ languages
 - **Remote embeddings**
   - OpenAI-compatible API (OpenRouter, Ollama, etc.)
+- **Note reading**
+  - `read` fetches one or more notes by vault-relative path; returns full content with title, aliases, tags, links, and backlinks; on path miss returns top-3 fuzzy suggestions
 - **Ignore patterns**
   - exclude folders, extensions, or specific files
 
@@ -157,6 +159,18 @@ obsidian-hybrid-search reindex notes/pkm/zettelkasten.md
 
 # Show indexing status
 obsidian-hybrid-search status
+
+# Read a note by path (outputs raw content, like cat)
+obsidian-hybrid-search read notes/pkm/zettelkasten.md
+
+# Read multiple notes (separator between each)
+obsidian-hybrid-search read notes/pkm/zettelkasten.md notes/pkm/evergreen-notes.md
+
+# Cap content length
+obsidian-hybrid-search read notes/pkm/zettelkasten.md --snippet-length 2000
+
+# Structured output with all metadata
+obsidian-hybrid-search read notes/pkm/zettelkasten.md --json
 ```
 
 ### Shell aliases
@@ -262,11 +276,12 @@ Uses the built-in `Xenova/multilingual-e5-small` model — works fully offline, 
 
 > **Note:** On first run, `npx` will install the package automatically. Ignore patterns are persisted in the database and restored on every subsequent startup even if the env var is missing.
 
-The server exposes three tools:
+The server exposes four tools:
 
 | Tool      | Description                                                                                                                                                                                                                                                                        |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `search`  | Search the vault. Use `query` for text search (`mode`: hybrid/semantic/fulltext/title) or `path` for semantic similarity. Combine `path` with `related: true` for graph traversal. Supports `scope`, `tag`, `limit`, `threshold`, `depth`, `direction`, `snippet_length`, `rerank` |
+| `read`    | Fetch one or more notes by vault-relative path. Returns full content, title, aliases, tags, links, and backlinks. On path miss: returns `found: false` with top-3 fuzzy suggestions. Accepts a single path or an array. Use `snippet_length` to cap content size                   |
 | `reindex` | Reindex the vault or a specific file                                                                                                                                                                                                                                               |
 | `status`  | Show total notes, indexed count, last indexed time                                                                                                                                                                                                                                 |
 
