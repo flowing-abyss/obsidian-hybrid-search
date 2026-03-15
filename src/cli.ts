@@ -346,7 +346,7 @@ program
       related: opts.related ?? false,
       depth: parseInt(opts.depth),
       direction: opts.direction,
-      snippetLength: opts.snippetLength ? parseInt(opts.snippetLength) : undefined,
+      snippetLength: opts.snippetLength ? parseInt(opts.snippetLength, 10) : undefined,
       notePath: opts.path,
       rerank: opts.rerank ?? false,
     });
@@ -466,7 +466,7 @@ program
     async (paths: string[], opts: { snippetLength?: string; related: boolean; json?: boolean }) => {
       await init();
       const results = readNotes(paths, {
-        snippetLength: opts.snippetLength ? parseInt(opts.snippetLength) : undefined,
+        snippetLength: opts.snippetLength ? parseInt(opts.snippetLength, 10) : undefined,
         related: opts.related,
       });
 

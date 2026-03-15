@@ -284,6 +284,19 @@ async function main() {
         },
       },
       {
+        name: 'status',
+        description: 'Get indexing status and configuration',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            include_activity: {
+              type: 'boolean',
+              description: 'Include recent activity log in the response',
+            },
+          },
+        },
+      },
+      {
         name: 'read',
         description:
           "Fetch one or more Obsidian notes by vault-relative path and return their full content with metadata. " +
@@ -307,26 +320,14 @@ async function main() {
               type: 'number',
               description:
                 'Max characters of content returned per note (default: full content). ' +
-                'Use to limit context window usage when reading multiple notes, e.g. 2000.',
+                'Use to limit context window usage when reading multiple notes, e.g. 2000. ' +
+                'Content is hard-truncated at this character count with no ellipsis.',
             },
             related: {
               type: 'boolean',
               description:
                 'Include links[] and backlinks[] in the response (default: true). ' +
                 'Set to false for faster reads when you only need the content.',
-            },
-          },
-        },
-      },
-      {
-        name: 'status',
-        description: 'Get indexing status and configuration',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            include_activity: {
-              type: 'boolean',
-              description: 'Include recent activity log in the response',
             },
           },
         },
