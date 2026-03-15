@@ -568,7 +568,10 @@ describe('alias-only hybrid surface (S-66)', () => {
     const contentNote = results.find((r) => r.path === 's66-content.md');
     assert.ok(aliasNote, 's66-alias-only.md should appear in results');
     assert.ok(contentNote, 's66-content.md should appear in results');
-    assert.ok(aliasNote.score > 0, `alias-only note should have positive score, got ${aliasNote.score}`);
+    assert.ok(
+      aliasNote.score > 0,
+      `alias-only note should have positive score, got ${aliasNote.score}`,
+    );
   });
 
   it('exact alias match scores higher than partial fuzzy title match', async () => {
