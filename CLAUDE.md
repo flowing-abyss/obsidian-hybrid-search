@@ -176,7 +176,7 @@ The local model (`Xenova/multilingual-e5-small`) downloads ~117 MB on first run 
 
 ## MCP Tools
 
-The MCP server exposes 3 tools: `search`, `reindex`, `status`. Tool schema is defined inline in `server.ts`. When adding new `SearchOptions` fields, update all three places: `SearchOptions` interface in `searcher.ts`, tool schema in `server.ts`, and CLI flags in `cli.ts`.
+The MCP server exposes 4 tools: `search`, `reindex`, `status`, `read`. Tool schema is defined inline in `server.ts`. When adding new `SearchOptions` fields, update all three places: `SearchOptions` interface in `searcher.ts`, tool schema in `server.ts`, and CLI flags in `cli.ts`. The `read` tool uses its own `ReadResult` type (`NoteReadResult | NoteReadMiss`) defined in `searcher.ts` — it does not use `SearchOptions`.
 
 ---
 
