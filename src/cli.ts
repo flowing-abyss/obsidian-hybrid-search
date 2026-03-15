@@ -19,7 +19,7 @@ import {
 } from './db.js';
 import { LOCAL_MODEL, getContextLength, getEmbeddingDim, primeEmbeddingDim } from './embedder.js';
 import { getIndexingStatus, indexFile, indexVaultSync } from './indexer.js';
-import { search } from './searcher.js';
+import { readNotes, search } from './searcher.js';
 
 const execAsync = promisify(exec);
 
@@ -455,6 +455,49 @@ program
       );
     }
   });
+
+program
+  .command('read <paths...>')
+  .description('Read note(s) by vault-relative path and print enriched content')
+  .option('--snippet-length <n>', 'Max characters of content per note')
+  .option('--no-related', 'Skip links and backlinks lookup')
+  .option('--json', 'Output as JSON')
+  .action(
+    async (paths: string[], opts: { snippetLength?: string; related: boolean; json?: boolean }) => {
+      await init();
+      const results = readNotes(paths, {
+        snippetLength: opts.snippetLength ? parseInt(opts.snippetLength) : undefined,
+        related: opts.related,
+      });
+
+      if (opts.json) {
+        console.log(JSON.stringify(results, null, 2));
+        return;
+      }
+
+      for (const r of results) {
+        if (!r.found) {
+          console.log(`\n── ${r.path} [NOT FOUND]`);
+          if (r.suggestions.length > 0) {
+            console.log(`   Did you mean: ${r.suggestions.join(', ')}`);
+          }
+          continue;
+        }
+        const meta: string[] = [];
+        if (r.tags.length > 0) {
+          const tagStr = r.tags.map((t) => `#${t}`).join(', ');
+          meta.push(`tags: ${tagStr}`);
+        }
+        if (r.aliases.length > 0) meta.push(`aliases: ${r.aliases.join(', ')}`);
+        if (r.links.length > 0) meta.push(`links: ${r.links.length}`);
+        if (r.backlinks.length > 0) meta.push(`backlinks: ${r.backlinks.length}`);
+        console.log(`\n── ${r.path}`);
+        console.log(`   ${r.title}${meta.length > 0 ? '  |  ' + meta.join('  |  ') : ''}`);
+        console.log('');
+        console.log(r.content);
+      }
+    },
+  );
 
 program.parseAsync(process.argv).catch((err) => {
   console.error('Error:', err instanceof Error ? err.message : String(err));
