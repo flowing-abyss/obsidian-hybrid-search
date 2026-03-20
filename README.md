@@ -232,7 +232,14 @@ ohsst                                     # show status
 
 ### Output example
 
-Hybrid search returns a table with scores and snippets:
+Hybrid search returns a table with scores and snippets. Scores are color-coded by relevance:
+
+| Score     | Color  | Meaning             |
+| --------- | ------ | ------------------- |
+| 0.8 – 1.0 | green  | Highly relevant     |
+| 0.5 – 0.8 | yellow | Moderately relevant |
+| 0.2 – 0.5 | plain  | Somewhat relevant   |
+| 0.0 – 0.2 | dim    | Low relevance       |
 
 ```
 ┌───────┬───────────────────────────────┬────────────────────────────────────────────┐
