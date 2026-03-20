@@ -1,0 +1,3 @@
+[submodule "obsidian-plugin"]
+	path = obsidian-plugin
+	url = git@github.com:flowing-abyss/obsidian-hybrid-search-plugin.git
