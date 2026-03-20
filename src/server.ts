@@ -188,7 +188,7 @@ async function main() {
           "Use 'path' to find semantically similar notes to a given note path. " +
           "Use 'path' + 'related: true' to traverse the knowledge graph (outgoing links and backlinks). " +
           "Each result includes a 'rank' field (1 = best match). " +
-          'Score guide: 0.5+ = strong match, 0.35–0.5 = plausible, below 0.35 = likely noise. ' +
+          'Score guide: 0.8–1.0 = highly relevant, 0.5–0.8 = moderately relevant, 0.2–0.5 = somewhat relevant, below 0.2 = low relevance. ' +
           'Tip: when enriching a specific note with related content, that note itself often appears as rank 1 — skip it. ' +
           'Returns: path, title, tags[], snippet, score (0-1), matchedBy[], links[], backlinks[], scores{semantic?, bm25?, fuzzy_title?}. null means no match for that type.',
         inputSchema: {
@@ -237,7 +237,7 @@ async function main() {
             threshold: {
               type: 'number',
               description:
-                'Minimum score threshold 0..1 (default: 0). Use 0.35 to filter out likely noise: results below 0.35 usually matched a single fuzzy-title or keyword signal and are rarely relevant.',
+                'Minimum score threshold 0..1 (default: 0). Use 0.2 to filter out low relevance results.',
             },
             tag: {
               description:

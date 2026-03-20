@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import pc from 'picocolors';
 import { config } from './config.js';
 import {
   checkModelChanged,
@@ -200,6 +201,15 @@ async function init() {
   return contextLength;
 }
 
+/** Color-code a score value based on relevance thresholds. */
+function colorScore(score: number): string {
+  const s = score.toFixed(2);
+  if (score >= 0.8) return pc.green(s);
+  if (score >= 0.5) return pc.yellow(s);
+  if (score >= 0.2) return s;
+  return pc.blackBright(s);
+}
+
 /** Format tags and aliases into a single TAGS/ALIASES cell for --extended output. */
 function formatMeta(r: { tags: string[]; aliases: string[] }): string {
   return [...r.tags.map((t) => `#${t}`), ...r.aliases].join('\n');
@@ -215,8 +225,14 @@ function printRelatedTable(
         head: ['DEPTH', 'PATH', 'TAGS/ALIASES', 'SNIPPET'],
         colWidths: [7, 40, 20, 40],
         wordWrap: true,
+        style: { head: [] },
       })
-    : new Table({ head: ['DEPTH', 'PATH', 'SNIPPET'], colWidths: [7, 45, 55], wordWrap: true });
+    : new Table({
+        head: ['DEPTH', 'PATH', 'SNIPPET'],
+        colWidths: [7, 45, 55],
+        wordWrap: true,
+        style: { head: [] },
+      });
   for (const r of results) {
     const d = r.depth ?? 0;
     const depthStr = d === 0 ? ' 0 ●' : d > 0 ? `+${d}` : `${d}`;
@@ -244,31 +260,39 @@ function printSearchTable(
       head: ['SCORE', 'PATH', 'TAGS/ALIASES', 'SNIPPET'],
       colWidths: [7, 38, 20, 47],
       wordWrap: true,
+      style: { head: [] },
     });
   } else if (extended) {
     table = new Table({
       head: ['SCORE', 'PATH', 'TAGS/ALIASES'],
       colWidths: [7, 50, 25],
       wordWrap: true,
+      style: { head: [] },
     });
   } else if (hasSnippets) {
     table = new Table({
       head: ['SCORE', 'PATH', 'SNIPPET'],
       colWidths: [7, 45, 60],
       wordWrap: true,
+      style: { head: [] },
     });
   } else {
-    table = new Table({ head: ['SCORE', 'PATH'], colWidths: [7, 60], wordWrap: true });
+    table = new Table({
+      head: ['SCORE', 'PATH'],
+      colWidths: [7, 60],
+      wordWrap: true,
+      style: { head: [] },
+    });
   }
   for (const r of results) {
     if (extended && hasSnippets) {
-      table.push([r.score.toFixed(2), r.path, formatMeta(r), r.snippet ?? '']);
+      table.push([colorScore(r.score), r.path, formatMeta(r), r.snippet ?? '']);
     } else if (extended) {
-      table.push([r.score.toFixed(2), r.path, formatMeta(r)]);
+      table.push([colorScore(r.score), r.path, formatMeta(r)]);
     } else if (hasSnippets) {
-      table.push([r.score.toFixed(2), r.path, r.snippet ?? '']);
+      table.push([colorScore(r.score), r.path, r.snippet ?? '']);
     } else {
-      table.push([r.score.toFixed(2), r.path]);
+      table.push([colorScore(r.score), r.path]);
     }
   }
   console.log(table.toString());
