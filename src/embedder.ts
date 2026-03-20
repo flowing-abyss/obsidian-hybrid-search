@@ -185,11 +185,26 @@ export function primeEmbeddingDim(dim: number): void {
 
 async function getLocalPipeline() {
   if (!localPipeline) {
-    const { pipeline, env } = await import('@huggingface/transformers');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- optional dependency, may not be installed
+    let hf: any;
+    try {
+      hf = await import('@huggingface/transformers');
+    } catch {
+      throw new Error(
+        '[embedder] @huggingface/transformers is not installed (optional dependency missing).\n' +
+          'To use the built-in local model, reinstall without --no-optional:\n' +
+          '  npm install -g obsidian-hybrid-search\n' +
+          'To use an external embedding provider instead (Ollama, OpenAI, OpenRouter), set:\n' +
+          '  OPENAI_BASE_URL=http://localhost:11434/v1  # Ollama example\n' +
+          '  OPENAI_EMBEDDING_MODEL=bge-m3',
+      );
+    }
     // Redirect cache to ~/.cache/huggingface so models survive npm install / node_modules wipes.
     // @huggingface/transformers v3 does not read HF_HOME — env.cacheDir must be set explicitly.
-    env.cacheDir = getCacheDir();
-    localPipeline = await pipeline('feature-extraction', LOCAL_MODEL, {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- @huggingface/transformers has no TypeScript types
+    hf.env.cacheDir = getCacheDir();
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
+    localPipeline = await hf.pipeline('feature-extraction', LOCAL_MODEL, {
       // device:'cpu' avoids silent fp32 fallback that occurs when 'auto' selects
       // an EP (CoreML/CUDA) that doesn't support the model's ONNX opsets.
       device: 'cpu',
