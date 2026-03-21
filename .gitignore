@@ -1,6 +1,7 @@
 node_modules/
 dist/
 docs/
+.superpowers/
 coverage/
 *.db
 *.db-shm
