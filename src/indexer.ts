@@ -199,11 +199,16 @@ async function resolveAllLinks(): Promise<void> {
  * Called on server startup and during full reindex.
  */
 function cleanupStaleNotes(fsPaths?: Set<string>): void {
+  let deleted = 0;
+
   // Newly ignored notes: file still exists on disk, keep their link entries
   // so backlinks from ignored notes remain visible in search results
   const pathsToRemove = getPathsToRemoveForIgnoreChange(config.ignorePatterns);
   for (const p of pathsToRemove) {
-    if (isIgnored(p)) deleteNote(p, true); // keepLinks=true
+    if (isIgnored(p)) {
+      deleteNote(p, true); // keepLinks=true
+      deleted++;
+    }
   }
 
   // Notes deleted from filesystem: remove everything including links (broken links)
@@ -213,9 +218,14 @@ function cleanupStaleNotes(fsPaths?: Set<string>): void {
       (r) => r.path,
     );
     for (const dbPath of dbPaths) {
-      if (!fsPaths.has(dbPath)) deleteNote(dbPath); // keepLinks=false
+      if (!fsPaths.has(dbPath)) {
+        deleteNote(dbPath); // keepLinks=false
+        deleted++;
+      }
     }
   }
+
+  if (deleted > 0) bumpIndexVersion();
 }
 
 function formatDuration(seconds: number): string {
@@ -442,6 +452,7 @@ export function startWatcher(contextLength: number): void {
       watcher.on('unlink', (filePath: string) => {
         const rel = path.relative(config.vaultPath, filePath).normalize('NFD');
         deleteNote(rel);
+        bumpIndexVersion();
       });
     })
     .catch((err) => {
