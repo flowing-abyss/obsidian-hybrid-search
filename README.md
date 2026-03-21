@@ -42,6 +42,8 @@ No external services required. A bundled `@huggingface/transformers` model handl
   - `read` fetches one or more notes by vault-relative path; returns full content with title, aliases, tags, links, and backlinks; on path miss returns top-3 fuzzy suggestions
 - **Ignore patterns**
   - exclude folders, extensions, or specific files
+- **Obsidian plugin**
+  - native search modal inside Obsidian powered by the same CLI — see [obsidian-hybrid-search-plugin](https://github.com/flowing-abyss/obsidian-hybrid-search-plugin)
 
 ## Installation
 
