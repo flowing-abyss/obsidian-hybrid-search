@@ -21,7 +21,13 @@ import {
   wipeDatabaseFiles,
 } from './db.js';
 import { LOCAL_MODEL, getContextLength, getEmbeddingDim, primeEmbeddingDim } from './embedder.js';
-import { getIndexingStatus, indexFile, indexVaultSync } from './indexer.js';
+import {
+  getIndexingStatus,
+  indexFile,
+  indexVaultSync,
+  startBackgroundIndexing,
+  startWatcher,
+} from './indexer.js';
 import { readNotes, search } from './searcher.js';
 import { handleStdioLine } from './stdio-server.js';
 
@@ -564,6 +570,13 @@ program
     }
 
     await init();
+
+    const contextLength = await getContextLength();
+    startBackgroundIndexing(contextLength).catch((err) => {
+      process.stderr.write(`[serve] background indexing error: ${String(err)}\n`);
+    });
+    startWatcher(contextLength);
+
     process.stdout.write(JSON.stringify({ ready: true }) + '\n');
 
     const { createInterface } = await import('node:readline');
