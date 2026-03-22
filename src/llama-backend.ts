@@ -31,8 +31,7 @@ function l2Normalize(vec: Float32Array): Float32Array {
 const RERANKER_MODEL_URI = 'hf:gpustack/bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q4_K_M.gguf';
 
 function getModelsDir(): string {
-  // node-llama-cpp default cache dir
-  return path.join(os.homedir(), '.node-llama-cpp', 'models');
+  return path.join(os.homedir(), '.cache', 'obsidian-hybrid-search', 'models');
 }
 
 // ── Singleton Llama instance ──────────────────────────────────────────────────

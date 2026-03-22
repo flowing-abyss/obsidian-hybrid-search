@@ -1,4 +1,3 @@
-import { llamaRerank } from './llama-backend.js';
 import type { RerankCandidate } from './reranker-types.js';
 
 export type { RerankCandidate } from './reranker-types.js';
@@ -15,6 +14,9 @@ export class CrossEncoderReranker {
   async scoreAll(query: string, candidates: RerankCandidate[]): Promise<number[]> {
     if (candidates.length === 0) return [];
     try {
+      // Dynamic import so vi.mock('../src/llama-backend.js') intercepts correctly
+      // even with isolate:false in vitest config (same pattern as embedder.ts).
+      const { llamaRerank } = await import('./llama-backend.js');
       return await llamaRerank(query, candidates);
     } catch (err) {
       process.stderr.write(
