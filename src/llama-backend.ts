@@ -16,6 +16,19 @@ import type { RerankCandidate } from './reranker-types.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const EMBED_MODEL_URI = 'hf:gpustack/bge-m3-GGUF/bge-m3-Q4_K_M.gguf';
+
+// BGE-M3 via llama.cpp returns mean-pooled but un-normalized embeddings.
+// sqlite-vec uses L2 distance which is equivalent to cosine distance only when
+// vectors are unit-normalized.  Normalize here so retrieval ranking is correct.
+function l2Normalize(vec: Float32Array): Float32Array {
+  let sumSq = 0;
+  for (let i = 0; i < vec.length; i++) sumSq += vec[i]! * vec[i]!;
+  const norm = Math.sqrt(sumSq);
+  if (norm === 0) return vec; // zero vector — leave as-is
+  const out = new Float32Array(vec.length);
+  for (let i = 0; i < vec.length; i++) out[i] = vec[i]! / norm;
+  return out;
+}
 const RERANKER_MODEL_URI = 'hf:gpustack/bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q4_K_M.gguf';
 
 function getModelsDir(): string {
@@ -109,10 +122,12 @@ export function _resetForTest(): void {
 
 export async function llamaEmbed(
   texts: string[],
-  type: 'query' | 'document',
+  // BGE-M3 GGUF does not use E5-style "query:"/"passage:" instruction prefixes.
+  // Spike validated: no-prefix gives ~15% higher cosine similarity than with prefix.
+  // Parameter kept for API compatibility with embedder.ts interface.
+  _type: 'query' | 'document',
 ): Promise<(Float32Array | null)[]> {
   const ctx = await getEmbedContext();
-  const prefix = type === 'query' ? 'query: ' : 'passage: ';
   const results: (Float32Array | null)[] = [];
 
   for (let i = 0; i < texts.length; i += config.batchSize) {
@@ -120,8 +135,8 @@ export async function llamaEmbed(
     const batchResults = await Promise.all(
       batch.map(async (text) => {
         try {
-          const embedding = await ctx.getEmbeddingFor(prefix + text);
-          return new Float32Array(embedding.vector);
+          const embedding = await ctx.getEmbeddingFor(text);
+          return l2Normalize(new Float32Array(embedding.vector));
         } catch (err) {
           process.stderr.write(
             `[llama-backend] embedding failed for text snippet: ${err instanceof Error ? err.message : String(err)}\n`,

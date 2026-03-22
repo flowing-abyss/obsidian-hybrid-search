@@ -66,19 +66,16 @@ describe('llamaEmbed', () => {
     assert.ok(results[1] instanceof Float32Array, 'Expected Float32Array');
   });
 
-  it('prepends "passage: " prefix for document type', async () => {
+  it('passes text as-is for document type (no E5 prefix)', async () => {
     await llamaEmbed(['Obsidian is great'], 'document');
     const calledWith = mockGetEmbeddingFor.mock.calls[0]?.[0] as string;
-    assert.ok(
-      calledWith.startsWith('passage: '),
-      `Expected "passage: " prefix, got: "${calledWith}"`,
-    );
+    assert.strictEqual(calledWith, 'Obsidian is great');
   });
 
-  it('prepends "query: " prefix for query type', async () => {
+  it('passes text as-is for query type (no E5 prefix)', async () => {
     await llamaEmbed(['What is Obsidian?'], 'query');
     const calledWith = mockGetEmbeddingFor.mock.calls[0]?.[0] as string;
-    assert.ok(calledWith.startsWith('query: '), `Expected "query: " prefix, got: "${calledWith}"`);
+    assert.strictEqual(calledWith, 'What is Obsidian?');
   });
 
   it('returns null for a text when getEmbeddingFor throws', async () => {
