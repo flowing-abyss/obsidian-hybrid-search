@@ -1,6 +1,14 @@
 import path from 'node:path';
 import { config } from './config.js';
-import { getDb, getDbVersion, getLinksForPaths, getNoteByPath, hasVecTable } from './db.js';
+import {
+  getChunkEmbeddingsByPath,
+  getDb,
+  getDbVersion,
+  getLinksForPaths,
+  getNoteByPath,
+  getOutgoingLinks,
+  hasVecTable,
+} from './db.js';
 import { embed } from './embedder.js';
 import { reranker, type RerankCandidate } from './reranker.js';
 
@@ -492,8 +500,8 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
       .sort((a, b) => a.distance - b.distance)
       .slice(0, limit)
       .map(({ distance, row }) => {
-        // L2 distance for unit vectors: 0 = identical, 2 = opposite
-        const similarity = Math.max(0, 1 - distance / 2);
+        // cosine similarity from L2 for unit vectors: cos = 1 - L2² / 2
+        const similarity = Math.max(0, 1 - (distance * distance) / 2);
         return {
           path: row.path,
           title: row.title ?? '',
@@ -1022,14 +1030,41 @@ async function searchByQuery(
 
 async function searchSimilar(notePath: string, limit: number): Promise<RawResult[]> {
   // macOS stores filenames as NFD; normalize to match DB paths
-  const note = getNoteByPath(notePath.normalize('NFD'));
+  const normalizedPath = notePath.normalize('NFD');
+  const note = getNoteByPath(normalizedPath);
   if (!note) return [];
 
-  // Embed title + content so short notes aren't disadvantaged by sparse content
-  const f32 = await embedQuery(`${note.title}\n\n${note.content}`);
-  if (!f32) return [];
+  // Use already-stored chunk embeddings — avoids redundant re-embedding and truncation
+  // (the local model caps at 512 tokens, so long notes lose their tail when re-embedded).
+  // Each chunk was embedded at index time; we search with each and merge by max score.
+  const chunkEmbeddings = getChunkEmbeddingsByPath(normalizedPath);
 
-  return (await searchVector(f32, limit + 1)).filter((r) => r.path !== note.path).slice(0, limit);
+  if (chunkEmbeddings.length === 0) {
+    // Fallback: note was never indexed with embeddings (e.g. embedding API was down)
+    const f32 = await embedQuery(`${note.title}\n\n${note.content}`);
+    if (!f32) return [];
+    const excluded = new Set([note.path, ...getOutgoingLinks(normalizedPath)]);
+    return (await searchVector(f32, limit + 1))
+      .filter((r) => !excluded.has(r.path))
+      .slice(0, limit);
+  }
+
+  // Exclude the source note itself and notes it already links to — they are already known.
+  const excluded = new Set([note.path, ...getOutgoingLinks(normalizedPath)]);
+
+  // Run vector search per chunk, deduplicate by path keeping the max score
+  const allResults = (
+    await Promise.all(chunkEmbeddings.map((f32) => searchVector(f32, limit + 1)))
+  ).flat();
+
+  const byPath = new Map<string, RawResult>();
+  for (const r of allResults) {
+    if (excluded.has(r.path)) continue;
+    const existing = byPath.get(r.path);
+    if (!existing || r.score > existing.score) byPath.set(r.path, r);
+  }
+
+  return [...byPath.values()].sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
 /**

@@ -267,6 +267,28 @@ export function hasVecTable(): boolean {
     .get();
 }
 
+/**
+ * Return the stored Float32Array embeddings for all indexed chunks of a note.
+ * Results are ordered by chunk_index. Returns [] if the note has no indexed chunks.
+ */
+export function getChunkEmbeddingsByPath(notePath: string): Float32Array[] {
+  if (!hasVecTable()) return [];
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT vc.embedding
+       FROM vec_chunks vc
+       JOIN chunks c ON c.id = vc.chunk_id
+       JOIN notes n ON n.id = c.note_id
+       WHERE n.path = ?
+       ORDER BY c.chunk_index`,
+    )
+    .all(notePath) as { embedding: Buffer }[];
+  return rows.map(
+    (r) => new Float32Array(r.embedding.buffer, r.embedding.byteOffset, r.embedding.byteLength / 4),
+  );
+}
+
 interface NoteMeta {
   mtime: number;
   hash: string;
@@ -439,6 +461,14 @@ function bumpDbVersion(): void {
   db.prepare(
     "INSERT OR REPLACE INTO settings(key, value) VALUES('db_version', CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'db_version'), 0) + 1 AS TEXT))",
   ).run();
+}
+
+export function getOutgoingLinks(notePath: string): string[] {
+  const db = getDb();
+  const rows = db.prepare('SELECT to_path FROM links WHERE from_path = ?').all(notePath) as {
+    to_path: string;
+  }[];
+  return rows.map((r) => r.to_path);
 }
 
 export function upsertLinks(fromPath: string, toPaths: string[]): void {

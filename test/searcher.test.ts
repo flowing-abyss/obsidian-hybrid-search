@@ -12,7 +12,7 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 // ─── Module imports (after env is set) ───────────────────────────────────────
 
 const { openDb, initVecTable, upsertNote, upsertLinks } = await import('../src/db.js');
-const { search } = await import('../src/searcher.js');
+const { search, bumpIndexVersion } = await import('../src/searcher.js');
 
 const fakeEmbedding = new Float32Array([0.1, 0.2, 0.3, 0.4]);
 
@@ -365,14 +365,44 @@ describe('snippetLength cap', () => {
 // ─── Path-based similarity is always semantic ────────────────────────────────
 
 describe('path similarity search is always semantic', () => {
+  it('uses stored chunk embeddings and returns results without API key', async () => {
+    // Unit tests have no API key → embedQuery returns null.
+    // Old implementation: called embedQuery, got null, returned [].
+    // New implementation: reads stored chunk embeddings from vec_chunks → returns results.
+    // All test notes share the same fakeEmbedding, so all are equally similar.
+    const results = await search('note-a.md', { notePath: 'note-a.md', limit: 10 });
+    assert.ok(
+      results.length > 0,
+      'should find similar notes using stored chunk embeddings without any API call',
+    );
+    assert.ok(
+      !results.some((r) => r.path === 'note-a.md'),
+      'source note must be excluded from results',
+    );
+    for (const r of results) {
+      assert.ok(r.scores.semantic != null, '--path result must have a semantic score');
+    }
+  }, 15000);
+
+  it('excludes notes already linked from the source note', async () => {
+    // note-a.md has an outgoing link to note-b.md (set up in beforeAll).
+    // Recommending already-linked notes is unhelpful — they are already known.
+    // Use limit=100 (> total notes) so note-b.md would definitely appear without the filter.
+    bumpIndexVersion();
+    const results = await search('note-a.md', { notePath: 'note-a.md', limit: 100 });
+    assert.ok(results.length > 0, 'should return some results');
+    assert.ok(
+      !results.some((r) => r.path === 'note-b.md'),
+      'note-b.md is already linked from note-a.md and must be excluded from similar notes',
+    );
+  }, 15000);
+
   it('--path returns semantic results and excludes the source note', async () => {
     const results = await search('note-a.md', { notePath: 'note-a.md', limit: 10 });
     assert.ok(
       !results.some((r) => r.path === 'note-a.md'),
       'source note should be excluded from similarity results',
     );
-    // In unit tests embedQuery returns null (no API key), so results are empty —
-    // shape assertions only run when a real embedder is present.
     for (const r of results) {
       assert.ok(r.scores.semantic !== null, '--path result must have a semantic score');
     }
@@ -398,6 +428,50 @@ describe('path similarity search is always semantic', () => {
       );
     }
   }, 15000);
+});
+
+// ─── Similarity score formula ─────────────────────────────────────────────────
+// For unit-normalized vectors, cosine similarity = 1 - L2² / 2 (not 1 - L2/2).
+
+describe('similarity score formula', () => {
+  // v1 = [1, 0, 0, 0], v2 = [0.8, 0.6, 0, 0] — both unit vectors.
+  // cos(v1, v2) = 0.8 exactly. L2(v1, v2) = sqrt(0.4) ≈ 0.632.
+  // Wrong formula (1 - L2/2) gives ≈ 0.684. Correct formula (1 - L2²/2) gives 0.8.
+  const v1 = new Float32Array([1, 0, 0, 0]);
+  const v2 = new Float32Array([0.8, 0.6, 0, 0]);
+
+  beforeAll(() => {
+    upsertNote({
+      path: 'sim-formula-a.md',
+      title: 'Sim A',
+      tags: [],
+      content: 'a',
+      mtime: Date.now(),
+      hash: 'sim-formula-a',
+      chunks: [{ text: 'a', embedding: v1 }],
+    });
+    upsertNote({
+      path: 'sim-formula-b.md',
+      title: 'Sim B',
+      tags: [],
+      content: 'b',
+      mtime: Date.now(),
+      hash: 'sim-formula-b',
+      chunks: [{ text: 'b', embedding: v2 }],
+    });
+    bumpIndexVersion();
+  });
+
+  it('score equals cosine similarity (1 - L2² / 2) for unit vectors', async () => {
+    const results = await search('sim-formula-a.md', { notePath: 'sim-formula-a.md', limit: 10 });
+    const simB = results.find((r) => r.path === 'sim-formula-b.md');
+    assert.ok(simB, 'sim-formula-b.md should appear in results');
+    // cos([1,0,0,0], [0.8,0.6,0,0]) = 0.8 — wrong formula gives ≈ 0.684
+    assert.ok(
+      Math.abs(simB.score - 0.8) < 0.001,
+      `score should be cosine similarity 0.8, got ${simB.score}`,
+    );
+  });
 });
 
 // ─── Zero-vector guard ────────────────────────────────────────────────────────
