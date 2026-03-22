@@ -30,10 +30,16 @@ let llamaPromise: Promise<Llama> | null = null;
 async function getLlamaInstance(): Promise<Llama> {
   if (llamaInstance) return llamaInstance;
   if (!llamaPromise) {
-    llamaPromise = getLlama().then((l) => {
-      llamaInstance = l;
-      return l;
-    });
+    llamaPromise = (async () => {
+      try {
+        const l = await getLlama();
+        llamaInstance = l;
+        return l;
+      } catch (err) {
+        llamaPromise = null; // allow retry on transient failure
+        throw err;
+      }
+    })();
   }
   return llamaPromise;
 }
@@ -46,14 +52,20 @@ async function getEmbedContext(): Promise<LlamaEmbeddingContext> {
   if (embedCtx) return embedCtx;
   if (!embedLoadPromise) {
     embedLoadPromise = (async () => {
-      const llama = await getLlamaInstance();
-      const modelPath = await resolveModelFile(EMBED_MODEL_URI, getModelsDir());
-      const model = await llama.loadModel({ modelPath });
-      embedCtx = await model.createEmbeddingContext();
+      try {
+        const llama = await getLlamaInstance();
+        const modelPath = await resolveModelFile(EMBED_MODEL_URI, getModelsDir());
+        const model = await llama.loadModel({ modelPath });
+        embedCtx = await model.createEmbeddingContext();
+      } catch (err) {
+        embedLoadPromise = null; // allow retry on transient failure
+        throw err;
+      }
     })();
   }
   await embedLoadPromise;
-  return embedCtx!;
+  if (!embedCtx) throw new Error('[llama-backend] embedding context failed to initialize');
+  return embedCtx;
 }
 
 // ── Reranker model (BGE-reranker-v2-m3) ──────────────────────────────────────
@@ -64,14 +76,20 @@ async function getRerankerContext(): Promise<LlamaRankingContext> {
   if (rerankerCtx) return rerankerCtx;
   if (!rerankerLoadPromise) {
     rerankerLoadPromise = (async () => {
-      const llama = await getLlamaInstance();
-      const modelPath = await resolveModelFile(RERANKER_MODEL_URI, getModelsDir());
-      const model = await llama.loadModel({ modelPath });
-      rerankerCtx = await model.createRankingContext();
+      try {
+        const llama = await getLlamaInstance();
+        const modelPath = await resolveModelFile(RERANKER_MODEL_URI, getModelsDir());
+        const model = await llama.loadModel({ modelPath });
+        rerankerCtx = await model.createRankingContext();
+      } catch (err) {
+        rerankerLoadPromise = null; // allow retry on transient failure
+        throw err;
+      }
     })();
   }
   await rerankerLoadPromise;
-  return rerankerCtx!;
+  if (!rerankerCtx) throw new Error('[llama-backend] reranker context failed to initialize');
+  return rerankerCtx;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -104,7 +122,10 @@ export async function llamaEmbed(
         try {
           const embedding = await ctx.getEmbeddingFor(prefix + text);
           return new Float32Array(embedding.vector);
-        } catch {
+        } catch (err) {
+          process.stderr.write(
+            `[llama-backend] embedding failed for text snippet: ${err instanceof Error ? err.message : String(err)}\n`,
+          );
           return null;
         }
       }),
@@ -121,7 +142,10 @@ export async function llamaRerank(query: string, candidates: RerankCandidate[]):
   const docs = candidates.map((c) => `${c.title}\n\n${c.chunkText ?? c.snippet}`);
   try {
     return await ctx.rankAll(query, docs);
-  } catch {
+  } catch (err) {
+    process.stderr.write(
+      `[llama-backend] reranking failed: ${err instanceof Error ? err.message : String(err)}. Returning zeros.\n`,
+    );
     return candidates.map(() => 0);
   }
 }
