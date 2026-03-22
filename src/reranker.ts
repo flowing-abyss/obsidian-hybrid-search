@@ -4,7 +4,7 @@ import type { RerankCandidate } from './reranker-types.js';
 export type { RerankCandidate } from './reranker-types.js';
 
 export class CrossEncoderReranker {
-  constructor(public readonly modelName: string) {}
+  constructor() {}
 
   /**
    * Score all candidates against the query.
@@ -26,4 +26,4 @@ export class CrossEncoderReranker {
 }
 
 /** Module-level singleton — imported by searcher.ts */
-export const reranker = new CrossEncoderReranker('BAAI/bge-reranker-v2-m3');
+export const reranker = new CrossEncoderReranker();

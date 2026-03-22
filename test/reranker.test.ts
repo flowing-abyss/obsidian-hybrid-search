@@ -21,7 +21,7 @@ function makeMockPipeline(
 }
 
 function makeReranker(scoreFn: (i: number) => number): InstanceType<typeof CrossEncoderReranker> {
-  const r = new CrossEncoderReranker('mock-model');
+  const r = new CrossEncoderReranker();
   // Inject mock pipeline, bypassing ensureLoaded()
   (r as unknown as Record<string, unknown>)['pipeline'] = makeMockPipeline(scoreFn);
   return r;
@@ -46,7 +46,7 @@ describe('CrossEncoderReranker.scoreAll', () => {
 
   it('uses chunkText when available, falls back to snippet', async () => {
     const seenTexts: string[] = [];
-    const r = new CrossEncoderReranker('mock-model');
+    const r = new CrossEncoderReranker();
     (r as unknown as Record<string, unknown>)['pipeline'] =
       // eslint-disable-next-line @typescript-eslint/require-await
       async (inputs: Array<{ text: string; text_pair: string }>) => {
@@ -69,7 +69,7 @@ describe('CrossEncoderReranker.scoreAll', () => {
 
   it('text_pair includes title and content separated by newlines', async () => {
     const seenPairs: string[] = [];
-    const r = new CrossEncoderReranker('mock-model');
+    const r = new CrossEncoderReranker();
     (r as unknown as Record<string, unknown>)['pipeline'] =
       // eslint-disable-next-line @typescript-eslint/require-await
       async (inputs: Array<{ text: string; text_pair: string }>) => {
@@ -85,7 +85,7 @@ describe('CrossEncoderReranker.scoreAll', () => {
   });
 
   it('returns zeros when pipeline throws (graceful fallback)', async () => {
-    const r = new CrossEncoderReranker('mock-model');
+    const r = new CrossEncoderReranker();
     // eslint-disable-next-line @typescript-eslint/require-await
     (r as unknown as Record<string, unknown>)['pipeline'] = async () => {
       throw new Error('pipeline exploded');
@@ -110,7 +110,7 @@ describe('CrossEncoderReranker.scoreAll', () => {
 describe('CrossEncoderReranker.ensureLoaded deduplication', () => {
   it('concurrent calls to ensureLoaded load the model only once', async () => {
     let loadCount = 0;
-    const r = new CrossEncoderReranker('mock-model');
+    const r = new CrossEncoderReranker();
 
     // Override: simulate slow load
     (r as unknown as Record<string, unknown>)['_loadModel'] = async () => {
