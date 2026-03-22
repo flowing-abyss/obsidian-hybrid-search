@@ -1,14 +1,7 @@
-import os from 'node:os';
-import path from 'node:path';
 import { config } from './config.js';
 
-export const LOCAL_MODEL = 'Xenova/multilingual-e5-small';
+export const LOCAL_MODEL = 'BAAI/bge-m3';
 
-function getCacheDir(): string {
-  return path.join(os.homedir(), '.cache', 'huggingface');
-}
-
-let localPipeline: any = null;
 let cachedContextLength: number | null = null;
 let cachedDim: number | null = null;
 
@@ -73,6 +66,7 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   'voyage-2': 4000,
 
   // ── BAAI BGE (OpenRouter + Ollama short names) ────────────
+  'BAAI/bge-m3': 8192,
   'baai/bge-m3': 8192,
   'baai/bge-base-en-v1.5': 512,
   'baai/bge-large-en-v1.5': 512,
@@ -106,14 +100,6 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   'all-minilm': 512,
   'snowflake-arctic-embed': 512,
   'paraphrase-multilingual': 512,
-
-  // ── Xenova-prefix models (compatible with @huggingface/transformers v3) ────────────────────
-  'Xenova/multilingual-e5-small': 512,
-  'Xenova/multilingual-e5-base': 512,
-  'Xenova/nomic-embed-text-v1.5': 8192,
-  'Xenova/all-MiniLM-L6-v2': 256, // real tokenizer limit, not max_position_embeddings
-  'Xenova/all-MiniLM-L12-v2': 256,
-  'Xenova/bge-small-en-v1.5': 512,
 };
 
 export async function getContextLength(): Promise<number> {
@@ -137,26 +123,10 @@ export async function getContextLength(): Promise<number> {
       // fall through to default
     }
   } else {
-    // Local model: check known table first (avoids loading the pipeline just for this)
+    // Local model: check known table first
     if (KNOWN_CONTEXT_LENGTHS[LOCAL_MODEL]) {
       cachedContextLength = KNOWN_CONTEXT_LENGTHS[LOCAL_MODEL]!;
       return cachedContextLength;
-    }
-    // Fallback: read from pipeline config
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
-      const pipeline = await getLocalPipeline();
-      /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- @huggingface/transformers has no TypeScript types */
-      const tokenizerMax: number | undefined = pipeline.tokenizer?.model_max_length;
-      const modelMax: number | undefined = pipeline.model?.config?.max_position_embeddings;
-      const maxLen: number | undefined = tokenizerMax ?? modelMax;
-      /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
-      if (typeof maxLen === 'number' && maxLen > 0) {
-        cachedContextLength = maxLen;
-        return cachedContextLength;
-      }
-    } catch {
-      // fall through
     }
   }
 
@@ -181,40 +151,6 @@ export async function getEmbeddingDim(): Promise<number> {
  */
 export function primeEmbeddingDim(dim: number): void {
   if (cachedDim === null) cachedDim = dim;
-}
-
-async function getLocalPipeline() {
-  if (!localPipeline) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- optional dependency, may not be installed
-    let hf: any;
-    try {
-      hf = await import('@huggingface/transformers');
-    } catch {
-      throw new Error(
-        '[embedder] @huggingface/transformers is not installed (optional dependency missing).\n' +
-          'To use the built-in local model, reinstall without --no-optional:\n' +
-          '  npm install -g obsidian-hybrid-search\n' +
-          'To use an external embedding provider instead (Ollama, OpenAI, OpenRouter), set:\n' +
-          '  OPENAI_BASE_URL=http://localhost:11434/v1  # Ollama example\n' +
-          '  OPENAI_EMBEDDING_MODEL=bge-m3',
-      );
-    }
-    // Redirect cache to ~/.cache/huggingface so models survive npm install / node_modules wipes.
-    // @huggingface/transformers v3 does not read HF_HOME — env.cacheDir must be set explicitly.
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- @huggingface/transformers has no TypeScript types
-    hf.env.cacheDir = getCacheDir();
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
-    localPipeline = await hf.pipeline('feature-extraction', LOCAL_MODEL, {
-      // device:'cpu' avoids silent fp32 fallback that occurs when 'auto' selects
-      // an EP (CoreML/CUDA) that doesn't support the model's ONNX opsets.
-      device: 'cpu',
-      // dtype:'q8' loads model_quantized.onnx (~30 MB) instead of the fp32
-      // model.onnx (~470 MB), halving RSS with no meaningful quality drop.
-      dtype: 'q8',
-    });
-  }
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- @huggingface/transformers has no TypeScript types
-  return localPipeline;
 }
 
 function parseHttpStatus(err: unknown): number {
@@ -339,23 +275,6 @@ async function embedLocal(
   texts: string[],
   type: 'query' | 'document',
 ): Promise<(Float32Array | null)[]> {
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
-  const pipeline = await getLocalPipeline();
-  const results: (Float32Array | null)[] = [];
-  const prefix = type === 'query' ? 'query: ' : 'passage: ';
-
-  for (let i = 0; i < texts.length; i += config.batchSize) {
-    const batch = texts.slice(i, i + config.batchSize);
-    const batchResults = await Promise.all(
-      batch.map(async (text) => {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call -- @huggingface/transformers has no TypeScript types for pipeline output
-        const output = await pipeline(prefix + text, { pooling: 'mean', normalize: true });
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        return new Float32Array(output.data);
-      }),
-    );
-    results.push(...batchResults);
-  }
-
-  return results;
+  const { llamaEmbed } = await import('./llama-backend.js');
+  return llamaEmbed(texts, type);
 }

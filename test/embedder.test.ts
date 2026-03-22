@@ -19,8 +19,8 @@ afterAll(() => {
 const { embed, LOCAL_MODEL } = await import('../src/embedder.js');
 
 describe('LOCAL_MODEL constant', () => {
-  it('is Xenova/multilingual-e5-small', () => {
-    assert.equal(LOCAL_MODEL, 'Xenova/multilingual-e5-small');
+  it('is BAAI/bge-m3', () => {
+    assert.equal(LOCAL_MODEL, 'BAAI/bge-m3');
   });
 });
 
