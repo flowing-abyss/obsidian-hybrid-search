@@ -66,8 +66,10 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   'voyage-2': 4000,
 
   // ── BAAI BGE (OpenRouter + Ollama short names) ────────────
-  'BAAI/bge-m3': 8192,
-  'baai/bge-m3': 8192,
+  // Note: 'BAAI/bge-m3' is intentionally NOT listed here.
+  // LOCAL_MODEL='BAAI/bge-m3' falls through to chunkContextFallback=512,
+  // which produces much better retrieval than 8192-token mega-chunks.
+  'baai/bge-m3': 8192, // Ollama/API mode: use model's actual context
   'baai/bge-base-en-v1.5': 512,
   'baai/bge-large-en-v1.5': 512,
   'bge-m3': 8192,
