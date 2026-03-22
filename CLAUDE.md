@@ -89,7 +89,7 @@ Files in `eval/results/` are **working artifacts** — generate as many as you n
 freely. The regression test (`test/eval/regression.test.ts`) does NOT read them; it only reads
 `eval/results/baseline-no-rerank.json` (the committed reference) and checks absolute thresholds.
 
-Current committed baseline: **nDCG@5 = 0.780** (hybrid, local model, no rerank, 20 queries).
+Current committed baseline: **nDCG@5 = 0.780** (hybrid, multilingual-e5-small, no rerank, 20 queries). Note: BGE-M3 Q4_K_M via node-llama-cpp currently measures **nDCG@5 = 0.486** — baseline will be updated as ranking quality improves.
 See `eval/README.md` for full benchmark table and model configuration options.
 
 **Updating regression test thresholds** — only when a change genuinely improves ranking:
@@ -117,7 +117,7 @@ MCP (server.ts)┘                           └──▶ embedder.ts (OpenAI/lo
 
 - **`db.ts`** — SQLite schema, migrations, all DB queries. Uses `better-sqlite3` (sync) + `sqlite-vec` for vector similarity. Tables: `notes`, `chunks`, `links`, `settings`, FTS5 virtual tables (`notes_fts_bm25`, `notes_fts_fuzzy`).
 - **`indexer.ts`** — walks vault, parses frontmatter (gray-matter), extracts tags and wikilinks, calls embedder, writes to DB. Incremental by content hash.
-- **`embedder.ts`** — embedding via OpenAI API (or OpenRouter / Ollama / any OpenAI-compatible endpoint). Falls back to `@xenova/transformers` for local inference. Context lengths are hard-coded in `KNOWN_CONTEXT_LENGTHS` to avoid API roundtrips. Default local model: `Xenova/multilingual-e5-small` (hardcoded, 512 tokens, 384d, 100+ languages). Requires `"query: "` / `"passage: "` prefix — added automatically by `embedLocal()`. Users who need a different local model should configure Ollama via `OPENAI_BASE_URL`.
+- **`embedder.ts`** — embedding via OpenAI API (or OpenRouter / Ollama / any OpenAI-compatible endpoint). Falls back to `node-llama-cpp` for local inference. Context lengths are hard-coded in `KNOWN_CONTEXT_LENGTHS` to avoid API roundtrips. Default local model: `BAAI/bge-m3` (GGUF, Q4_K_M, 8192 tokens, 1024d, 100+ languages). Requires `"query: "` / `"passage: "` prefix — added automatically by `llamaEmbed()` in `llama-backend.ts`. Models download to `~/.node-llama-cpp/models/`. Users who need a different local model should configure Ollama via `OPENAI_BASE_URL`.
 - **`searcher.ts`** — all search logic: hybrid (BM25 + semantic RRF), fulltext-only, semantic-only, title fuzzy, related (BFS graph traversal). Results are cached in a `Map`.
 - **`chunker.ts`** — splits notes into overlapping chunks by section headers and sliding window for embedding.
 - **`config.ts`** — reads env vars: `OBSIDIAN_VAULT_PATH` (required), `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OBSIDIAN_IGNORE_PATTERNS`, `EMBEDDING_MODEL`.
@@ -177,22 +177,21 @@ unset OPENAI_BASE_URL
 npm run test:integration
 ```
 
-The local model (`Xenova/multilingual-e5-small`) downloads ~117 MB on first run and is cached in `~/.cache/`. Fixture vault includes Russian notes in `test/fixtures/vault/notes/ru/` to validate multilingual indexing.
+The local model (`BAAI/bge-m3`, Q4_K_M GGUF) downloads ~438 MB on first run and is cached in `~/.node-llama-cpp/models/`. Fixture vault includes Russian notes in `test/fixtures/vault/notes/ru/` to validate multilingual indexing.
 
-**Note:** The local model is slow for the first inference (~10s warmup). Integration test timeout is set to 120s.
+**Note:** The local model is slow for the first inference (~10s warmup). Integration test timeout is set to 600s. The model supports Metal (macOS) and CUDA (Linux/Windows) GPU acceleration, with CPU fallback.
 
 ---
 
 ## Environment Variables
 
-| Variable                   | Required      | Default                                  | Description                                                                                |
-| -------------------------- | ------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `OBSIDIAN_VAULT_PATH`      | Yes           | —                                        | Absolute path to Obsidian vault root                                                       |
-| `OPENAI_API_KEY`           | For embedding | —                                        | Also used for OpenRouter                                                                   |
-| `OPENAI_BASE_URL`          | No            | `https://api.openai.com/v1`              | Override for Ollama/OpenRouter                                                             |
-| `OPENAI_EMBEDDING_MODEL`   | No            | `text-embedding-3-small`                 | Any OpenAI-compatible embedding model                                                      |
-| `OBSIDIAN_IGNORE_PATTERNS` | No            | `.obsidian/**,templates/**,*.canvas`     | Comma-separated glob patterns                                                              |
-| `RERANKER_MODEL`           | No            | `onnx-community/bge-reranker-v2-m3-ONNX` | Cross-encoder model for `--rerank` (int8 quantized, ~570MB — 568M param xlm-roberta-large) |
+| Variable                   | Required      | Default                              | Description                           |
+| -------------------------- | ------------- | ------------------------------------ | ------------------------------------- |
+| `OBSIDIAN_VAULT_PATH`      | Yes           | —                                    | Absolute path to Obsidian vault root  |
+| `OPENAI_API_KEY`           | For embedding | —                                    | Also used for OpenRouter              |
+| `OPENAI_BASE_URL`          | No            | `https://api.openai.com/v1`          | Override for Ollama/OpenRouter        |
+| `OPENAI_EMBEDDING_MODEL`   | No            | `text-embedding-3-small`             | Any OpenAI-compatible embedding model |
+| `OBSIDIAN_IGNORE_PATTERNS` | No            | `.obsidian/**,templates/**,*.canvas` | Comma-separated glob patterns         |
 
 ## MCP Tools
 

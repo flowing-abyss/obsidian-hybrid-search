@@ -4,7 +4,7 @@ An [MCP server](https://modelcontextprotocol.io) and CLI tool that makes your Ob
 
 Once connected, any MCP-compatible AI assistant can answer questions grounded in your actual notes: finding knowledge by meaning, exact phrase, or title; traversing the wikilink graph; filtering by tag or folder; always citing the source note. No guessing from training data, no manual copy-paste.
 
-No external services required. A bundled `@huggingface/transformers` model handles embeddings locally by default. Any OpenAI-compatible API (OpenRouter, Ollama, LM Studio) works as a drop-in replacement.
+No external services required. A bundled `node-llama-cpp` model handles embeddings locally by default, with GPU acceleration (Metal/CUDA) and CPU fallback. Any OpenAI-compatible API (OpenRouter, Ollama, LM Studio) works as a drop-in replacement.
 
 ## Features
 
@@ -33,9 +33,9 @@ No external services required. A bundled `@huggingface/transformers` model handl
 - **Multi-query fan-out**
   - pass multiple queries at once (`ohs "q1" "q2"` or `queries[]` in MCP); results are merged via RRF — a note that ranks well in any one query floats to the top; useful when the note may use different vocabulary than the query
 - **Cross-encoder reranking**
-  - `--rerank` re-scores results with `bge-reranker-v2-m3` (ONNX int8, ~570 MB download once); improves precision for conceptual and multilingual queries; applied after multi-query merge
+  - `--rerank` re-scores results with `bge-reranker-v2-m3` (Q4_K_M GGUF, ~438 MB download once, cached in `~/.node-llama-cpp/models/`); improves precision for conceptual and multilingual queries; applied after multi-query merge
 - **Local embeddings**
-  - works offline via `@huggingface/transformers` (no API key required); default model: Xenova/multilingual-e5-small, 100+ languages
+  - works offline via `node-llama-cpp` (no API key required); default model: BAAI/bge-m3 Q4_K_M GGUF, 100+ languages; Metal/CUDA GPU acceleration with CPU fallback
 - **Remote embeddings**
   - OpenAI-compatible API (OpenRouter, Ollama, etc.)
 - **Note reading**
@@ -95,7 +95,7 @@ Commands work from any directory inside the vault tree. From outside the vault (
 
 **Optional: remote embedding API instead of local model.**
 
-By default the local `Xenova/multilingual-e5-small` model is used — works offline, no API key needed. Downloads ~117 MB on first run. Supports 100+ languages including Russian, Chinese, Japanese, and more.
+By default the local `BAAI/bge-m3` model (Q4_K_M GGUF) is used — works offline, no API key needed. Downloads ~438 MB on first run, cached in `~/.node-llama-cpp/models/`. Supports 100+ languages including Russian, Chinese, Japanese, and more. Uses Metal (macOS) or CUDA (Linux/Windows) GPU acceleration when available, with CPU fallback.
 
 To use a remote API instead, add to your shell profile:
 
@@ -171,7 +171,7 @@ obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --direction ba
 obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --snippet-length 500
 
 # Rerank results with a cross-encoder model (improves precision, ~1-3s extra latency)
-# Downloads bge-reranker-v2-m3 ONNX (~570 MB) on first use, cached in ~/.cache/huggingface/
+# Downloads bge-reranker-v2-m3 GGUF (~438 MB) on first use, cached in ~/.node-llama-cpp/models/
 obsidian-hybrid-search "zettelkasten atomic notes" --rerank
 
 # Show tags and aliases alongside results
@@ -280,7 +280,7 @@ Add to your MCP config (`.mcp.json`, `claude_desktop_config.json`, or equivalent
 
 ### Minimal config (local embeddings, no API key)
 
-Uses the built-in `Xenova/multilingual-e5-small` model — works fully offline, supports 100+ languages. Downloads ~117 MB on first run.
+Uses the built-in `BAAI/bge-m3` model (Q4_K_M GGUF) — works fully offline, supports 100+ languages. Downloads ~438 MB on first run, cached in `~/.node-llama-cpp/models/`. GPU-accelerated on Metal (macOS) and CUDA (Linux/Windows), with CPU fallback.
 
 ```json
 {
