@@ -38,6 +38,7 @@ const mockResolveModelFile = vi.fn().mockResolvedValue('/tmp/fake-model.gguf');
 vi.mock('node-llama-cpp', () => ({
   getLlama: mockGetLlama,
   resolveModelFile: mockResolveModelFile,
+  LlamaLogLevel: { disabled: 0, fatal: 1, error: 2, warn: 3, info: 4, log: 5, debug: 6 },
 }));
 
 // node-llama-cpp is dynamically imported inside llama-backend.ts (not at module

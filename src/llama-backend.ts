@@ -8,17 +8,17 @@ import type { RerankCandidate } from './reranker-types.js';
 // Spike findings (validated 2026-03-23):
 // - resolveModelFile(hfUri, dir) downloads & caches → returns local path
 // - loadModel({ modelPath }) loads the GGUF
-// - createEmbeddingContext() → getEmbeddingFor(text) → { vector: readonly number[] } (1024-dim for BGE-M3)
+// - createEmbeddingContext() → getEmbeddingFor(text) → { vector: readonly number[] }
 // - createRankingContext() → rank(query, doc) → number 0-1 (probability, sigmoid applied)
 // - rankAll(query, docs[]) → number[] (batch scoring)
-// - GGUF repos: gpustack org, not BAAI org
 
 // ── Constants ─────────────────────────────────────────────────────────────────
+// BGE-M3 (BERT family, 1024d, ~438MB Q4_K_M, 100+ languages).
+// E5-style "query:"/"passage:" prefixes for asymmetric retrieval.
+// Returns mean-pooled but un-normalized vectors → l2Normalize() before storing.
 const EMBED_MODEL_URI = 'hf:gpustack/bge-m3-GGUF/bge-m3-Q4_K_M.gguf';
 
-// BGE-M3 via llama.cpp returns mean-pooled but un-normalized embeddings.
-// sqlite-vec uses L2 distance which is equivalent to cosine distance only when
-// vectors are unit-normalized.  Normalize here so retrieval ranking is correct.
+// Normalize before storing in sqlite-vec (L2 distance ≡ cosine for unit vecs).
 function l2Normalize(vec: Float32Array): Float32Array {
   let sumSq = 0;
   for (let i = 0; i < vec.length; i++) sumSq += vec[i]! * vec[i]!;
@@ -45,8 +45,9 @@ async function getLlamaInstance(): Promise<Llama> {
       try {
         // Dynamic import so vi.mock('node-llama-cpp') intercepts correctly
         // even with isolate:false in vitest config.
-        const { getLlama } = await import('node-llama-cpp');
-        const l = await getLlama();
+        const { getLlama, LlamaLogLevel } = await import('node-llama-cpp');
+        // Suppress [node-llama-cpp] info/warn messages (vocab padding, pooling type, etc.)
+        const l = await getLlama({ logLevel: LlamaLogLevel?.error });
         llamaInstance = l;
         return l;
       } catch (err) {
