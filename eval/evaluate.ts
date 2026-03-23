@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { config } from '../src/config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -113,9 +114,7 @@ async function main(): Promise<void> {
   const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf-8')) as {
     version: string;
   };
-  const model =
-    process.env.EMBEDDING_MODEL ??
-    (process.env.OPENAI_API_KEY ? 'text-embedding-3-small' : 'local');
+  const model = config.apiKey || process.env.OPENAI_BASE_URL ? config.apiModel : config.localModel;
   const output = buildOutputPath(outputArg, vault, model);
   console.log(`[eval] output:     ${output}`);
 
