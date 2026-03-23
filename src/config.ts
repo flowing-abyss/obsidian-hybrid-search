@@ -21,6 +21,9 @@ export const config = {
   get apiModel(): string {
     return process.env.OPENAI_EMBEDDING_MODEL ?? 'text-embedding-3-small';
   },
+  get localModel(): string {
+    return process.env.LOCAL_EMBEDDING_MODEL ?? 'Xenova/multilingual-e5-small';
+  },
   get rerankerModel(): string {
     return process.env.RERANKER_MODEL ?? 'onnx-community/bge-reranker-v2-m3-ONNX';
   },

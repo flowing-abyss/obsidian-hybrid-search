@@ -20,7 +20,7 @@ import {
   saveConfigMeta,
   wipeDatabaseFiles,
 } from './db.js';
-import { LOCAL_MODEL, getContextLength, getEmbeddingDim, primeEmbeddingDim } from './embedder.js';
+import { getContextLength, getEmbeddingDim, primeEmbeddingDim } from './embedder.js';
 import {
   getIndexingStatus,
   indexFile,
@@ -191,7 +191,7 @@ async function init({ allowWipe = false }: { allowWipe?: boolean } = {}) {
   // Wiping on serve/search would destroy the index whenever env vars are missing (e.g.
   // when Obsidian launches without shell env vars like OPENAI_BASE_URL).
   const modelName =
-    config.apiKey || process.env.OPENAI_BASE_URL ? config.apiModel : `local:${LOCAL_MODEL}`;
+    config.apiKey || process.env.OPENAI_BASE_URL ? config.apiModel : `local:${config.localModel}`;
   if (allowWipe) {
     checkModelChanged(modelName);
   } else {

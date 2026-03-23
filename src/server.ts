@@ -16,7 +16,7 @@ import {
   saveConfigMeta,
   wipeDatabaseFiles,
 } from './db.js';
-import { LOCAL_MODEL, getContextLength, getEmbeddingDim, primeEmbeddingDim } from './embedder.js';
+import { getContextLength, getEmbeddingDim, primeEmbeddingDim } from './embedder.js';
 import {
   getIndexingStatus,
   indexFile,
@@ -148,7 +148,7 @@ async function main() {
   // Wiping here would destroy the index whenever env vars are missing at startup.
   // Model-change wipe is intentionally restricted to the reindex command.
   const modelName =
-    config.apiKey || process.env.OPENAI_BASE_URL ? config.apiModel : `local:${LOCAL_MODEL}`;
+    config.apiKey || process.env.OPENAI_BASE_URL ? config.apiModel : `local:${config.localModel}`;
   const storedModel = getStoredModel();
   if (storedModel && storedModel !== modelName) {
     console.error(

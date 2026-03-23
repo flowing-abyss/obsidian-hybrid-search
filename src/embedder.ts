@@ -115,6 +115,7 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   'Xenova/all-MiniLM-L6-v2': 256, // real tokenizer limit, not max_position_embeddings
   'Xenova/all-MiniLM-L12-v2': 256,
   'Xenova/bge-small-en-v1.5': 512,
+  'Xenova/paraphrase-multilingual-MiniLM-L12-v2': 512,
 };
 
 export async function getContextLength(): Promise<number> {
@@ -139,8 +140,8 @@ export async function getContextLength(): Promise<number> {
     }
   } else {
     // Local model: check known table first (avoids loading the pipeline just for this)
-    if (KNOWN_CONTEXT_LENGTHS[LOCAL_MODEL]) {
-      cachedContextLength = KNOWN_CONTEXT_LENGTHS[LOCAL_MODEL]!;
+    if (KNOWN_CONTEXT_LENGTHS[config.localModel]) {
+      cachedContextLength = KNOWN_CONTEXT_LENGTHS[config.localModel]!;
       return cachedContextLength;
     }
     // Fallback: read from pipeline config
@@ -205,7 +206,7 @@ async function getLocalPipeline() {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- @huggingface/transformers has no TypeScript types
     hf.env.cacheDir = getCacheDir();
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
-    localPipeline = await hf.pipeline('feature-extraction', LOCAL_MODEL, {
+    localPipeline = await hf.pipeline('feature-extraction', config.localModel, {
       // device:'cpu' avoids silent fp32 fallback that occurs when 'auto' selects
       // an EP (CoreML/CUDA) that doesn't support the model's ONNX opsets.
       device: 'cpu',
