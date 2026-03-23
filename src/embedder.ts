@@ -66,10 +66,6 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   'voyage-2': 4000,
 
   // ── BAAI BGE (OpenRouter + Ollama short names) ────────────
-  // Note: 'BAAI/bge-m3' (uppercase) intentionally omitted — falls back to
-  // chunkContextFallback=512. Large chunks (8192) dilute semantic signal for
-  // GGUF embedding models regardless of quantization level; Ollama/API mode
-  // uses 'baai/bge-m3' (lowercase) below.
   'baai/bge-m3': 8192,
   'baai/bge-base-en-v1.5': 512,
   'baai/bge-large-en-v1.5': 512,
@@ -109,7 +105,8 @@ export async function getContextLength(): Promise<number> {
   if (cachedContextLength !== null) return cachedContextLength;
 
   if (useApiMode()) {
-    // Check known models first — avoids an API roundtrip
+    // API model: use the known-context table first (avoids a roundtrip),
+    // then fall back to the /models/{model} endpoint, then to the default.
     if (KNOWN_CONTEXT_LENGTHS[config.apiModel]) {
       cachedContextLength = KNOWN_CONTEXT_LENGTHS[config.apiModel]!;
       return cachedContextLength;
@@ -126,11 +123,13 @@ export async function getContextLength(): Promise<number> {
       // fall through to default
     }
   } else {
-    // Local model: check known table first
-    if (KNOWN_CONTEXT_LENGTHS[LOCAL_MODEL]) {
-      cachedContextLength = KNOWN_CONTEXT_LENGTHS[LOCAL_MODEL]!;
-      return cachedContextLength;
-    }
+    // Local GGUF: always use chunkContextFallback (512).
+    // Eval shows 512-token focused chunks give the best retrieval quality
+    // for local models regardless of the model's maximum context length.
+    // Do NOT consult KNOWN_CONTEXT_LENGTHS here — full-context chunks
+    // (e.g. 8192) dilute embeddings and hurt nDCG@5 significantly.
+    cachedContextLength = config.chunkContextFallback;
+    return cachedContextLength;
   }
 
   cachedContextLength = config.chunkContextFallback;
