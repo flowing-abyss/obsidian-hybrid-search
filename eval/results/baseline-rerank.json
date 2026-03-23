@@ -1,9 +1,10 @@
 {
   "meta": {
     "date": "2026-03-23T18:54:12.665Z",
-    "ohs_version": "0.10.15",
-    "model": "local",
+    "ohs_version": "0.10.18",
+    "model": "Xenova/multilingual-e5-small",
     "rerank": true,
+    "rerank_model": "onnx-community/bge-reranker-v2-m3-ONNX",
     "vault": "fixtures/obsidian-help/en",
     "note_count": 171,
     "golden_set": "eval/golden-sets/obsidian-help.json",
