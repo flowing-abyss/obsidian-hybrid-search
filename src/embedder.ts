@@ -116,6 +116,10 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   'Xenova/all-MiniLM-L12-v2': 256,
   'Xenova/bge-small-en-v1.5': 512,
   'Xenova/paraphrase-multilingual-MiniLM-L12-v2': 512,
+
+  // ── onnx-community models ─────────────────────────────────
+  'onnx-community/gte-multilingual-base': 8192,
+  'onnx-community/embeddinggemma-300m-ONNX': 2048,
 };
 
 export async function getContextLength(): Promise<number> {
@@ -242,13 +246,21 @@ function useApiMode(): boolean {
   return !!(config.apiKey || process.env.OPENAI_BASE_URL);
 }
 
-// E5 model family (intfloat) uses asymmetric prefixes ("query:"/"passage:").
-// BGE models (BAAI/bge-*) do NOT use these prefixes — they are trained without them.
-// OpenAI, Cohere, Voyage, Mistral, and Nomic models do not — adding prefixes
-// to those would corrupt their embeddings.
+// E5 model family (intfloat/Xenova e5-*) uses asymmetric prefixes ("query:"/"passage:").
+// BGE, GTE, Nomic, Gemma, and most other models do NOT — adding prefixes corrupts their embeddings.
+function needsE5Prefix(model: string): boolean {
+  return /\/e5|e5[-_]/i.test(model);
+}
+
 function getApiPrefix(type: 'query' | 'document'): string {
-  const model = config.apiModel.toLowerCase();
-  if (/\/e5|e5-/.test(model)) {
+  if (needsE5Prefix(config.apiModel)) {
+    return type === 'query' ? 'query: ' : 'passage: ';
+  }
+  return '';
+}
+
+function getLocalPrefix(type: 'query' | 'document'): string {
+  if (needsE5Prefix(config.localModel)) {
     return type === 'query' ? 'query: ' : 'passage: ';
   }
   return '';
@@ -358,7 +370,7 @@ async function embedLocal(
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
   const pipeline = await getLocalPipeline();
   const results: (Float32Array | null)[] = [];
-  const prefix = type === 'query' ? 'query: ' : 'passage: ';
+  const prefix = getLocalPrefix(type);
 
   for (let i = 0; i < texts.length; i += config.batchSize) {
     const batch = texts.slice(i, i + config.batchSize);

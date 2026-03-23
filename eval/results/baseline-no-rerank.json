@@ -1,60 +1,60 @@
 {
   "meta": {
-    "date": "2026-03-14T19:25:10.056Z",
-    "ohs_version": "0.9.3",
+    "date": "2026-03-23T18:49:46.986Z",
+    "ohs_version": "0.10.14",
     "model": "local",
     "rerank": false,
     "vault": "fixtures/obsidian-help/en",
     "note_count": 171,
     "golden_set": "eval/golden-sets/obsidian-help.json",
-    "golden_set_size": 20,
+    "golden_set_size": 58,
     "k": 10
   },
   "summary": {
-    "ndcg_5": 0.78,
-    "ndcg_k": 0.798,
-    "mrr": 0.821,
-    "hit_1": 0.7,
-    "hit_3": 0.95,
-    "hit_5": 1,
-    "recall_k": 1
+    "ndcg_5": 0.736,
+    "ndcg_k": 0.747,
+    "mrr": 0.771,
+    "hit_1": 0.69,
+    "hit_3": 0.828,
+    "hit_5": 0.879,
+    "recall_k": 0.897
   },
   "by_category": {
     "keyword": {
-      "ndcg_5": 0.866,
-      "ndcg_k": 0.876,
-      "mrr": 0.955,
-      "hit_1": 0.909,
-      "hit_3": 1,
-      "hit_5": 1,
-      "recall_k": 1
+      "ndcg_5": 0.87,
+      "ndcg_k": 0.877,
+      "mrr": 0.926,
+      "hit_1": 0.889,
+      "hit_3": 0.972,
+      "hit_5": 0.972,
+      "recall_k": 0.972
     },
     "conceptual": {
-      "ndcg_5": 0.617,
-      "ndcg_k": 0.617,
-      "mrr": 0.646,
-      "hit_1": 0.5,
-      "hit_3": 0.75,
-      "hit_5": 1,
-      "recall_k": 1
+      "ndcg_5": 0.42,
+      "ndcg_k": 0.447,
+      "mrr": 0.437,
+      "hit_1": 0.3,
+      "hit_3": 0.5,
+      "hit_5": 0.6,
+      "recall_k": 0.7
     },
     "multilingual": {
-      "ndcg_5": 0.58,
-      "ndcg_k": 0.667,
-      "mrr": 0.611,
-      "hit_1": 0.333,
-      "hit_3": 1,
-      "hit_5": 1,
-      "recall_k": 1
+      "ndcg_5": 0.421,
+      "ndcg_k": 0.44,
+      "mrr": 0.417,
+      "hit_1": 0.167,
+      "hit_3": 0.5,
+      "hit_5": 0.833,
+      "recall_k": 0.833
     },
     "syntax": {
-      "ndcg_5": 0.93,
-      "ndcg_k": 0.93,
+      "ndcg_5": 0.77,
+      "ndcg_k": 0.77,
       "mrr": 0.75,
-      "hit_1": 0.5,
-      "hit_3": 1,
-      "hit_5": 1,
-      "recall_k": 1
+      "hit_1": 0.667,
+      "hit_3": 0.833,
+      "hit_5": 0.833,
+      "recall_k": 0.833
     }
   },
   "per_query": [
@@ -111,8 +111,8 @@
         "Editing and formatting/Tags.md",
         "Plugins/Tags view.md",
         "Editing and formatting/Properties.md",
-        "Plugins/Daily notes.md",
-        "Obsidian Web Clipper/Filters.md"
+        "Getting started/Glossary.md",
+        "Import notes/Import from Evernote.md"
       ]
     },
     {
@@ -130,8 +130,8 @@
         "User interface/Hotkeys.md",
         "Editing and formatting/Editing shortcuts.md",
         "Plugins/Command palette.md",
-        "Obsidian Web Clipper/Clip web pages.md",
-        "User interface/Settings.md"
+        "Obsidian/Obsidian for iOS and iPadOS.md",
+        "Obsidian Web Clipper/Clip web pages.md"
       ]
     },
     {
@@ -148,17 +148,17 @@
       "top_paths": [
         "Plugins/Canvas.md",
         "Contributing to Obsidian/Developers.md",
-        "Plugins/Core plugins.md",
         "Extending Obsidian/Community plugins.md",
-        "Plugins/Web viewer.md"
+        "Contributing to Obsidian/Style guide.md",
+        "Plugins/Core plugins.md"
       ]
     },
     {
       "id": "q006",
       "query": "note templates reuse structure",
       "category": "keyword",
-      "ndcg_5": 0.95,
-      "ndcg_k": 0.95,
+      "ndcg_5": 1,
+      "ndcg_k": 1,
       "mrr": 1,
       "hit_1": true,
       "hit_3": true,
@@ -166,10 +166,10 @@
       "recall_k": 1,
       "top_paths": [
         "Plugins/Templates.md",
-        "Obsidian Web Clipper/Templates.md",
         "Plugins/Daily notes.md",
         "Editing and formatting/Properties.md",
-        "Plugins/Unique note creator.md"
+        "Plugins/Unique note creator.md",
+        "Linking notes and files/Embed files.md"
       ]
     },
     {
@@ -185,10 +185,10 @@
       "recall_k": 1,
       "top_paths": [
         "Plugins/Search.md",
-        "Extending Obsidian/Obsidian CLI.md",
-        "Plugins/File explorer.md",
         "Getting started/Glossary.md",
-        "Obsidian/Early access versions.md"
+        "Extending Obsidian/Obsidian CLI.md",
+        "Obsidian/Early access versions.md",
+        "Obsidian Publish/SEO.md"
       ]
     },
     {
@@ -205,9 +205,9 @@
       "top_paths": [
         "Editing and formatting/Callouts.md",
         "Contributing to Obsidian/Style guide.md",
-        "Linking notes and files/Internal links.md",
+        "Obsidian Web Clipper/Filters.md",
         "Editing and formatting/Basic formatting syntax.md",
-        "Obsidian Sync/Status icon and messages.md"
+        "Obsidian Sync/Sync settings and selective syncing.md"
       ]
     },
     {
@@ -226,15 +226,15 @@
         "Getting started/Link notes.md",
         "Plugins/Outgoing links.md",
         "Linking notes and files/Aliases.md",
-        "Obsidian Publish/Permalinks.md"
+        "User interface/Tabs.md"
       ]
     },
     {
       "id": "q010",
       "query": "daily notes journaling plugin",
       "category": "keyword",
-      "ndcg_5": 0.907,
-      "ndcg_k": 0.907,
+      "ndcg_5": 0.76,
+      "ndcg_k": 0.76,
       "mrr": 1,
       "hit_1": true,
       "hit_3": true,
@@ -244,46 +244,46 @@
         "Plugins/Daily notes.md",
         "Plugins/Core plugins.md",
         "Extending Obsidian/Obsidian CLI.md",
-        "Import notes/Import from Apple Notes.md",
-        "Plugins/Templates.md"
+        "Extending Obsidian/Obsidian URI.md",
+        "Obsidian/Obsidian for Android.md"
       ]
     },
     {
       "id": "q011",
       "query": "connect notes and see how they relate",
       "category": "conceptual",
-      "ndcg_5": 0.327,
-      "ndcg_k": 0.327,
-      "mrr": 0.25,
+      "ndcg_5": 0,
+      "ndcg_k": 0.271,
+      "mrr": 0.167,
       "hit_1": false,
       "hit_3": false,
-      "hit_5": true,
+      "hit_5": false,
       "recall_k": 1,
       "top_paths": [
         "Getting started/Link notes.md",
+        "Getting started/Create your first note.md",
         "Plugins/Canvas.md",
-        "Editing and formatting/Tags.md",
-        "Plugins/Graph view.md",
-        "Obsidian Sync/Local and remote vaults.md"
+        "Obsidian/Community code of conduct.md",
+        "Obsidian/Obsidian for iOS and iPadOS.md"
       ]
     },
     {
       "id": "q012",
       "query": "insert pre-defined snippets of text into notes",
       "category": "keyword",
-      "ndcg_5": 0.48,
-      "ndcg_k": 0.589,
-      "mrr": 0.5,
+      "ndcg_5": 0.76,
+      "ndcg_k": 0.76,
+      "mrr": 0.333,
       "hit_1": false,
       "hit_3": true,
       "hit_5": true,
       "recall_k": 1,
       "top_paths": [
+        "Plugins/Daily notes.md",
         "Extending Obsidian/CSS snippets.md",
         "Plugins/Templates.md",
         "Plugins/Core plugins.md",
-        "Extending Obsidian/Obsidian CLI.md",
-        "Editing and formatting/Advanced formatting syntax.md"
+        "Editing and formatting/Properties.md"
       ]
     },
     {
@@ -299,29 +299,29 @@
       "recall_k": 1,
       "top_paths": [
         "Plugins/Graph view.md",
-        "Editing and formatting/Advanced formatting syntax.md",
-        "Linking notes and files/Internal links.md",
         "Getting started/Link notes.md",
-        "User interface/Tabs.md"
+        "Obsidian Publish/Manage sites.md",
+        "Contributing to Obsidian/Style guide.md",
+        "Plugins/Core plugins.md"
       ]
     },
     {
       "id": "q014",
       "query": "add keywords or topics to notes for filtering",
       "category": "conceptual",
-      "ndcg_5": 0.38,
-      "ndcg_k": 0.38,
-      "mrr": 0.333,
+      "ndcg_5": 0.48,
+      "ndcg_k": 0.48,
+      "mrr": 0.5,
       "hit_1": false,
       "hit_3": true,
       "hit_5": true,
       "recall_k": 1,
       "top_paths": [
-        "Files and folders/Manage notes.md",
         "Editing and formatting/Properties.md",
         "Editing and formatting/Tags.md",
-        "Editing and formatting/Basic formatting syntax.md",
-        "Plugins/Templates.md"
+        "Plugins/Templates.md",
+        "Plugins/Graph view.md",
+        "Files and folders/Manage notes.md"
       ]
     },
     {
@@ -338,9 +338,9 @@
       "top_paths": [
         "Editing and formatting/Views and editing mode.md",
         "Obsidian Web Clipper/Reader.md",
-        "Plugins/Quick switcher.md",
+        "User interface/Settings.md",
         "Live preview update.md",
-        "User interface/Settings.md"
+        "Obsidian Publish/Manage sites.md"
       ]
     },
     {
@@ -348,7 +348,7 @@
       "query": "как работает граф связей между заметками",
       "category": "multilingual",
       "ndcg_5": 0.76,
-      "ndcg_k": 0.887,
+      "ndcg_k": 0.76,
       "mrr": 1,
       "hit_1": true,
       "hit_3": true,
@@ -356,18 +356,37 @@
       "recall_k": 1,
       "top_paths": [
         "Plugins/Graph view.md",
-        "Linking notes and files/Internal links.md",
         "Getting started/Link notes.md",
-        "Plugins/Bookmarks.md",
-        "Editing and formatting/Basic formatting syntax.md"
+        "Getting started/Glossary.md",
+        "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "Obsidian/Credits.md"
       ]
     },
     {
       "id": "q017",
       "query": "теги для организации заметок в хранилище",
       "category": "multilingual",
-      "ndcg_5": 0.48,
-      "ndcg_k": 0.615,
+      "ndcg_5": 0.327,
+      "ndcg_k": 0.327,
+      "mrr": 0.25,
+      "hit_1": false,
+      "hit_3": false,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Obsidian/Credits.md",
+        "Getting started/Import notes.md",
+        "Editing and formatting/Obsidian Flavored Markdown.md",
+        "Editing and formatting/Tags.md",
+        "Import notes/Import from Evernote.md"
+      ]
+    },
+    {
+      "id": "q018",
+      "query": "математические формулы в заметках",
+      "category": "multilingual",
+      "ndcg_5": 0.631,
+      "ndcg_k": 0.631,
       "mrr": 0.5,
       "hit_1": false,
       "hit_3": true,
@@ -375,29 +394,10 @@
       "recall_k": 1,
       "top_paths": [
         "Obsidian/Credits.md",
-        "Editing and formatting/Tags.md",
-        "Plugins/Bookmarks.md",
-        "Editing and formatting/Properties.md",
-        "Editing and formatting/Basic formatting syntax.md"
-      ]
-    },
-    {
-      "id": "q018",
-      "query": "математические формулы в заметках",
-      "category": "multilingual",
-      "ndcg_5": 0.5,
-      "ndcg_k": 0.5,
-      "mrr": 0.333,
-      "hit_1": false,
-      "hit_3": true,
-      "hit_5": true,
-      "recall_k": 1,
-      "top_paths": [
-        "Obsidian/Credits.md",
-        "Bases/Formulas.md",
         "Editing and formatting/Advanced formatting syntax.md",
-        "Editing and formatting/Basic formatting syntax.md",
-        "Bases/Bases syntax.md"
+        "Bases/Formulas.md",
+        "Bases/Bases syntax.md",
+        "Getting started/Link notes.md"
       ]
     },
     {
@@ -415,7 +415,7 @@
         "Editing and formatting/Callouts.md",
         "Editing and formatting/Basic formatting syntax.md",
         "Linking notes and files/Internal links.md",
-        "Plugins/Outgoing links.md",
+        "Editing and formatting/Obsidian Flavored Markdown.md",
         "Contributing to Obsidian/Style guide.md"
       ]
     },
@@ -433,9 +433,731 @@
       "top_paths": [
         "Linking notes and files/Embed files.md",
         "Linking notes and files/Internal links.md",
-        "Editing and formatting/Basic formatting syntax.md",
+        "Plugins/Search.md",
         "Editing and formatting/Obsidian Flavored Markdown.md",
+        "Contributing to Obsidian/Style guide.md"
+      ]
+    },
+    {
+      "id": "q021",
+      "query": "Bases table view database for notes",
+      "category": "keyword",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Bases/Introduction to Bases.md",
+        "Bases/Create a base.md",
+        "Bases/Layouts/Table view.md",
+        "Bases/Bases syntax.md",
+        "Import notes/Import from Notion.md"
+      ]
+    },
+    {
+      "id": "q022",
+      "query": "alias alternative name for a note",
+      "category": "keyword",
+      "ndcg_5": 0.907,
+      "ndcg_k": 0.907,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Linking notes and files/Aliases.md",
+        "Obsidian Publish/Permalinks.md",
+        "Getting started/Glossary.md",
+        "Editing and formatting/Properties.md",
         "Plugins/Outgoing links.md"
+      ]
+    },
+    {
+      "id": "q023",
+      "query": "embed file or note with wikilink",
+      "category": "keyword",
+      "ndcg_5": 0.76,
+      "ndcg_k": 0.887,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Linking notes and files/Embed files.md",
+        "Editing and formatting/Embed web pages.md",
+        "Files and folders/Accepted file formats.md",
+        "Obsidian Publish/Media files.md",
+        "Editing and formatting/Callouts.md"
+      ]
+    },
+    {
+      "id": "q024",
+      "query": "install community plugins",
+      "category": "keyword",
+      "ndcg_5": 0.924,
+      "ndcg_k": 0.924,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Extending Obsidian/Community plugins.md",
+        "Extending Obsidian/Plugin security.md",
+        "Import notes/Importer.md",
+        "Plugins/Core plugins.md",
+        "Teams/Deploy Obsidian across your team.md"
+      ]
+    },
+    {
+      "id": "q025",
+      "query": "change theme and color scheme appearance",
+      "category": "keyword",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "User interface/Appearance.md",
+        "Extending Obsidian/Themes.md",
+        "Extending Obsidian/CSS snippets.md",
+        "User interface/Settings.md",
+        "Getting started/Glossary.md"
+      ]
+    },
+    {
+      "id": "q026",
+      "query": "CSS snippets to customize Obsidian styles",
+      "category": "keyword",
+      "ndcg_5": 0.95,
+      "ndcg_k": 0.95,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Extending Obsidian/CSS snippets.md",
+        "Extending Obsidian/Themes.md",
+        "User interface/Appearance.md",
+        "Obsidian Publish/Customize your site.md",
+        "Teams/Deploy Obsidian across your team.md"
+      ]
+    },
+    {
+      "id": "q027",
+      "query": "sync notes across devices remote vault",
+      "category": "keyword",
+      "ndcg_5": 0.164,
+      "ndcg_k": 0.164,
+      "mrr": 0,
+      "hit_1": false,
+      "hit_3": false,
+      "hit_5": false,
+      "recall_k": 0,
+      "top_paths": [
+        "Obsidian Sync/Local and remote vaults.md",
+        "Getting started/Sync your notes across devices.md",
+        "Obsidian Sync/Sync settings and selective syncing.md",
+        "Obsidian Sync/Set up Obsidian Sync.md",
+        "Obsidian Sync/Plans and storage limits.md"
+      ]
+    },
+    {
+      "id": "q028",
+      "query": "publish notes as website or digital garden",
+      "category": "keyword",
+      "ndcg_5": 0.76,
+      "ndcg_k": 0.76,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Obsidian Publish/Introduction to Obsidian Publish.md",
+        "Obsidian Publish/Permalinks.md",
+        "Teams/Publishing for teams.md",
+        "Obsidian Publish/Publish your content.md",
+        "Obsidian Publish/Custom domains.md"
+      ]
+    },
+    {
+      "id": "q029",
+      "query": "Web Clipper save webpage to vault browser extension",
+      "category": "keyword",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Obsidian Web Clipper/Introduction to Obsidian Web Clipper.md",
+        "Obsidian Web Clipper/Clip web pages.md",
+        "Obsidian Web Clipper/Troubleshoot Web Clipper.md",
+        "Obsidian Web Clipper/Highlight web pages.md",
+        "Obsidian Web Clipper/Interpret web pages.md"
+      ]
+    },
+    {
+      "id": "q030",
+      "query": "import notes from Evernote or Notion",
+      "category": "keyword",
+      "ndcg_5": 0.48,
+      "ndcg_k": 0.48,
+      "mrr": 0.5,
+      "hit_1": false,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Import notes/Import from Evernote.md",
+        "Getting started/Import notes.md",
+        "Import notes/Import from Notion.md",
+        "Import notes/Import from Microsoft OneNote.md",
+        "Import notes/Import from Bear.md"
+      ]
+    },
+    {
+      "id": "q031",
+      "query": "file recovery snapshots restore previous version",
+      "category": "keyword",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Plugins/File recovery.md",
+        "Obsidian Sync/Version history.md",
+        "Obsidian/2-factor authentication.md",
+        "Obsidian/Early access versions.md",
+        "Obsidian Sync/Sync settings and selective syncing.md"
+      ]
+    },
+    {
+      "id": "q032",
+      "query": "save and load workspace layout",
+      "category": "keyword",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Plugins/Workspaces.md",
+        "User interface/Tabs.md",
+        "User interface/Ribbon.md",
+        "Help and support.md",
+        "User interface/Workspace.md"
+      ]
+    },
+    {
+      "id": "q033",
+      "query": "command palette run commands with Ctrl+P",
+      "category": "keyword",
+      "ndcg_5": 0.76,
+      "ndcg_k": 0.896,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Plugins/Command palette.md",
+        "Plugins/Slash commands.md",
+        "Plugins/Bookmarks.md",
+        "Extending Obsidian/Obsidian CLI.md",
+        "Plugins/Workspaces.md"
+      ]
+    },
+    {
+      "id": "q034",
+      "query": "bookmarks quick access to notes and searches",
+      "category": "keyword",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Plugins/Bookmarks.md",
+        "Plugins/Quick switcher.md",
+        "Plugins/Search.md",
+        "Getting started/Mobile app.md",
+        "Extending Obsidian/Obsidian CLI.md"
+      ]
+    },
+    {
+      "id": "q035",
+      "query": "outline panel to navigate headings in note",
+      "category": "keyword",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Plugins/Outline.md",
+        "Getting started/Link notes.md",
+        "User interface/Tabs.md",
+        "Getting started/Create your first note.md",
+        "Editing and formatting/Folding.md"
+      ]
+    },
+    {
+      "id": "q036",
+      "query": "page preview hover over internal link",
+      "category": "keyword",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Plugins/Page preview.md",
+        "Linking notes and files/Internal links.md",
+        "Obsidian Publish/Social media link previews.md",
+        "Obsidian Publish/Manage sites.md",
+        "Plugins/Outgoing links.md"
+      ]
+    },
+    {
+      "id": "q037",
+      "query": "record audio and embed in note microphone",
+      "category": "keyword",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Plugins/Audio recorder.md",
+        "Linking notes and files/Embed files.md",
+        "Obsidian Publish/Media files.md",
+        "Files and folders/Accepted file formats.md",
+        "Editing and formatting/Attachments.md"
+      ]
+    },
+    {
+      "id": "q038",
+      "query": "merge notes or extract selection into new note",
+      "category": "keyword",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Plugins/Note composer.md",
+        "Editing and formatting/Editing shortcuts.md",
+        "Editing and formatting/Properties.md",
+        "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "Editing and formatting/Multiple cursors.md"
+      ]
+    },
+    {
+      "id": "q039",
+      "query": "manage multiple vaults vault switcher",
+      "category": "keyword",
+      "ndcg_5": 0.76,
+      "ndcg_k": 0.76,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Files and folders/Manage vaults.md",
+        "Obsidian Sync/Switch to Obsidian Sync.md",
+        "Obsidian Sync/Collaborate on a shared vault.md",
+        "Obsidian Sync/Set up Obsidian Sync.md",
+        "User interface/Ribbon.md"
+      ]
+    },
+    {
+      "id": "q040",
+      "query": "attach images and files to notes default location",
+      "category": "keyword",
+      "ndcg_5": 0.76,
+      "ndcg_k": 0.76,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Editing and formatting/Attachments.md",
+        "User interface/Settings.md",
+        "Import notes/Import HTML files.md",
+        "Obsidian Web Clipper/Clip web pages.md",
+        "Obsidian Sync/Version history.md"
+      ]
+    },
+    {
+      "id": "q041",
+      "query": "fold and collapse headings to hide content",
+      "category": "keyword",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Editing and formatting/Folding.md",
+        "Editing and formatting/Callouts.md",
+        "Obsidian Publish/Customize your site.md",
+        "User interface/Settings.md",
+        "Contributing to Obsidian/Style guide.md"
+      ]
+    },
+    {
+      "id": "q042",
+      "query": "Zettelkasten unique note creator timestamp",
+      "category": "keyword",
+      "ndcg_5": 0.76,
+      "ndcg_k": 0.76,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Plugins/Unique note creator.md",
+        "Import notes/Import Zettelkasten notes.md",
+        "Extending Obsidian/Obsidian URI.md",
+        "Plugins/Core plugins.md",
+        "Getting started/Import notes.md"
+      ]
+    },
+    {
+      "id": "q043",
+      "query": "create slideshow presentation from markdown notes",
+      "category": "keyword",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Plugins/Slides.md",
+        "Editing and formatting/Views and editing mode.md",
+        "Import notes/Import Markdown files.md",
+        "Editing and formatting/Basic formatting syntax.md",
+        "Getting started/Create your first note.md"
+      ]
+    },
+    {
+      "id": "q044",
+      "query": "word count and character count in status bar",
+      "category": "keyword",
+      "ndcg_5": 0.631,
+      "ndcg_k": 0.631,
+      "mrr": 0.5,
+      "hit_1": false,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "User interface/Status bar.md",
+        "Plugins/Word count.md",
+        "Extending Obsidian/Obsidian CLI.md",
+        "Plugins/Search.md",
+        "Editing and formatting/Editing shortcuts.md"
+      ]
+    },
+    {
+      "id": "q045",
+      "query": "open external links inside Obsidian web viewer",
+      "category": "keyword",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Plugins/Web viewer.md",
+        "Editing and formatting/Basic formatting syntax.md",
+        "Plugins/Core plugins.md",
+        "Extending Obsidian/Obsidian CLI.md",
+        "User interface/Drag and drop.md"
+      ]
+    },
+    {
+      "id": "q046",
+      "query": "I accidentally deleted a note, how to get it back",
+      "category": "conceptual",
+      "ndcg_5": 0,
+      "ndcg_k": 0,
+      "mrr": 0,
+      "hit_1": false,
+      "hit_3": false,
+      "hit_5": false,
+      "recall_k": 0,
+      "top_paths": [
+        "Files and folders/Manage notes.md",
+        "Obsidian/Early access versions.md",
+        "Obsidian Sync/Version history.md",
+        "Extending Obsidian/Obsidian CLI.md",
+        "Obsidian Sync/Troubleshoot Obsidian Sync.md"
+      ]
+    },
+    {
+      "id": "q047",
+      "query": "refer to a note by a different name in a link",
+      "category": "conceptual",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Linking notes and files/Aliases.md",
+        "Plugins/Outgoing links.md",
+        "User interface/Tabs.md",
+        "Linking notes and files/Internal links.md",
+        "Plugins/Backlinks.md"
+      ]
+    },
+    {
+      "id": "q048",
+      "query": "add third-party extensions to extend functionality",
+      "category": "conceptual",
+      "ndcg_5": 0.48,
+      "ndcg_k": 0.48,
+      "mrr": 0.5,
+      "hit_1": false,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Extending Obsidian/Obsidian URI.md",
+        "Extending Obsidian/Community plugins.md",
+        "Obsidian Sync/Frequently asked questions.md",
+        "Obsidian Sync/Switch to Obsidian Sync.md",
+        "Getting started/Glossary.md"
+      ]
+    },
+    {
+      "id": "q049",
+      "query": "keep different window arrangements for different tasks",
+      "category": "conceptual",
+      "ndcg_5": 0,
+      "ndcg_k": 0,
+      "mrr": 0,
+      "hit_1": false,
+      "hit_3": false,
+      "hit_5": false,
+      "recall_k": 0,
+      "top_paths": [
+        "User interface/Pop-out windows.md",
+        "User interface/Tabs.md",
+        "Extending Obsidian/Obsidian CLI.md",
+        "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "Plugins/Web viewer.md"
+      ]
+    },
+    {
+      "id": "q050",
+      "query": "save an article from the web into my notes",
+      "category": "conceptual",
+      "ndcg_5": 0.484,
+      "ndcg_k": 0.484,
+      "mrr": 0.2,
+      "hit_1": false,
+      "hit_3": false,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Obsidian Publish/Custom domains.md",
+        "Plugins/Web viewer.md",
+        "Obsidian Web Clipper/Clip web pages.md",
+        "Import notes/Import from Evernote.md",
+        "Obsidian Web Clipper/Introduction to Obsidian Web Clipper.md"
+      ]
+    },
+    {
+      "id": "q051",
+      "query": "move my notes from another app to Obsidian",
+      "category": "conceptual",
+      "ndcg_5": 0,
+      "ndcg_k": 0,
+      "mrr": 0,
+      "hit_1": false,
+      "hit_3": false,
+      "hit_5": false,
+      "recall_k": 0,
+      "top_paths": [
+        "Obsidian Sync/Switch to Obsidian Sync.md",
+        "Obsidian Sync/Set up Obsidian Sync.md",
+        "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "Getting started/Sync your notes across devices.md",
+        "Extending Obsidian/Obsidian URI.md"
+      ]
+    },
+    {
+      "id": "q052",
+      "query": "синхронизация заметок между устройствами",
+      "category": "multilingual",
+      "ndcg_5": 0.327,
+      "ndcg_k": 0.442,
+      "mrr": 0.25,
+      "hit_1": false,
+      "hit_3": false,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Obsidian/Obsidian for iOS and iPadOS.md",
+        "Getting started/Sync your notes across devices.md",
+        "Obsidian Sync/Sync settings and selective syncing.md",
+        "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "Obsidian Sync/Version history.md"
+      ]
+    },
+    {
+      "id": "q053",
+      "query": "как встроить изображение в заметку",
+      "category": "multilingual",
+      "ndcg_5": 0.48,
+      "ndcg_k": 0.48,
+      "mrr": 0.5,
+      "hit_1": false,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Obsidian/Credits.md",
+        "Linking notes and files/Embed files.md",
+        "Editing and formatting/Views and editing mode.md",
+        "Obsidian Web Clipper/Filters.md",
+        "Bases/Functions.md"
+      ]
+    },
+    {
+      "id": "q054",
+      "query": "публикация заметок в интернете",
+      "category": "multilingual",
+      "ndcg_5": 0,
+      "ndcg_k": 0,
+      "mrr": 0,
+      "hit_1": false,
+      "hit_3": false,
+      "hit_5": false,
+      "recall_k": 0,
+      "top_paths": [
+        "Obsidian/Credits.md",
+        "Plugins/Search.md",
+        "Home.md",
+        "Editing and formatting/HTML content.md",
+        "Getting started/Import notes.md"
+      ]
+    },
+    {
+      "id": "q055",
+      "query": "![[filename]] syntax to embed notes and images",
+      "category": "syntax",
+      "ndcg_5": 0,
+      "ndcg_k": 0,
+      "mrr": 0,
+      "hit_1": false,
+      "hit_3": false,
+      "hit_5": false,
+      "recall_k": 0,
+      "top_paths": [
+        "Editing and formatting/Embed web pages.md",
+        "Bases/Bases syntax.md",
+        "Editing and formatting/Basic formatting syntax.md",
+        "Editing and formatting/Advanced formatting syntax.md",
+        "Files and folders/Accepted file formats.md"
+      ]
+    },
+    {
+      "id": "q056",
+      "query": "obsidian:// URI open note from external app",
+      "category": "syntax",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Extending Obsidian/Obsidian URI.md",
+        "Editing and formatting/Basic formatting syntax.md",
+        "Obsidian Publish/Custom domains.md",
+        "Plugins/Web viewer.md",
+        "Plugins/Core plugins.md"
+      ]
+    },
+    {
+      "id": "q057",
+      "query": "/slash command trigger in editor",
+      "category": "syntax",
+      "ndcg_5": 0.76,
+      "ndcg_k": 0.76,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Plugins/Slash commands.md",
+        "Editing and formatting/Views and editing mode.md",
+        "Obsidian Web Clipper/Templates.md",
+        "User interface/Hotkeys.md",
+        "Live preview update.md"
+      ]
+    },
+    {
+      "id": "q058",
+      "query": "Bases filter formula syntax YAML configuration",
+      "category": "syntax",
+      "ndcg_5": 1,
+      "ndcg_k": 1,
+      "mrr": 1,
+      "hit_1": true,
+      "hit_3": true,
+      "hit_5": true,
+      "recall_k": 1,
+      "top_paths": [
+        "Bases/Bases syntax.md",
+        "Bases/Introduction to Bases.md",
+        "Bases/Formulas.md",
+        "Editing and formatting/Properties.md",
+        "Obsidian Web Clipper/Filters.md"
       ]
     }
   ]

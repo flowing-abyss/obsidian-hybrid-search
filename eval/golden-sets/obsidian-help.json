@@ -93,7 +93,7 @@
     "relevant_paths": ["Plugins/Templates.md"],
     "partial_paths": ["Plugins/Daily notes.md"],
     "category": "keyword",
-    "notes": "uses vocabulary from the file itself ('pre-defined snippets'); previous query 'reuse a consistent structure' had zero vocab overlap with Templates.md and was unmeasurable"
+    "notes": "uses vocabulary from the file itself ('pre-defined snippets')"
   },
   {
     "id": "q013",
@@ -109,7 +109,7 @@
     "relevant_paths": ["Editing and formatting/Tags.md"],
     "partial_paths": ["Plugins/Tags view.md"],
     "category": "conceptual",
-    "notes": "Tags.md opens with 'Tags are keywords or topics'; previous query 'labels or categories' had zero overlap — neither word appears in the file"
+    "notes": "Tags.md opens with 'Tags are keywords or topics'"
   },
   {
     "id": "q015",
@@ -117,7 +117,7 @@
     "relevant_paths": ["Editing and formatting/Views and editing mode.md"],
     "partial_paths": [],
     "category": "conceptual",
-    "notes": "Live preview vs reading view vs source mode; Basic formatting syntax.md is not relevant here"
+    "notes": "Live preview vs reading view vs source mode"
   },
   {
     "id": "q016",
@@ -149,7 +149,7 @@
     "relevant_paths": ["Editing and formatting/Callouts.md"],
     "partial_paths": [],
     "category": "syntax",
-    "notes": "tests Obsidian-specific callout type names; Advanced formatting syntax.md does not cover callouts"
+    "notes": "tests Obsidian-specific callout type names"
   },
   {
     "id": "q020",
@@ -158,5 +158,309 @@
     "partial_paths": ["Linking notes and files/Embed files.md"],
     "category": "syntax",
     "notes": "block references (^id syntax) live in Internal links; embed files covers ![[]] embeds"
+  },
+  {
+    "id": "q021",
+    "query": "Bases table view database for notes",
+    "relevant_paths": ["Bases/Introduction to Bases.md"],
+    "partial_paths": ["Bases/Create a base.md"],
+    "category": "keyword",
+    "notes": "Bases is a new core plugin for database-like views; 'table view' and 'Bases' are exact terms"
+  },
+  {
+    "id": "q022",
+    "query": "alias alternative name for a note",
+    "relevant_paths": ["Linking notes and files/Aliases.md"],
+    "partial_paths": ["Plugins/Outgoing links.md"],
+    "category": "keyword",
+    "notes": "Aliases.md uses 'alias' and 'alternative name' terminology directly"
+  },
+  {
+    "id": "q023",
+    "query": "embed file or note with wikilink",
+    "relevant_paths": ["Linking notes and files/Embed files.md"],
+    "partial_paths": ["Linking notes and files/Internal links.md"],
+    "category": "keyword",
+    "notes": "'embed' and 'wikilink' are the canonical terms in Embed files.md"
+  },
+  {
+    "id": "q024",
+    "query": "install community plugins",
+    "relevant_paths": ["Extending Obsidian/Community plugins.md"],
+    "partial_paths": ["Plugins/Core plugins.md"],
+    "category": "keyword",
+    "notes": "'Community plugins' and 'Install' are the exact terms used"
+  },
+  {
+    "id": "q025",
+    "query": "change theme and color scheme appearance",
+    "relevant_paths": ["User interface/Appearance.md"],
+    "partial_paths": ["Extending Obsidian/Themes.md"],
+    "category": "keyword",
+    "notes": "Appearance.md covers color scheme and lists community themes; Themes.md is about installing them"
+  },
+  {
+    "id": "q026",
+    "query": "CSS snippets to customize Obsidian styles",
+    "relevant_paths": ["Extending Obsidian/CSS snippets.md"],
+    "partial_paths": ["User interface/Appearance.md"],
+    "category": "keyword",
+    "notes": "'CSS snippets' is the exact term; Appearance.md has a snippets section"
+  },
+  {
+    "id": "q027",
+    "query": "sync notes across devices remote vault",
+    "relevant_paths": ["Obsidian Sync/Introduction to Obsidian Sync.md"],
+    "partial_paths": ["Obsidian Sync/Set up Obsidian Sync.md"],
+    "category": "keyword",
+    "notes": "'remote vault' and 'Obsidian Sync' are the canonical terms"
+  },
+  {
+    "id": "q028",
+    "query": "publish notes as website or digital garden",
+    "relevant_paths": ["Obsidian Publish/Introduction to Obsidian Publish.md"],
+    "partial_paths": ["Obsidian Publish/Set up Obsidian Publish.md"],
+    "category": "keyword",
+    "notes": "'publish', 'digital garden' appear verbatim in the intro file"
+  },
+  {
+    "id": "q029",
+    "query": "Web Clipper save webpage to vault browser extension",
+    "relevant_paths": ["Obsidian Web Clipper/Introduction to Obsidian Web Clipper.md"],
+    "partial_paths": ["Obsidian Web Clipper/Clip web pages.md"],
+    "category": "keyword",
+    "notes": "'Web Clipper', 'browser extension' are exact terms from the intro"
+  },
+  {
+    "id": "q030",
+    "query": "import notes from Evernote or Notion",
+    "relevant_paths": ["Getting started/Import notes.md"],
+    "partial_paths": ["Import notes/Importer.md"],
+    "category": "keyword",
+    "notes": "'Evernote', 'Notion', and 'import' appear verbatim in the file"
+  },
+  {
+    "id": "q031",
+    "query": "file recovery snapshots restore previous version",
+    "relevant_paths": ["Plugins/File recovery.md"],
+    "partial_paths": [],
+    "category": "keyword",
+    "notes": "'File recovery', 'snapshots', 'restore' are the exact terms used"
+  },
+  {
+    "id": "q032",
+    "query": "save and load workspace layout",
+    "relevant_paths": ["Plugins/Workspaces.md"],
+    "partial_paths": [],
+    "category": "keyword",
+    "notes": "'workspace', 'save workspace', 'load workspace' are exact terms"
+  },
+  {
+    "id": "q033",
+    "query": "command palette run commands with Ctrl+P",
+    "relevant_paths": ["Plugins/Command palette.md"],
+    "partial_paths": ["User interface/Hotkeys.md"],
+    "category": "keyword",
+    "notes": "'Command palette' and 'Ctrl+P' appear verbatim in the file"
+  },
+  {
+    "id": "q034",
+    "query": "bookmarks quick access to notes and searches",
+    "relevant_paths": ["Plugins/Bookmarks.md"],
+    "partial_paths": [],
+    "category": "keyword",
+    "notes": "'bookmarks', 'shortcut', 'bookmark groups' are exact terms"
+  },
+  {
+    "id": "q035",
+    "query": "outline panel to navigate headings in note",
+    "relevant_paths": ["Plugins/Outline.md"],
+    "partial_paths": [],
+    "category": "keyword",
+    "notes": "'Outline', 'headings', 'navigate' appear verbatim"
+  },
+  {
+    "id": "q036",
+    "query": "page preview hover over internal link",
+    "relevant_paths": ["Plugins/Page preview.md"],
+    "partial_paths": [],
+    "category": "keyword",
+    "notes": "'page preview', 'hover', 'internal link' are exact terms"
+  },
+  {
+    "id": "q037",
+    "query": "record audio and embed in note microphone",
+    "relevant_paths": ["Plugins/Audio recorder.md"],
+    "partial_paths": [],
+    "category": "keyword",
+    "notes": "'Audio recorder', 'record audio', 'microphone', 'embed' appear verbatim"
+  },
+  {
+    "id": "q038",
+    "query": "merge notes or extract selection into new note",
+    "relevant_paths": ["Plugins/Note composer.md"],
+    "partial_paths": [],
+    "category": "keyword",
+    "notes": "'merge notes', 'extract note' are the exact feature names"
+  },
+  {
+    "id": "q039",
+    "query": "manage multiple vaults vault switcher",
+    "relevant_paths": ["Files and folders/Manage vaults.md"],
+    "partial_paths": ["Getting started/Create a vault.md"],
+    "category": "keyword",
+    "notes": "'vault', 'Vault switcher', 'manage' appear verbatim"
+  },
+  {
+    "id": "q040",
+    "query": "attach images and files to notes default location",
+    "relevant_paths": ["Editing and formatting/Attachments.md"],
+    "partial_paths": ["Linking notes and files/Embed files.md"],
+    "category": "keyword",
+    "notes": "'attachments', 'default location', 'Add an attachment' are exact terms"
+  },
+  {
+    "id": "q041",
+    "query": "fold and collapse headings to hide content",
+    "relevant_paths": ["Editing and formatting/Folding.md"],
+    "partial_paths": [],
+    "category": "keyword",
+    "notes": "'folding', 'fold headings', 'collapse' are exact terms in Folding.md"
+  },
+  {
+    "id": "q042",
+    "query": "Zettelkasten unique note creator timestamp",
+    "relevant_paths": ["Plugins/Unique note creator.md"],
+    "partial_paths": ["Plugins/Daily notes.md"],
+    "category": "keyword",
+    "notes": "'Zettelkasten', 'Unique note creator', 'timestamp' appear verbatim"
+  },
+  {
+    "id": "q043",
+    "query": "create slideshow presentation from markdown notes",
+    "relevant_paths": ["Plugins/Slides.md"],
+    "partial_paths": [],
+    "category": "keyword",
+    "notes": "'Slides', 'presentation' appear verbatim; separated by '---' horizontal rules"
+  },
+  {
+    "id": "q044",
+    "query": "word count and character count in status bar",
+    "relevant_paths": ["Plugins/Word count.md"],
+    "partial_paths": [],
+    "category": "keyword",
+    "notes": "'Word count', 'characters', 'status bar' are exact terms"
+  },
+  {
+    "id": "q045",
+    "query": "open external links inside Obsidian web viewer",
+    "relevant_paths": ["Plugins/Web viewer.md"],
+    "partial_paths": [],
+    "category": "keyword",
+    "notes": "'Web viewer', 'external links', 'reader view' are exact terms"
+  },
+  {
+    "id": "q046",
+    "query": "I accidentally deleted a note, how to get it back",
+    "relevant_paths": ["Plugins/File recovery.md"],
+    "partial_paths": [],
+    "category": "conceptual",
+    "notes": "conceptual phrasing — 'deleted', 'get it back' have no overlap with 'snapshots' or 'restore'"
+  },
+  {
+    "id": "q047",
+    "query": "refer to a note by a different name in a link",
+    "relevant_paths": ["Linking notes and files/Aliases.md"],
+    "partial_paths": [],
+    "category": "conceptual",
+    "notes": "conceptual — 'different name in a link' paraphrases alias without using the word"
+  },
+  {
+    "id": "q048",
+    "query": "add third-party extensions to extend functionality",
+    "relevant_paths": ["Extending Obsidian/Community plugins.md"],
+    "partial_paths": ["Plugins/Core plugins.md"],
+    "category": "conceptual",
+    "notes": "conceptual — 'third-party extensions' paraphrases 'community plugins'"
+  },
+  {
+    "id": "q049",
+    "query": "keep different window arrangements for different tasks",
+    "relevant_paths": ["Plugins/Workspaces.md"],
+    "partial_paths": [],
+    "category": "conceptual",
+    "notes": "conceptual — 'window arrangements for different tasks' paraphrases 'save workspace layout'"
+  },
+  {
+    "id": "q050",
+    "query": "save an article from the web into my notes",
+    "relevant_paths": ["Obsidian Web Clipper/Introduction to Obsidian Web Clipper.md"],
+    "partial_paths": ["Obsidian Web Clipper/Clip web pages.md"],
+    "category": "conceptual",
+    "notes": "conceptual — 'article from the web' paraphrases 'clip web pages'; no 'clipper' in query"
+  },
+  {
+    "id": "q051",
+    "query": "move my notes from another app to Obsidian",
+    "relevant_paths": ["Getting started/Import notes.md"],
+    "partial_paths": ["Import notes/Importer.md"],
+    "category": "conceptual",
+    "notes": "conceptual — 'move from another app' paraphrases 'import notes'"
+  },
+  {
+    "id": "q052",
+    "query": "синхронизация заметок между устройствами",
+    "relevant_paths": ["Obsidian Sync/Introduction to Obsidian Sync.md"],
+    "partial_paths": ["Obsidian Sync/Set up Obsidian Sync.md"],
+    "category": "multilingual",
+    "notes": "Russian: 'sync notes between devices'"
+  },
+  {
+    "id": "q053",
+    "query": "как встроить изображение в заметку",
+    "relevant_paths": ["Linking notes and files/Embed files.md"],
+    "partial_paths": ["Editing and formatting/Attachments.md"],
+    "category": "multilingual",
+    "notes": "Russian: 'how to embed an image in a note'"
+  },
+  {
+    "id": "q054",
+    "query": "публикация заметок в интернете",
+    "relevant_paths": ["Obsidian Publish/Introduction to Obsidian Publish.md"],
+    "partial_paths": ["Obsidian Publish/Set up Obsidian Publish.md"],
+    "category": "multilingual",
+    "notes": "Russian: 'publishing notes on the internet'"
+  },
+  {
+    "id": "q055",
+    "query": "![[filename]] syntax to embed notes and images",
+    "relevant_paths": ["Linking notes and files/Embed files.md"],
+    "partial_paths": ["Linking notes and files/Internal links.md"],
+    "category": "syntax",
+    "notes": "tests recognition of the ![[]] embed syntax with exclamation mark prefix"
+  },
+  {
+    "id": "q056",
+    "query": "obsidian:// URI open note from external app",
+    "relevant_paths": ["Extending Obsidian/Obsidian URI.md"],
+    "partial_paths": [],
+    "category": "syntax",
+    "notes": "'obsidian://' is the exact URI scheme; 'open' is a supported action"
+  },
+  {
+    "id": "q057",
+    "query": "/slash command trigger in editor",
+    "relevant_paths": ["Plugins/Slash commands.md"],
+    "partial_paths": ["Plugins/Command palette.md"],
+    "category": "syntax",
+    "notes": "'Slash commands', 'forward slash' are exact terms; Command palette is related"
+  },
+  {
+    "id": "q058",
+    "query": "Bases filter formula syntax YAML configuration",
+    "relevant_paths": ["Bases/Bases syntax.md"],
+    "partial_paths": ["Bases/Introduction to Bases.md"],
+    "category": "syntax",
+    "notes": "'filters', 'formulas', 'YAML' appear verbatim in Bases syntax.md"
   }
 ]
