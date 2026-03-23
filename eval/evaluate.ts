@@ -191,6 +191,7 @@ async function main(): Promise<void> {
       ohs_version: pkg.version,
       model,
       rerank,
+      rerank_model: rerank ? config.rerankerModel : null,
       vault: path.relative(repoRoot, vault),
       note_count: noteCount,
       golden_set: path.relative(repoRoot, goldenSet),
