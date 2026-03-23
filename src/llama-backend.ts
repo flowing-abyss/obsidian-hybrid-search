@@ -13,10 +13,11 @@ import type { RerankCandidate } from './reranker-types.js';
 // - rankAll(query, docs[]) → number[] (batch scoring)
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-// BGE-M3 (BERT family, 1024d, ~438MB Q4_K_M, 100+ languages).
+// BGE-M3 (BERT family, 1024d, ~1.1GB FP16, 100+ languages).
+// FP16 = full precision, equivalent to Ollama default.
 // E5-style "query:"/"passage:" prefixes for asymmetric retrieval.
 // Returns mean-pooled but un-normalized vectors → l2Normalize() before storing.
-const EMBED_MODEL_URI = 'hf:gpustack/bge-m3-GGUF/bge-m3-Q4_K_M.gguf';
+const EMBED_MODEL_URI = 'hf:gpustack/bge-m3-GGUF/bge-m3-FP16.gguf';
 
 // Normalize before storing in sqlite-vec (L2 distance ≡ cosine for unit vecs).
 function l2Normalize(vec: Float32Array): Float32Array {
@@ -28,7 +29,7 @@ function l2Normalize(vec: Float32Array): Float32Array {
   for (let i = 0; i < vec.length; i++) out[i] = vec[i]! / norm;
   return out;
 }
-const RERANKER_MODEL_URI = 'hf:gpustack/bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q4_K_M.gguf';
+const RERANKER_MODEL_URI = 'hf:gpustack/bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-FP16.gguf';
 
 function getModelsDir(): string {
   return path.join(os.homedir(), '.cache', 'obsidian-hybrid-search', 'models');
