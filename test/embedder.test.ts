@@ -78,16 +78,16 @@ describe('E5-style prefix for BGE / E5 models via API', () => {
     delete process.env.OPENAI_EMBEDDING_MODEL;
   });
 
-  it('adds "passage: " prefix for BGE model document embedding', async () => {
+  it('does NOT add prefix for BGE model document embedding', async () => {
     process.env.OPENAI_EMBEDDING_MODEL = 'bge-m3';
     await embed(['hello world'], 'document');
-    assert.equal((capturedBody as { input: string[] }).input[0], 'passage: hello world');
+    assert.equal((capturedBody as { input: string[] }).input[0], 'hello world');
   });
 
-  it('adds "query: " prefix for BGE model query embedding', async () => {
+  it('does NOT add prefix for BGE model query embedding', async () => {
     process.env.OPENAI_EMBEDDING_MODEL = 'baai/bge-m3';
     await embed(['backlinks'], 'query');
-    assert.equal((capturedBody as { input: string[] }).input[0], 'query: backlinks');
+    assert.equal((capturedBody as { input: string[] }).input[0], 'backlinks');
   });
 
   it('adds "passage: " prefix for E5 model', async () => {

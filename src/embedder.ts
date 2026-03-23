@@ -240,12 +240,13 @@ function useApiMode(): boolean {
   return !!(config.apiKey || process.env.OPENAI_BASE_URL);
 }
 
-// BGE and E5 model families use E5-style asymmetric prefixes ("query:"/"passage:").
+// E5 model family (intfloat) uses asymmetric prefixes ("query:"/"passage:").
+// BGE models (BAAI/bge-*) do NOT use these prefixes — they are trained without them.
 // OpenAI, Cohere, Voyage, Mistral, and Nomic models do not — adding prefixes
 // to those would corrupt their embeddings.
 function getApiPrefix(type: 'query' | 'document'): string {
   const model = config.apiModel.toLowerCase();
-  if (/bge|\/e5|e5-/.test(model)) {
+  if (/\/e5|e5-/.test(model)) {
     return type === 'query' ? 'query: ' : 'passage: ';
   }
   return '';
