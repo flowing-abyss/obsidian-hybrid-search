@@ -608,6 +608,13 @@ program
     const { createInterface } = await import('node:readline');
     const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
+    const cleanup = () => {
+      process.exit(0);
+    };
+
+    rl.on('close', cleanup);
+    rl.on('end', cleanup);
+
     for await (const line of rl) {
       // Fire-and-forget: process each request concurrently so that a slow in-flight
       // search (e.g. embedding API call) does not block reading and starting the next
@@ -615,7 +622,6 @@ program
       // correctly regardless of arrival order.
       void handleStdioLine(line, search, (s) => process.stdout.write(s + '\n'));
     }
-    // stdin closed — let Node.js exit naturally to avoid native module teardown crashes
   });
 
 program.parseAsync(process.argv).catch((err) => {

@@ -28,6 +28,7 @@ import {
 import { readNotes, search } from './searcher.js';
 
 const _dir = dirname(fileURLToPath(import.meta.url));
+
 // Resolve package.json whether running from src/ (tsx) or compiled dist/src/ (node)
 const _pkgPath = existsSync(resolve(_dir, '../package.json'))
   ? resolve(_dir, '../package.json')
@@ -484,6 +485,22 @@ async function main() {
   });
 
   const transport = new StdioServerTransport();
+
+  const cleanup = () => {
+    process.exit(0);
+  };
+
+  transport.onclose = cleanup;
+  process.stdin.on('close', cleanup);
+  process.stdin.on('end', cleanup);
+
+  if (process.stdin.closed) {
+    cleanup();
+  }
+
+  process.on('SIGTERM', () => process.exit(0));
+  process.on('SIGINT', () => process.exit(0));
+
   await server.connect(transport);
 
   checkForUpdates().catch(() => {});
