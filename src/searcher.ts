@@ -79,6 +79,7 @@ interface RawResult {
   path: string;
   title: string;
   tags: string;
+  parsedTags?: string[];
   aliases?: string | null;
   snippet: string;
   score: number;
@@ -121,22 +122,13 @@ function matchesTagFilter(tags: string[], tag: string | string[]): boolean {
 
 function applyTagFilter(results: RawResult[], tag: string | string[]): RawResult[] {
   return results.filter((r) => {
-    try {
-      const tags = JSON.parse(r.tags || '[]') as string[];
-      return matchesTagFilter(tags, tag);
-    } catch {
-      return false;
-    }
+    const tags = getParsedTags(r);
+    return matchesTagFilter(tags, tag);
   });
 }
 
 function toSearchResult(r: RawResult): SearchResult {
-  let tags: string[];
-  try {
-    tags = JSON.parse(r.tags || '[]') as string[];
-  } catch {
-    tags = [];
-  }
+  const tags = getParsedTags(r);
   const aliases = parseAliases(r.aliases);
   const matchedBy: string[] = [];
   if (r.scores.semantic != null) matchedBy.push('semantic');
@@ -166,6 +158,16 @@ function parseAliases(raw: string | null | undefined): string[] {
   } catch {
     return [];
   }
+}
+
+function getParsedTags(result: RawResult): string[] {
+  if (result.parsedTags) return result.parsedTags;
+  try {
+    result.parsedTags = JSON.parse(result.tags || '[]') as string[];
+  } catch {
+    result.parsedTags = [];
+  }
+  return result.parsedTags;
 }
 
 function sanitizeFtsQuery(query: string): string {
@@ -230,8 +232,9 @@ export function searchBm25(query: string, limit: number, snippetLength = 300): R
     // Skip when snippetLength=0 (e.g. Obsidian plugin): the snippet would be
     // discarded anyway and the DB lookups (2 per result) are wasted work.
     if (snippetLength > 0) {
+      const headingPaths = getHeadingPathsForBm25Results(results);
       for (const result of results) {
-        const headingPath = getHeadingPathForSnippet(result.path, result.snippet);
+        const headingPath = headingPaths.get(result.path);
         if (headingPath) result.snippet = `${headingPath}\n${result.snippet}`;
       }
     }
@@ -461,6 +464,105 @@ function getHeadingPathForSnippet(notePath: string, snippetText: string): string
   return chain.length > 0 ? chain.join(' > ') : null;
 }
 
+function getHeadingPathsForBm25Results(results: RawResult[]): Map<string, string> {
+  if (results.length === 0) return new Map();
+
+  const db = getDb();
+  const snippetKeys = getSnippetKeysForHeadingLookup(results);
+  if (snippetKeys.size === 0) return new Map();
+
+  const uniquePaths = Array.from(new Set(snippetKeys.keys()));
+  const placeholders = uniquePaths.map(() => '?').join(', ');
+
+  try {
+    const rows = db
+      .prepare(
+        `SELECT n.path, c.heading_path, c.text, c.chunk_index
+         FROM notes n
+         JOIN chunks c ON c.note_id = n.id
+         WHERE n.path IN (${placeholders})
+           AND c.heading_path IS NOT NULL
+         ORDER BY n.path, c.chunk_index`,
+      )
+      .all(...uniquePaths) as Array<{
+      path: string;
+      heading_path: string | null;
+      text: string;
+      chunk_index: number;
+    }>;
+
+    const headingPaths = matchHeadingPathsFromChunks(rows, snippetKeys);
+    fillMissingHeadingPathsFromContent(db, headingPaths, snippetKeys);
+    return headingPaths;
+  } catch {
+    const fallback = new Map<string, string>();
+    for (const result of results) {
+      const headingPath = getHeadingPathForSnippet(result.path, result.snippet);
+      if (headingPath) fallback.set(result.path, headingPath);
+    }
+    return fallback;
+  }
+}
+
+function getSnippetKeysForHeadingLookup(results: RawResult[]): Map<string, string> {
+  const snippetKeys = new Map<string, string>();
+  for (const result of results) {
+    const clean = result.snippet
+      .replace(/^\.\.\./, '')
+      .replace(/\.\.\.$/, '')
+      .trim();
+    if (clean.length < 15) continue;
+    snippetKeys.set(result.path, clean.slice(0, 60));
+  }
+  return snippetKeys;
+}
+
+function matchHeadingPathsFromChunks(
+  rows: Array<{ path: string; heading_path: string | null; text: string }>,
+  snippetKeys: Map<string, string>,
+): Map<string, string> {
+  const headingPaths = new Map<string, string>();
+  for (const row of rows) {
+    if (headingPaths.has(row.path) || !row.heading_path) continue;
+    const key = snippetKeys.get(row.path);
+    if (!key) continue;
+    if (row.text.includes(key)) headingPaths.set(row.path, row.heading_path);
+  }
+  return headingPaths;
+}
+
+function fillMissingHeadingPathsFromContent(
+  db: ReturnType<typeof getDb>,
+  headingPaths: Map<string, string>,
+  snippetKeys: Map<string, string>,
+): void {
+  const stmt = db.prepare('SELECT content FROM notes WHERE path = ?');
+  for (const [notePath, key] of snippetKeys) {
+    if (headingPaths.has(notePath)) continue;
+    const note = stmt.get(notePath) as { content: string } | undefined;
+    if (!note?.content) continue;
+    const headingPath = getHeadingPathFromContent(note.content, key);
+    if (headingPath) headingPaths.set(notePath, headingPath);
+  }
+}
+
+function getHeadingPathFromContent(content: string, key: string): string | null {
+  const pos = content.indexOf(key);
+  if (pos === -1) return null;
+
+  const before = content.slice(0, pos);
+  const headingSlots: (string | null)[] = [null, null, null, null, null, null];
+  for (const line of before.split('\n')) {
+    const match = /^(#{1,6})\s+(.+)$/.exec(line.trim());
+    if (!match) continue;
+    const level = match[1]!.length;
+    headingSlots[level - 1] = `${match[1]} ${match[2]}`;
+    for (let i = level; i < 6; i++) headingSlots[i] = null;
+  }
+  const chain = headingSlots.filter((heading): heading is string => heading !== null);
+  return chain.length > 0 ? chain.join(' > ') : null;
+}
+
 // eslint-disable-next-line @typescript-eslint/require-await
 async function searchVector(queryEmbedding: Float32Array, limit: number): Promise<RawResult[]> {
   if (!hasVecTable()) return [];
@@ -471,17 +573,25 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
     const rows = db
       .prepare(
         `
-      SELECT vc.chunk_id, vc.distance,
-             c.note_id, c.chunk_index, c.text AS chunk_text, c.heading_path,
-             n.path, n.title, n.tags, n.aliases
-      FROM vec_chunks AS vc
-      JOIN chunks c ON c.id = vc.chunk_id
-      JOIN notes n ON n.id = c.note_id
-      WHERE vc.embedding MATCH ?
-        AND k = ?
+      WITH ranked AS (
+        SELECT vc.chunk_id, vc.distance,
+               c.note_id, c.chunk_index, c.text AS chunk_text, c.heading_path,
+               n.path, n.title, n.tags, n.aliases,
+               ROW_NUMBER() OVER (PARTITION BY c.note_id ORDER BY vc.distance, c.chunk_index) AS row_num
+        FROM vec_chunks AS vc
+        JOIN chunks c ON c.id = vc.chunk_id
+        JOIN notes n ON n.id = c.note_id
+        WHERE vc.embedding MATCH ?
+          AND k = ?
+      )
+      SELECT chunk_id, distance, note_id, chunk_index, chunk_text, heading_path, path, title, tags, aliases
+      FROM ranked
+      WHERE row_num = 1
+      ORDER BY distance, chunk_index
+      LIMIT ?
     `,
       )
-      .all(queryEmbedding, limit * 5) as Array<{
+      .all(queryEmbedding, limit * 5, limit) as Array<{
       chunk_id: number;
       distance: number;
       note_id: number;
@@ -494,32 +604,20 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
       aliases: string | null;
     }>;
 
-    // Aggregate: best chunk per note
-    const noteMap = new Map<number, { distance: number; row: (typeof rows)[0] }>();
-    for (const row of rows) {
-      const existing = noteMap.get(row.note_id);
-      if (!existing || row.distance < existing.distance) {
-        noteMap.set(row.note_id, { distance: row.distance, row });
-      }
-    }
-
-    return Array.from(noteMap.values())
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, limit)
-      .map(({ distance, row }) => {
-        // cosine similarity from L2 for unit vectors: cos = 1 - L2² / 2
-        const similarity = Math.max(0, 1 - (distance * distance) / 2);
-        return {
-          path: row.path,
-          title: row.title ?? '',
-          tags: row.tags ?? '[]',
-          aliases: row.aliases,
-          snippet: formatChunkSnippet(row.heading_path, row.chunk_text, row.chunk_index > 0),
-          chunkText: row.chunk_text,
-          score: similarity,
-          scores: { semantic: similarity },
-        };
-      });
+    return rows.map((row) => {
+      // cosine similarity from L2 for unit vectors: cos = 1 - L2² / 2
+      const similarity = Math.max(0, 1 - (row.distance * row.distance) / 2);
+      return {
+        path: row.path,
+        title: row.title ?? '',
+        tags: row.tags ?? '[]',
+        aliases: row.aliases,
+        snippet: formatChunkSnippet(row.heading_path, row.chunk_text, row.chunk_index > 0),
+        chunkText: row.chunk_text,
+        score: similarity,
+        scores: { semantic: similarity },
+      };
+    });
   } catch {
     return [];
   }

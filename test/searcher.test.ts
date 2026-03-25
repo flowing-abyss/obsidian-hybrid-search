@@ -63,9 +63,26 @@ beforeAll(() => {
       content: 'Start text. '.repeat(20) + 'UNIQUEKEYWORD here. ' + 'End text. '.repeat(20),
       tags: [],
     },
+    {
+      path: 'headed-note.md',
+      title: 'Headed Note',
+      content: '# Intro\nPrelude.\n\n## Deep Section\nBatch heading target keyword lives here.\n',
+      tags: [],
+    },
   ];
 
   for (const n of notes) {
+    const chunks =
+      n.path === 'headed-note.md'
+        ? [
+            { text: '# Intro\nPrelude.\n', embedding: fakeEmbedding, headingPath: '# Intro' },
+            {
+              text: '## Deep Section\nBatch heading target keyword lives here.\n',
+              embedding: fakeEmbedding,
+              headingPath: '# Intro > ## Deep Section',
+            },
+          ]
+        : [{ text: n.content, embedding: fakeEmbedding }];
     upsertNote({
       path: n.path,
       title: n.title,
@@ -73,7 +90,7 @@ beforeAll(() => {
       content: n.content,
       mtime: Date.now(),
       hash: 'hash-' + n.path,
-      chunks: [{ text: n.content, embedding: fakeEmbedding }],
+      chunks,
     });
   }
 
@@ -360,6 +377,20 @@ describe('snippetLength cap', () => {
       `snippet length ${r.snippet.length} should not exceed snippetLength=200`,
     );
   });
+
+  it('BM25 snippet includes heading breadcrumb for section matches', async () => {
+    const results = await search('target keyword', {
+      mode: 'fulltext',
+      snippetLength: 40,
+      limit: 5,
+    });
+    const r = results.find((x) => x.path === 'headed-note.md');
+    assert.ok(r, 'headed-note.md should appear in fulltext results');
+    assert.ok(
+      r.snippet.startsWith('# Intro > ## Deep Section\n'),
+      `snippet should include heading breadcrumb, got: ${JSON.stringify(r.snippet)}`,
+    );
+  });
 });
 
 // ─── Path-based similarity is always semantic ────────────────────────────────
@@ -427,6 +458,45 @@ describe('path similarity search is always semantic', () => {
         'path result must have semantic score regardless of mode',
       );
     }
+  }, 15000);
+
+  it('multi-chunk candidate appears only once in path similarity results', async () => {
+    upsertNote({
+      path: 'multi-chunk-source.md',
+      title: 'Multi Chunk Source',
+      tags: [],
+      content: 'source text',
+      mtime: Date.now(),
+      hash: 'hash-multi-source',
+      chunks: [
+        { text: 'source chunk one', embedding: new Float32Array([1, 0, 0, 0]) },
+        { text: 'source chunk two', embedding: new Float32Array([0, 1, 0, 0]) },
+      ],
+    });
+    upsertNote({
+      path: 'multi-chunk-candidate.md',
+      title: 'Multi Chunk Candidate',
+      tags: [],
+      content: 'candidate text',
+      mtime: Date.now(),
+      hash: 'hash-multi-candidate',
+      chunks: [
+        { text: 'candidate chunk one', embedding: new Float32Array([1, 0, 0, 0]) },
+        { text: 'candidate chunk two', embedding: new Float32Array([1, 0, 0, 0]) },
+      ],
+    });
+
+    bumpIndexVersion();
+    const results = await search('multi-chunk-source.md', {
+      notePath: 'multi-chunk-source.md',
+      limit: 20,
+    });
+    const matches = results.filter((r) => r.path === 'multi-chunk-candidate.md');
+    assert.equal(
+      matches.length,
+      1,
+      'candidate note should appear only once despite multiple chunks',
+    );
   }, 15000);
 });
 
