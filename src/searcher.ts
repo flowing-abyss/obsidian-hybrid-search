@@ -1007,19 +1007,34 @@ export async function search(input: string, options: SearchOptions = {}): Promis
  * better-sqlite3 is synchronous — no async needed.
  */
 function fetchMissingChunkTexts(candidates: RawResult[]): void {
-  const db = getDb();
-  const stmt = db.prepare<[string], { text: string }>(
-    `SELECT c.text
-     FROM chunks c
-     JOIN notes n ON n.id = c.note_id
-     WHERE n.path = ?
-     ORDER BY c.chunk_index
-     LIMIT 1`,
+  const missingPaths = Array.from(
+    new Set(
+      candidates.filter((candidate) => !candidate.chunkText).map((candidate) => candidate.path),
+    ),
   );
-  for (const r of candidates) {
-    if (r.chunkText) continue;
-    const row = stmt.get(r.path);
-    if (row) r.chunkText = row.text;
+  if (missingPaths.length === 0) return;
+
+  const db = getDb();
+  const placeholders = missingPaths.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT path, text
+       FROM (
+         SELECT n.path, c.text,
+                ROW_NUMBER() OVER (PARTITION BY n.path ORDER BY c.chunk_index) AS row_num
+         FROM chunks c
+         JOIN notes n ON n.id = c.note_id
+         WHERE n.path IN (${placeholders})
+       )
+       WHERE row_num = 1`,
+    )
+    .all(...missingPaths) as Array<{ path: string; text: string }>;
+
+  const chunkTexts = new Map(rows.map((row) => [row.path, row.text]));
+  for (const candidate of candidates) {
+    if (candidate.chunkText) continue;
+    const chunkText = chunkTexts.get(candidate.path);
+    if (chunkText) candidate.chunkText = chunkText;
   }
 }
 
