@@ -687,40 +687,47 @@ function getSnippetFallbacks(notePaths: string[], maxChars: number): Map<string,
 }
 
 /**
- * Extract the sentence/line context around a wikilink [[target]] inside a note.
- * contentNotePath: the note whose content we search in
- * linkedNotePath:  the target note we're looking for a link to
+ * Extract the sentence/line context around a wikilink [[target]] inside note content.
  */
-function getLinkContext(contentNotePath: string, linkedNotePath: string, windowSize = 300): string {
-  const db = getDb();
-  const note = db.prepare('SELECT content FROM notes WHERE path = ?').get(contentNotePath) as
-    | { content: string }
-    | undefined;
-  if (!note?.content) return '';
-
+function getLinkContext(noteContent: string, linkedNotePath: string, windowSize = 300): string {
   const basename = path.basename(linkedNotePath, '.md');
   // Match [[basename]], [[basename|alias]], [[basename#heading]], [[folder/basename]], etc.
   const escaped = basename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const regex = new RegExp(`\\[\\[(?:[^\\]|#]*\\/)?${escaped}(?:[|#][^\\]]*)?\\]\\]`, 'i');
 
-  const match = regex.exec(note.content);
+  const match = regex.exec(noteContent);
   if (!match) return '';
 
   let start = Math.max(0, match.index - windowSize);
-  let end = Math.min(note.content.length, match.index + match[0].length + windowSize);
+  let end = Math.min(noteContent.length, match.index + match[0].length + windowSize);
 
   // Snap to word boundaries so we don't cut mid-word
   if (start > 0) {
-    while (start < match.index && !/\s/.test(note.content[start]!)) start++;
+    while (start < match.index && !/\s/.test(noteContent[start]!)) start++;
   }
-  if (end < note.content.length) {
-    while (end > match.index + match[0].length && !/\s/.test(note.content[end - 1]!)) end--;
+  if (end < noteContent.length) {
+    while (end > match.index + match[0].length && !/\s/.test(noteContent[end - 1]!)) end--;
   }
 
   const prefix = start > 0 ? '...' : '';
-  const suffix = end < note.content.length ? '...' : '';
+  const suffix = end < noteContent.length ? '...' : '';
   // Preserve newlines so CLI can strip line-based markdown (headings, blockquotes)
-  return prefix + note.content.slice(start, end).trim() + suffix;
+  return prefix + noteContent.slice(start, end).trim() + suffix;
+}
+
+function getCachedNoteContent(
+  db: ReturnType<typeof getDb>,
+  cache: Map<string, string>,
+  notePath: string,
+): string {
+  const cached = cache.get(notePath);
+  if (cached !== undefined) return cached;
+  const note = db.prepare('SELECT content FROM notes WHERE path = ?').get(notePath) as
+    | { content: string }
+    | undefined;
+  const content = note?.content ?? '';
+  cache.set(notePath, content);
+  return content;
 }
 
 // eslint-disable-next-line sonarjs/cognitive-complexity -- primary search aggregation pipeline, intentionally dense
@@ -733,6 +740,7 @@ function searchRelated(
   const db = getDb();
   const sourcePath = notePath.normalize('NFD');
   const results: SearchResult[] = [];
+  const contentCache = new Map<string, string>();
 
   const makeResult = (notePth: string, depth: number, snippet: string): SearchResult | null => {
     const note = db
@@ -778,7 +786,8 @@ function searchRelated(
         for (const to_path of linksByParent.get(parentPath) ?? []) {
           if (visitedFwd.has(to_path)) continue;
           visitedFwd.add(to_path);
-          const snippet = getLinkContext(parentPath, to_path, snippetLength);
+          const parentContent = getCachedNoteContent(db, contentCache, parentPath);
+          const snippet = getLinkContext(parentContent, to_path, snippetLength);
           const r = makeResult(to_path, d, snippet);
           if (r) results.push(r);
           next.push(to_path);
@@ -800,7 +809,8 @@ function searchRelated(
         for (const from_path of backlinksByParent.get(parentPath) ?? []) {
           if (visitedBwd.has(from_path)) continue;
           visitedBwd.add(from_path);
-          const snippet = getLinkContext(from_path, parentPath, snippetLength);
+          const fromContent = getCachedNoteContent(db, contentCache, from_path);
+          const snippet = getLinkContext(fromContent, parentPath, snippetLength);
           const r = makeResult(from_path, -d, snippet);
           if (r) results.push(r);
           next.push(from_path);
