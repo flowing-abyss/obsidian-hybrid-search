@@ -49,6 +49,13 @@ function runMigrations(db: DB): void {
     );
   `);
 
+  // Query-path indexes for graph traversal and per-note chunk access.
+  // links(from_path, to_path) is already covered by the PRIMARY KEY.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_links_to ON links(to_path);
+    CREATE INDEX IF NOT EXISTS idx_chunks_note_chunk_index ON chunks(note_id, chunk_index);
+  `);
+
   // Ensure db_version counter exists (cross-process cache invalidation)
   db.prepare("INSERT OR IGNORE INTO settings(key, value) VALUES('db_version', '0')").run();
 
@@ -462,6 +469,40 @@ export function getOutgoingLinks(notePath: string): string[] {
   return rows.map((r) => r.to_path);
 }
 
+export function getOutgoingLinksForPaths(paths: string[]): Map<string, string[]> {
+  if (paths.length === 0) return new Map();
+
+  const db = getDb();
+  const placeholders = paths.map(() => '?').join(', ');
+  const outgoing = db
+    .prepare(`SELECT from_path, to_path FROM links WHERE from_path IN (${placeholders})`)
+    .all(...paths) as { from_path: string; to_path: string }[];
+
+  const links = new Map<string, string[]>();
+  for (const path of paths) links.set(path, []);
+  for (const { from_path, to_path } of outgoing) {
+    links.get(from_path)!.push(to_path);
+  }
+  return links;
+}
+
+export function getBacklinksForPaths(paths: string[]): Map<string, string[]> {
+  if (paths.length === 0) return new Map();
+
+  const db = getDb();
+  const placeholders = paths.map(() => '?').join(', ');
+  const incoming = db
+    .prepare(`SELECT from_path, to_path FROM links WHERE to_path IN (${placeholders})`)
+    .all(...paths) as { from_path: string; to_path: string }[];
+
+  const backlinks = new Map<string, string[]>();
+  for (const path of paths) backlinks.set(path, []);
+  for (const { from_path, to_path } of incoming) {
+    backlinks.get(to_path)!.push(from_path);
+  }
+  return backlinks;
+}
+
 export function upsertLinks(fromPath: string, toPaths: string[]): void {
   const db = getDb();
   db.prepare('DELETE FROM links WHERE from_path = ?').run(fromPath);
@@ -476,33 +517,10 @@ export function getLinksForPaths(paths: string[]): {
   backlinks: Map<string, string[]>;
 } {
   if (paths.length === 0) return { links: new Map(), backlinks: new Map() };
-
-  const db = getDb();
-  const placeholders = paths.map(() => '?').join(', ');
-
-  const outgoing = db
-    .prepare(`SELECT from_path, to_path FROM links WHERE from_path IN (${placeholders})`)
-    .all(...paths) as { from_path: string; to_path: string }[];
-
-  const incoming = db
-    .prepare(`SELECT from_path, to_path FROM links WHERE to_path IN (${placeholders})`)
-    .all(...paths) as { from_path: string; to_path: string }[];
-
-  const links = new Map<string, string[]>();
-  const backlinks = new Map<string, string[]>();
-
-  for (const path of paths) {
-    links.set(path, []);
-    backlinks.set(path, []);
-  }
-  for (const { from_path, to_path } of outgoing) {
-    links.get(from_path)!.push(to_path);
-  }
-  for (const { from_path, to_path } of incoming) {
-    backlinks.get(to_path)!.push(from_path);
-  }
-
-  return { links, backlinks };
+  return {
+    links: getOutgoingLinksForPaths(paths),
+    backlinks: getBacklinksForPaths(paths),
+  };
 }
 
 interface EventLogEntry {

@@ -1,12 +1,14 @@
 import path from 'node:path';
 import { config } from './config.js';
 import {
+  getBacklinksForPaths,
   getChunkEmbeddingsByPath,
   getDb,
   getDbVersion,
   getLinksForPaths,
   getNoteByPath,
   getOutgoingLinks,
+  getOutgoingLinksForPaths,
   hasVecTable,
 } from './db.js';
 import { embed } from './embedder.js';
@@ -663,18 +665,15 @@ function searchRelated(
     let frontier = [sourcePath];
     for (let d = 1; d <= maxDepth; d++) {
       const next: string[] = [];
+      const linksByParent = getOutgoingLinksForPaths(frontier);
       for (const parentPath of frontier) {
-        const links = db
-          .prepare('SELECT to_path FROM links WHERE from_path = ?')
-          .all(parentPath) as { to_path: string }[];
-        for (const { to_path } of links) {
-          if (!visitedFwd.has(to_path)) {
-            visitedFwd.add(to_path);
-            const snippet = getLinkContext(parentPath, to_path, snippetLength);
-            const r = makeResult(to_path, d, snippet);
-            if (r) results.push(r);
-            next.push(to_path);
-          }
+        for (const to_path of linksByParent.get(parentPath) ?? []) {
+          if (visitedFwd.has(to_path)) continue;
+          visitedFwd.add(to_path);
+          const snippet = getLinkContext(parentPath, to_path, snippetLength);
+          const r = makeResult(to_path, d, snippet);
+          if (r) results.push(r);
+          next.push(to_path);
         }
       }
       frontier = next;
@@ -688,18 +687,15 @@ function searchRelated(
     let frontier = [sourcePath];
     for (let d = 1; d <= maxDepth; d++) {
       const next: string[] = [];
+      const backlinksByParent = getBacklinksForPaths(frontier);
       for (const parentPath of frontier) {
-        const backlinks = db
-          .prepare('SELECT from_path FROM links WHERE to_path = ?')
-          .all(parentPath) as { from_path: string }[];
-        for (const { from_path } of backlinks) {
-          if (!visitedBwd.has(from_path)) {
-            visitedBwd.add(from_path);
-            const snippet = getLinkContext(from_path, parentPath, snippetLength);
-            const r = makeResult(from_path, -d, snippet);
-            if (r) results.push(r);
-            next.push(from_path);
-          }
+        for (const from_path of backlinksByParent.get(parentPath) ?? []) {
+          if (visitedBwd.has(from_path)) continue;
+          visitedBwd.add(from_path);
+          const snippet = getLinkContext(from_path, parentPath, snippetLength);
+          const r = makeResult(from_path, -d, snippet);
+          if (r) results.push(r);
+          next.push(from_path);
         }
       }
       frontier = next;

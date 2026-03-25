@@ -350,6 +350,15 @@ describe('links & backlinks', () => {
     upsertLinks('python-notes.md', ['pkm-overview.md']);
   });
 
+  it('creates traversal indexes needed for related search', () => {
+    const db = getDb();
+    const linkIndexes = db.prepare("PRAGMA index_list('links')").all() as Array<{ name: string }>;
+    const chunkIndexes = db.prepare("PRAGMA index_list('chunks')").all() as Array<{ name: string }>;
+
+    assert.ok(linkIndexes.some((idx) => idx.name === 'idx_links_to'));
+    assert.ok(chunkIndexes.some((idx) => idx.name === 'idx_chunks_note_chunk_index'));
+  });
+
   it('forward links populated', () => {
     const { links } = getLinksForPaths(['linker.md']);
     const l = links.get('linker.md') ?? [];
