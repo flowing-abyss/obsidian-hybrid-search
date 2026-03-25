@@ -409,12 +409,8 @@ export async function startBackgroundIndexing(contextLength: number): Promise<vo
   });
 }
 
-interface FileDelayState {
-  timer: ReturnType<typeof setTimeout>;
-  delay: number;
-}
-
-const fileDelays = new Map<string, FileDelayState>();
+const fileDelays = new Map<string, ReturnType<typeof setTimeout>>();
+const pendingUnlinks = new Set<string>();
 
 export function startWatcher(contextLength: number): void {
   import('chokidar')
@@ -438,46 +434,33 @@ export function startWatcher(contextLength: number): void {
         ignoreInitial: true,
       });
 
-      const handleAdd = (filePath: string) => {
+      const handleFileChange = (filePath: string) => {
         const existing = fileDelays.get(filePath);
-        if (existing) clearTimeout(existing.timer);
+        if (existing) clearTimeout(existing);
         const timer = setTimeout(() => {
           fileDelays.delete(filePath);
           indexFile(filePath, contextLength).catch((err) => {
             console.warn('[watcher] error indexing', filePath, err);
           });
-        }, config.debounce.min);
-        fileDelays.set(filePath, { timer, delay: config.debounce.min });
+        }, config.debounce);
+        fileDelays.set(filePath, timer);
       };
 
-      const handleChange = (filePath: string) => {
-        const existing = fileDelays.get(filePath);
-        const newDelay = existing
-          ? Math.min(existing.delay + config.debounce.step, config.debounce.max)
-          : config.debounce.min;
-
-        if (existing) clearTimeout(existing.timer);
-        const timer = setTimeout(() => {
-          fileDelays.delete(filePath);
-          indexFile(filePath, contextLength).catch((err) => {
-            console.warn('[watcher] error indexing', filePath, err);
-          });
-        }, newDelay);
-        fileDelays.set(filePath, { timer, delay: newDelay });
-      };
-
-      watcher.on('add', handleAdd);
-      watcher.on('change', handleChange);
+      watcher.on('add', handleFileChange);
+      watcher.on('change', handleFileChange);
       watcher.on('unlink', (filePath: string) => {
+        if (pendingUnlinks.has(filePath)) return;
+        pendingUnlinks.add(filePath);
+
         const rel = path.relative(config.vaultPath, filePath).normalize('NFD');
-        // Cancel any pending timer for this file
         const existing = fileDelays.get(filePath);
         if (existing) {
-          clearTimeout(existing.timer);
+          clearTimeout(existing);
           fileDelays.delete(filePath);
         }
         deleteNote(rel);
         bumpIndexVersion();
+        pendingUnlinks.delete(filePath);
       });
     })
     .catch((err) => {
