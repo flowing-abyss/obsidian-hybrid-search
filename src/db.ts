@@ -16,7 +16,7 @@ function normalizeTag(tag: string): string {
   return tag.normalize('NFD').toLowerCase();
 }
 
-function parseAliasesJson(raw: string | null | undefined): string[] {
+function parseJsonStringArray(raw: string | null | undefined): string[] {
   if (!raw) return [];
   try {
     return (JSON.parse(raw) as unknown[]).filter(
@@ -27,16 +27,8 @@ function parseAliasesJson(raw: string | null | undefined): string[] {
   }
 }
 
-function parseTagsJson(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  try {
-    return (JSON.parse(raw) as unknown[]).filter(
-      (value): value is string => typeof value === 'string',
-    );
-  } catch {
-    return [];
-  }
-}
+const parseAliasesJson = parseJsonStringArray;
+const parseTagsJson = parseJsonStringArray;
 
 function replaceNoteAliases(
   db: DB,
