@@ -143,9 +143,10 @@ obsidian-hybrid-search "productivity systems" --limit 5 --threshold 0.3
 
 # Restrict to a subfolder
 obsidian-hybrid-search "daily review" --scope notes/periodic/
+obsidian-hybrid-search "daily review" --folder notes/periodic/    # alias for --scope
 
-# Restrict to multiple subfolders (OR)
-obsidian-hybrid-search "productivity" --scope notes/pkm/ --scope notes/projects/
+# Restrict to multiple subfolders (AND)
+obsidian-hybrid-search "productivity" --scope notes/pkm/ --scope notes/2024/
 
 # Exclude a subfolder
 obsidian-hybrid-search "programming" --scope notes/ --scope -notes/archive/
@@ -154,8 +155,27 @@ obsidian-hybrid-search "programming" --scope notes/ --scope -notes/archive/
 obsidian-hybrid-search "productivity" --tag pkm
 obsidian-hybrid-search "machine learning" --tag note/basic/primary
 
-# Filter by multiple tags (OR include, exclude with -)
-obsidian-hybrid-search "learning" --tag pkm --tag -draft
+# Filter by multiple tags (AND include, exclude with -)
+obsidian-hybrid-search "learning" --tag pkm --tag work
+
+# Filter by frontmatter / properties (exact match, case-insensitive)
+obsidian-hybrid-search "notes" --frontmatter status:todo
+obsidian-hybrid-search "notes" --prop priority:high          # --prop is alias for --frontmatter
+
+# Filter by multiple frontmatter fields (AND)
+obsidian-hybrid-search "notes" --frontmatter status:todo --frontmatter priority:high
+
+# Exclude by frontmatter value
+obsidian-hybrid-search "notes" --frontmatter -status:done
+
+# Filter-only mode: no query, just filters (returns all matching notes sorted by title)
+obsidian-hybrid-search --frontmatter status:todo
+obsidian-hybrid-search --folder notes/2024/
+obsidian-hybrid-search --tag pkm
+obsidian-hybrid-search --frontmatter status:done --tag archived
+
+# Unlimited results in filter-only mode (default limit is 10)
+obsidian-hybrid-search --folder notes/ --limit 0
 
 # Find semantically similar notes
 obsidian-hybrid-search --path notes/pkm/zettelkasten.md
