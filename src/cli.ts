@@ -73,9 +73,12 @@ interface SearchOpts {
   path?: string;
   mode?: 'hybrid' | 'semantic' | 'fulltext' | 'title';
   scope: string[];
+  folder: string[];
   limit: string;
   threshold: string;
   tag: string[];
+  frontmatter: string[];
+  prop: string[];
   related?: boolean;
   depth: string;
   direction?: 'outgoing' | 'backlinks' | 'both';
@@ -283,48 +286,49 @@ function printRelatedTable(
 function printSearchTable(
   results: Awaited<ReturnType<typeof import('./searcher.js').search>>,
   extended: boolean,
+  filterOnlyMode: boolean,
 ): void {
   const hasSnippets = results.some((r) => (r.snippet ?? '').trim().length > 0);
-  let table: InstanceType<typeof Table>;
-  if (extended && hasSnippets) {
-    table = new Table({
-      head: ['SCORE', 'PATH', 'TAGS/ALIASES', 'SNIPPET'],
-      colWidths: [7, 38, 20, 47],
-      wordWrap: true,
-      style: { head: [] },
-    });
-  } else if (extended) {
-    table = new Table({
-      head: ['SCORE', 'PATH', 'TAGS/ALIASES'],
-      colWidths: [7, 50, 25],
-      wordWrap: true,
-      style: { head: [] },
-    });
-  } else if (hasSnippets) {
-    table = new Table({
-      head: ['SCORE', 'PATH', 'SNIPPET'],
-      colWidths: [7, 45, 60],
-      wordWrap: true,
-      style: { head: [] },
-    });
-  } else {
-    table = new Table({
-      head: ['SCORE', 'PATH'],
-      colWidths: [7, 60],
-      wordWrap: true,
-      style: { head: [] },
-    });
+
+  const heads = [];
+  const colWidths: number[] = [];
+  if (!filterOnlyMode) {
+    heads.push('SCORE');
+    colWidths.push(7);
   }
+  heads.push('PATH');
+  if (filterOnlyMode) {
+    colWidths.push(70);
+  } else if (extended && hasSnippets) {
+    colWidths.push(38, 20, 47);
+  } else if (extended) {
+    colWidths.push(50, 25);
+  } else if (hasSnippets) {
+    colWidths.push(45, 60);
+  } else {
+    colWidths.push(60);
+  }
+
+  if (extended && hasSnippets) heads.push('TAGS/ALIASES', 'SNIPPET');
+  else if (extended) heads.push('TAGS/ALIASES');
+
+  const table = new Table({
+    head: heads,
+    colWidths,
+    wordWrap: true,
+    style: { head: [] },
+  });
+
   for (const r of results) {
+    const row = [];
+    if (!filterOnlyMode) row.push(colorScore(r.score));
+    row.push(r.path);
     if (extended && hasSnippets) {
-      table.push([colorScore(r.score), r.path, formatMeta(r), r.snippet ?? '']);
+      row.push(formatMeta(r), r.snippet ?? '');
     } else if (extended) {
-      table.push([colorScore(r.score), r.path, formatMeta(r)]);
-    } else if (hasSnippets) {
-      table.push([colorScore(r.score), r.path, r.snippet ?? '']);
-    } else {
-      table.push([colorScore(r.score), r.path]);
+      row.push(formatMeta(r));
     }
+    table.push(row);
   }
   console.log(table.toString());
 }
@@ -380,11 +384,29 @@ program
     (v: string, a: string[]) => [...a, v],
     [] as string[],
   )
+  .option(
+    '--folder <folder>',
+    'Short for --scope',
+    (v: string, a: string[]) => [...a, v],
+    [] as string[],
+  )
   .option('--limit <n>', 'Maximum results', '10')
   .option('--threshold <n>', 'Minimum score threshold 0..1', '0')
   .option(
     '--tag <tag>',
     'Filter by tag. Repeatable; prefix with "-" to exclude',
+    (v: string, a: string[]) => [...a, v],
+    [] as string[],
+  )
+  .option(
+    '--frontmatter <filter>',
+    'Filter by frontmatter field (e.g., status:todo). Repeatable; prefix with "-" to exclude',
+    (v: string, a: string[]) => [...a, v],
+    [] as string[],
+  )
+  .option(
+    '--prop <filter>',
+    'Short for --frontmatter',
     (v: string, a: string[]) => [...a, v],
     [] as string[],
   )
@@ -404,19 +426,26 @@ program
   )
   .action(async (queries: string[], opts: SearchOpts) => {
     const effectiveInput = opts.path ?? queries[0];
-    if (!effectiveInput) {
+    const frontmatterFilters = [...opts.frontmatter, ...opts.prop];
+    const scopeFilters = [...opts.scope, ...opts.folder];
+    const hasFilters =
+      frontmatterFilters.length > 0 || opts.tag.length > 0 || scopeFilters.length > 0;
+    if (!effectiveInput && !hasFilters) {
       program.help();
       return;
     }
 
     await init();
 
-    const results = await search(effectiveInput, {
+    const effectiveLimit = parseInt(opts.limit);
+    const isFilterOnlyMode = !effectiveInput && !opts.path;
+    const results = await search(effectiveInput ?? '', {
       mode: opts.mode,
-      scope: opts.scope.length > 0 ? opts.scope : undefined,
-      limit: parseInt(opts.limit),
+      scope: scopeFilters.length > 0 ? scopeFilters : undefined,
+      limit: isFilterOnlyMode ? 0 : opts.limit === '0' ? 0 : effectiveLimit,
       threshold: parseFloat(opts.threshold),
       tag: opts.tag.length > 0 ? opts.tag : undefined,
+      frontmatter: frontmatterFilters.length > 0 ? frontmatterFilters : undefined,
       related: opts.related ?? false,
       depth: parseInt(opts.depth),
       direction: opts.direction,
@@ -447,7 +476,7 @@ program
       return;
     }
 
-    printSearchTable(results, opts.extended ?? false);
+    printSearchTable(results, opts.extended ?? false, isFilterOnlyMode);
 
     if (opts.open) {
       await openInObsidian(

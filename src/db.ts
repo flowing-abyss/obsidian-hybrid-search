@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { statSync, unlinkSync } from 'node:fs';
 import * as sqliteVec from 'sqlite-vec';
+import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
 import { config } from './config.js';
 import { isIgnored } from './ignore.js';
 
@@ -97,6 +98,103 @@ function rebuildTagLookup(db: DB): void {
 
   for (const note of notes) {
     replaceNoteTags(db, note.id, parseTagsJson(note.tags));
+  }
+}
+
+function extractFrontmatterFields(
+  data: Record<string, unknown>,
+  prefix = '',
+): Array<{ field: string; value: string }> {
+  const fields: Array<{ field: string; value: string }> = [];
+
+  if (!data || typeof data !== 'object') return fields;
+
+  for (const [key, value] of Object.entries(data)) {
+    if (!key || key.trim() === '') continue;
+    const fieldName = prefix ? `${prefix}.${key}` : key;
+
+    if (value === null || value === undefined) continue;
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') {
+          const strValue = String(item);
+          if (strValue.trim()) {
+            fields.push({ field: fieldName, value: strValue });
+          }
+        } else if (typeof item === 'object' && item !== null) {
+          fields.push(...extractFrontmatterFields(item as Record<string, unknown>, fieldName));
+        }
+      }
+    } else if (typeof value === 'object') {
+      fields.push(...extractFrontmatterFields(value as Record<string, unknown>, fieldName));
+    } else if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    ) {
+      const strValue = String(value);
+      if (strValue.trim()) {
+        fields.push({ field: fieldName, value: strValue });
+      }
+    }
+  }
+
+  return fields;
+}
+
+function replaceNoteFrontmatterFields(
+  db: DB,
+  noteId: number,
+  frontmatter: Record<string, unknown> | null | undefined,
+): void {
+  db.prepare('DELETE FROM note_frontmatter_fields WHERE note_id = ?').run(noteId);
+  if (!frontmatter || Object.keys(frontmatter).length === 0) return;
+
+  let fields: Array<{ field: string; value: string }>;
+  try {
+    fields = extractFrontmatterFields(frontmatter);
+  } catch (e) {
+    console.error('Error extracting frontmatter fields:', e);
+    return;
+  }
+  if (fields.length === 0) return;
+
+  const insert = db.prepare(
+    'INSERT OR IGNORE INTO note_frontmatter_fields (note_id, field, value, value_norm) VALUES (?, ?, ?, ?)',
+  );
+
+  for (const { field, value } of fields) {
+    if (!field || !value) continue;
+    insert.run(noteId, field, value, value.toLowerCase());
+  }
+}
+
+function rebuildFrontmatterLookup(db: DB): void {
+  db.prepare('DELETE FROM note_frontmatter_fields').run();
+
+  const notes = db
+    .prepare(
+      "SELECT id, frontmatter FROM notes WHERE frontmatter IS NOT NULL AND frontmatter != ''",
+    )
+    .all() as Array<{
+    id: number;
+    frontmatter: string;
+  }>;
+
+  for (const note of notes) {
+    try {
+      const parsed = note.frontmatter
+        .split('\n')
+        .filter((line) => line.trim() && !line.startsWith('---'))
+        .join('\n');
+      const data = parsed ? (yamlParse(parsed) as Record<string, unknown>) : {};
+      if (data && typeof data === 'object') {
+        replaceNoteFrontmatterFields(db, note.id, data);
+      }
+    } catch (e) {
+      console.error('Error parsing frontmatter for note', note.id, e);
+    }
   }
 }
 
@@ -215,6 +313,38 @@ function runMigrations(db: DB): void {
       ).run();
     });
     tx();
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS note_frontmatter_fields (
+      note_id  INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+      field    TEXT NOT NULL,
+      value    TEXT NOT NULL,
+      value_norm TEXT NOT NULL,
+      PRIMARY KEY (note_id, field, value)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_fm_field_value_norm ON note_frontmatter_fields(field, value_norm);
+  `);
+
+  const fmLookupVersion = (
+    db.prepare("SELECT value FROM settings WHERE key = 'frontmatter_lookup_version'").get() as
+      | { value: string }
+      | undefined
+  )?.value;
+
+  if (fmLookupVersion !== '1') {
+    try {
+      const tx = db.transaction(() => {
+        rebuildFrontmatterLookup(db);
+        db.prepare(
+          "INSERT OR REPLACE INTO settings(key, value) VALUES('frontmatter_lookup_version', '1')",
+        ).run();
+      });
+      tx();
+    } catch (e) {
+      console.error('Error in rebuildFrontmatterLookup:', e);
+    }
   }
 
   // FTS schema v3: unicode61 tokenchars '+#' so C++/C# are full tokens.
@@ -476,7 +606,7 @@ export function upsertNote(note: {
   tags: string[];
   aliases?: string[];
   content: string;
-  frontmatter?: string;
+  frontmatter?: Record<string, unknown>;
   mtime: number;
   hash: string;
   chunks: { text: string; headingPath?: string | null; embedding: Float32Array | null }[];
@@ -488,6 +618,8 @@ export function upsertNote(note: {
   const existing = db.prepare('SELECT id FROM notes WHERE path = ?').get(note.path) as
     | { id: number }
     | undefined;
+
+  const fmString = note.frontmatter ? yamlStringify(note.frontmatter) : '';
 
   if (existing) {
     // Delete existing chunk vectors before cascade-deleting chunks
@@ -503,7 +635,7 @@ export function upsertNote(note: {
       JSON.stringify(note.tags),
       aliasesJson,
       note.content,
-      note.frontmatter ?? '',
+      fmString,
       note.mtime,
       note.hash,
       note.path,
@@ -514,6 +646,7 @@ export function upsertNote(note: {
     const noteId = existing.id;
     replaceNoteAliases(db, noteId, aliases);
     replaceNoteTags(db, noteId, note.tags);
+    replaceNoteFrontmatterFields(db, noteId, note.frontmatter);
     insertChunks(db, noteId, note.chunks);
     logEvent('updated', note.path);
     bumpDbVersion();
@@ -531,7 +664,7 @@ export function upsertNote(note: {
         JSON.stringify(note.tags),
         aliasesJson,
         note.content,
-        note.frontmatter ?? '',
+        fmString,
         note.mtime,
         note.hash,
       );
@@ -539,6 +672,7 @@ export function upsertNote(note: {
     const noteId = result.lastInsertRowid as number;
     replaceNoteAliases(db, noteId, aliases);
     replaceNoteTags(db, noteId, note.tags);
+    replaceNoteFrontmatterFields(db, noteId, note.frontmatter);
     insertChunks(db, noteId, note.chunks);
     logEvent('added', note.path);
     bumpDbVersion();
@@ -681,40 +815,28 @@ export function filterNotePathsByTag(paths: string[], tag: string | string[]): S
   const excludes = filters.filter((t) => t.startsWith('-')).map((t) => normalizeTag(t.slice(1)));
   const pathPlaceholders = paths.map(() => '?').join(', ');
 
-  const buildTagPredicate = (values: string[]): { sql: string; params: string[] } => {
-    const parts: string[] = [];
-    const params: string[] = [];
-    for (const value of values) {
-      parts.push('(nt.tag_norm = ? OR nt.tag_norm LIKE ?)');
-      params.push(value, `%${value}%`);
-    }
-    return {
-      sql: parts.length > 0 ? parts.join(' OR ') : '0',
-      params,
-    };
-  };
+  // Multiple include tags = AND logic (note must have ALL specified tags)
+  const includeExistsClauses: string[] = [];
+  const includeExistsParams: string[] = [];
+  for (const value of includes) {
+    includeExistsClauses.push(
+      'EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = n.id AND (nt.tag_norm = ? OR nt.tag_norm LIKE ?))',
+    );
+    includeExistsParams.push(value, `%${value}%`);
+  }
+  const includeClause = includeExistsClauses.length > 0 ? includeExistsClauses.join(' AND ') : '1';
 
-  const excludePredicate = buildTagPredicate(excludes);
-  const includePredicate = buildTagPredicate(includes);
-
-  const includeClause =
-    includes.length === 0
-      ? '1'
-      : `EXISTS (
-           SELECT 1
-           FROM note_tags nt
-           WHERE nt.note_id = n.id
-             AND (${includePredicate.sql})
-         )`;
+  // Multiple exclude tags = AND logic (note must NOT have ANY of the excluded tags)
+  const excludeNotExistsClauses: string[] = [];
+  const excludeNotExistsParams: string[] = [];
+  for (const value of excludes) {
+    excludeNotExistsClauses.push(
+      'NOT EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = n.id AND (nt.tag_norm = ? OR nt.tag_norm LIKE ?))',
+    );
+    excludeNotExistsParams.push(value, `%${value}%`);
+  }
   const excludeClause =
-    excludes.length === 0
-      ? '1'
-      : `NOT EXISTS (
-           SELECT 1
-           FROM note_tags nt
-           WHERE nt.note_id = n.id
-             AND (${excludePredicate.sql})
-         )`;
+    excludeNotExistsClauses.length > 0 ? excludeNotExistsClauses.join(' AND ') : '1';
 
   const rows = db
     .prepare(
@@ -724,11 +846,132 @@ export function filterNotePathsByTag(paths: string[], tag: string | string[]): S
          AND ${excludeClause}
          AND ${includeClause}`,
     )
-    .all(...paths, ...excludePredicate.params, ...includePredicate.params) as Array<{
+    .all(...paths, ...excludeNotExistsParams, ...includeExistsParams) as Array<{
     path: string;
   }>;
 
   return new Set(rows.map((row) => row.path));
+}
+
+export function filterNotePathsByFrontmatter(
+  paths: string[],
+  frontmatter: string | string[],
+): Set<string> {
+  if (paths.length === 0) return new Set();
+
+  const db = getDb();
+  const filters = Array.isArray(frontmatter) ? frontmatter : [frontmatter];
+  const includes = filters.filter((f) => !f.startsWith('-'));
+  const excludes = filters.filter((f) => f.startsWith('-')).map((f) => f.slice(1));
+  const pathPlaceholders = paths.map(() => '?').join(', ');
+
+  // Multiple include filters = AND logic (note must have ALL specified field values)
+  const includeExistsClauses: string[] = [];
+  const includeExistsParams: string[] = [];
+  for (const value of includes) {
+    const colonIdx = value.indexOf(':');
+    if (colonIdx === -1) continue;
+    const field = value.slice(0, colonIdx).toLowerCase();
+    const fieldValue = value.slice(colonIdx + 1).toLowerCase();
+    includeExistsClauses.push(
+      'EXISTS (SELECT 1 FROM note_frontmatter_fields f WHERE f.note_id = n.id AND f.field = ? AND f.value_norm = ?)',
+    );
+    includeExistsParams.push(field, fieldValue);
+  }
+
+  const includeClause = includeExistsClauses.length > 0 ? includeExistsClauses.join(' AND ') : '1';
+
+  // Exclude = AND logic (note must NOT have ANY of the excluded field values)
+  const excludeNotExistsClauses: string[] = [];
+  const excludeNotExistsParams: string[] = [];
+  for (const value of excludes) {
+    const colonIdx = value.indexOf(':');
+    if (colonIdx === -1) continue;
+    const field = value.slice(0, colonIdx).toLowerCase();
+    const fieldValue = value.slice(colonIdx + 1).toLowerCase();
+    excludeNotExistsClauses.push(
+      'NOT EXISTS (SELECT 1 FROM note_frontmatter_fields f WHERE f.note_id = n.id AND f.field = ? AND f.value_norm = ?)',
+    );
+    excludeNotExistsParams.push(field, fieldValue);
+  }
+
+  const excludeClause =
+    excludeNotExistsClauses.length > 0 ? excludeNotExistsClauses.join(' AND ') : '1';
+
+  const rows = db
+    .prepare(
+      `SELECT n.path
+       FROM notes n
+       WHERE n.path IN (${pathPlaceholders})
+         AND ${excludeClause}
+         AND ${includeClause}`,
+    )
+    .all(...paths, ...excludeNotExistsParams, ...includeExistsParams) as Array<{
+    path: string;
+  }>;
+
+  return new Set(rows.map((row) => row.path));
+}
+
+export function getMatchingNotesByFrontmatter(
+  frontmatter: string | string[],
+  limit: number,
+): Array<{ path: string; title: string; tags: string; aliases: string | null }> {
+  const db = getDb();
+  const filters = Array.isArray(frontmatter) ? frontmatter : [frontmatter];
+  const includes = filters.filter((f) => !f.startsWith('-'));
+  const excludes = filters.filter((f) => f.startsWith('-')).map((f) => f.slice(1));
+
+  // Multiple include filters = AND logic (note must have ALL specified field values)
+  const includeExistsClauses: string[] = [];
+  const includeExistsParams: string[] = [];
+  for (const value of includes) {
+    const colonIdx = value.indexOf(':');
+    if (colonIdx === -1) continue;
+    const field = value.slice(0, colonIdx).toLowerCase();
+    const fieldValue = value.slice(colonIdx + 1).toLowerCase();
+    includeExistsClauses.push(
+      'EXISTS (SELECT 1 FROM note_frontmatter_fields f WHERE f.note_id = n.id AND f.field = ? AND f.value_norm = ?)',
+    );
+    includeExistsParams.push(field, fieldValue);
+  }
+
+  const includeClause = includeExistsClauses.length > 0 ? includeExistsClauses.join(' AND ') : '1';
+
+  // Exclude = AND logic (note must NOT have ANY of the excluded field values)
+  const excludeNotExistsClauses: string[] = [];
+  const excludeNotExistsParams: string[] = [];
+  for (const value of excludes) {
+    const colonIdx = value.indexOf(':');
+    if (colonIdx === -1) continue;
+    const field = value.slice(0, colonIdx).toLowerCase();
+    const fieldValue = value.slice(colonIdx + 1).toLowerCase();
+    excludeNotExistsClauses.push(
+      'NOT EXISTS (SELECT 1 FROM note_frontmatter_fields f WHERE f.note_id = n.id AND f.field = ? AND f.value_norm = ?)',
+    );
+    excludeNotExistsParams.push(field, fieldValue);
+  }
+
+  const excludeClause =
+    excludeNotExistsClauses.length > 0 ? excludeNotExistsClauses.join(' AND ') : '1';
+
+  const rows = db
+    .prepare(
+      `SELECT n.path, n.title, n.tags, n.aliases
+       FROM notes n
+       WHERE ${excludeClause}
+         AND ${includeClause}
+       ORDER BY n.title ASC
+       LIMIT ?`,
+    )
+    .all(...excludeNotExistsParams, ...includeExistsParams, limit) as Array<{
+    path: string;
+    title: string;
+    tags: string;
+    aliases: string | null;
+  }>;
+
+  return rows;
 }
 
 interface EventLogEntry {

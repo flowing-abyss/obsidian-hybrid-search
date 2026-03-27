@@ -265,6 +265,15 @@ async function main() {
                 'E.g. ["note/basic/primary", "-category/cs"] returns primary notes outside cs.',
               oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
             },
+            frontmatter: {
+              description:
+                'Filter by frontmatter field(s). String or array. Format: "field:value". Prefix with "-" to exclude. ' +
+                'Include array = AND logic (note must have all specified fields with matching values). ' +
+                'Exclude array = AND logic (note must not have any of the excluded field values). ' +
+                'E.g. ["status:todo", "priority:high"] returns notes with status=todo AND priority=high. ' +
+                'Omit query to list all notes matching frontmatter filters (sorted by title).',
+              oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+            },
             related: {
               type: 'boolean',
               description:
@@ -385,6 +394,7 @@ async function main() {
           limit: a.limit as number | undefined,
           threshold: a.threshold as number | undefined,
           tag: parseArrayParam(a.tag),
+          frontmatter: parseArrayParam(a.frontmatter),
           related: a.related as boolean | undefined,
           depth: a.depth as number | undefined,
           direction: a.direction as 'outgoing' | 'backlinks' | 'both' | undefined,

@@ -119,7 +119,7 @@ export async function indexFile(
       tags,
       aliases,
       content,
-      frontmatter: frontmatterRaw,
+      frontmatter: frontmatter,
       mtime: stat.mtimeMs,
       hash,
       chunks: chunks.map((c, i) => ({

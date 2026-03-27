@@ -274,15 +274,25 @@ describe('tag filter', () => {
     assert.ok(paths.includes('tagged-inc.md'), 'tagged-inc.md should not be excluded');
   });
 
-  it('array tag filter uses OR for includes', async () => {
+  it('array tag filter uses AND for includes', async () => {
     const results = await search('tagged', {
       mode: 'fulltext',
       tag: ['include-me', 'exclude-me'],
       limit: 20,
     });
     const paths = results.map((r) => r.path);
+    // Both tags must match (AND logic) - neither note has both tags, so no results
+    assert.equal(paths.length, 0, 'no notes have both tags');
+  });
+
+  it('array tag filter single tag still works', async () => {
+    const results = await search('tagged', {
+      mode: 'fulltext',
+      tag: ['include-me'],
+      limit: 20,
+    });
+    const paths = results.map((r) => r.path);
     assert.ok(paths.includes('tagged-inc.md'), 'include-me should match');
-    assert.ok(paths.includes('tagged-exc.md'), 'exclude-me should also match via OR');
   });
 
   it('exclude + include combined: shared tag kept, excluded note removed', async () => {
@@ -313,6 +323,48 @@ describe('scope filter', () => {
     const results = await search('content', { mode: 'fulltext', scope: '-notes/', limit: 20 });
     for (const r of results) {
       assert.ok(!r.path.startsWith('notes/'), `path "${r.path}" should not be in notes/`);
+    }
+  });
+
+  it('multiple scope filters use AND logic', async () => {
+    const results = await search('', {
+      scope: ['notes/', 'sub/'],
+      limit: 100,
+    });
+    for (const r of results) {
+      assert.ok(r.path.startsWith('notes/'), `path "${r.path}" should start with notes/`);
+      assert.ok(r.path.includes('sub/'), `path "${r.path}" should contain sub/`);
+    }
+  });
+});
+
+describe('filter-only mode', () => {
+  it('filter-only with scope returns all matching notes', async () => {
+    const results = await search('', { scope: ['notes/'] });
+    assert.ok(results.length > 0, 'should return results');
+    for (const r of results) {
+      assert.ok(r.path.startsWith('notes/'), `path "${r.path}" should start with notes/`);
+    }
+  });
+
+  it('filter-only with tag returns all matching notes', async () => {
+    const results = await search('', { tag: ['shared'] });
+    assert.ok(results.length > 0, 'should return results');
+    for (const r of results) {
+      assert.ok(r.tags.includes('shared'), `note "${r.path}" should have shared tag`);
+    }
+  });
+
+  it('filter-only without filters shows help/error', async () => {
+    const results = await search('', {});
+    assert.equal(results.length, 0, 'should return empty without filters');
+  });
+
+  it('filter-only mode with multiple filters uses AND logic', async () => {
+    const results = await search('', { scope: ['notes/'], tag: ['shared'] });
+    for (const r of results) {
+      assert.ok(r.path.startsWith('notes/'), `path "${r.path}" should start with notes/`);
+      assert.ok(r.tags.includes('shared'), `note "${r.path}" should have shared tag`);
     }
   });
 });

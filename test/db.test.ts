@@ -49,6 +49,7 @@ const {
   saveConfigMeta,
   applyDbConfigDefaults,
   filterNotePathsByTag,
+  filterNotePathsByFrontmatter,
 } = await import('../src/db.js');
 const { searchBm25, searchFuzzyTitle, search } = await import('../src/searcher.js');
 const { isIgnored } = await import('../src/ignore.js');
@@ -114,20 +115,64 @@ describe('upsertNote frontmatter storage', () => {
       title: 'Frontmatter Test',
       tags: [],
       content: 'body content',
-      frontmatter: 'category:\n  - "[[pkm-overview]]"\n',
+      frontmatter: { category: ['pkm-overview'] },
       mtime: Date.now(),
       hash: 'fm-test',
       chunks: [{ text: 'body content', embedding: fakeEmbedding }],
     });
     const note = getNoteByPath('fm-test.md');
     assert.ok(note, 'note should be found');
-    assert.equal(note.frontmatter, 'category:\n  - "[[pkm-overview]]"\n');
+    assert.ok(note.frontmatter.includes('category'), 'frontmatter should contain category');
   });
 
   it('returns empty string when frontmatter is not provided', () => {
     const note = getNoteByPath('zettelkasten-deep.md');
     assert.ok(note, 'note should be found');
     assert.equal(note.frontmatter, '');
+  });
+});
+
+describe('frontmatter filter', () => {
+  it('filters by frontmatter field value', () => {
+    upsertNote({
+      path: 'fm-filter-test.md',
+      title: 'FM Filter Test',
+      tags: [],
+      content: 'content',
+      frontmatter: { status: 'todo', priority: 'high' },
+      mtime: Date.now(),
+      hash: 'fm-filter-test',
+      chunks: [{ text: 'content', embedding: fakeEmbedding }],
+    });
+    const result = filterNotePathsByFrontmatter(['fm-filter-test.md'], 'status:todo');
+    assert.ok(result.has('fm-filter-test.md'), 'should include note with matching frontmatter');
+  });
+
+  it('frontmatter filter with multiple fields uses AND logic', () => {
+    const result = filterNotePathsByFrontmatter(
+      ['fm-filter-test.md'],
+      ['status:todo', 'priority:high'],
+    );
+    assert.ok(result.has('fm-filter-test.md'), 'should include note with both fields');
+  });
+
+  it('frontmatter exclude filter works', () => {
+    upsertNote({
+      path: 'fm-filter-test-2.md',
+      title: 'FM Filter Test 2',
+      tags: [],
+      content: 'content',
+      frontmatter: { status: 'done' },
+      mtime: Date.now(),
+      hash: 'fm-filter-test-2',
+      chunks: [{ text: 'content', embedding: fakeEmbedding }],
+    });
+    const result = filterNotePathsByFrontmatter(
+      ['fm-filter-test.md', 'fm-filter-test-2.md'],
+      '-status:done',
+    );
+    assert.ok(result.has('fm-filter-test.md'), 'should include note without excluded status');
+    assert.ok(!result.has('fm-filter-test-2.md'), 'should exclude note with status:done');
   });
 });
 
@@ -328,6 +373,33 @@ describe('note tag lookup', () => {
     assert.deepEqual(
       [...sharedWithoutExclude].sort((a, b) => a.localeCompare(b)),
       ['tag-sql-inc.md'],
+    );
+  });
+
+  it('multiple tag filters use AND logic', () => {
+    upsertNote({
+      path: 'tag-and-1.md',
+      title: 'Tag AND 1',
+      tags: ['tag1', 'tag2'],
+      content: 'content',
+      mtime: Date.now(),
+      hash: 'tag-and-1',
+      chunks: [{ text: 'content', embedding: fakeEmbedding }],
+    });
+    upsertNote({
+      path: 'tag-and-2.md',
+      title: 'Tag AND 2',
+      tags: ['tag1'],
+      content: 'content',
+      mtime: Date.now(),
+      hash: 'tag-and-2',
+      chunks: [{ text: 'content', embedding: fakeEmbedding }],
+    });
+
+    const result = filterNotePathsByTag(['tag-and-1.md', 'tag-and-2.md'], ['tag1', 'tag2']);
+    assert.deepEqual(
+      [...result].sort((a, b) => a.localeCompare(b)),
+      ['tag-and-1.md'],
     );
   });
 });

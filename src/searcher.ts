@@ -1,12 +1,14 @@
 import path from 'node:path';
 import { config } from './config.js';
 import {
+  filterNotePathsByFrontmatter,
   filterNotePathsByTag,
   getBacklinksForPaths,
   getChunkEmbeddingsByPath,
   getDb,
   getDbVersion,
   getLinksForPaths,
+  getMatchingNotesByFrontmatter,
   getNoteByPath,
   getOutgoingLinks,
   getOutgoingLinksForPaths,
@@ -60,6 +62,7 @@ export interface SearchOptions {
   limit?: number;
   threshold?: number;
   tag?: string | string[];
+  frontmatter?: string | string[];
   related?: boolean;
   depth?: number;
   direction?: 'outgoing' | 'backlinks' | 'both';
@@ -97,9 +100,20 @@ function matchesScopeFilter(notePath: string, scope: string | string[]): boolean
   const scopes = (Array.isArray(scope) ? scope : [scope]).map((s) => s.normalize('NFD'));
   const includes = scopes.filter((s) => !s.startsWith('-'));
   const excludes = scopes.filter((s) => s.startsWith('-')).map((s) => s.slice(1));
-  if (excludes.some((ex) => notePath.startsWith(ex))) return false;
+  // Multiple excludes = AND logic (note must NOT match ANY of the excludes)
+  if (
+    excludes.some((ex) => {
+      const exScope = ex.endsWith('/') ? ex : ex + '/';
+      return notePath.startsWith(ex) || notePath.startsWith(exScope);
+    })
+  )
+    return false;
+  // Multiple includes = AND logic (note must match ALL of the includes)
   if (includes.length === 0) return true;
-  return includes.some((inc) => notePath.startsWith(inc));
+  return includes.every((inc) => {
+    const incScope = inc.endsWith('/') ? inc : inc + '/';
+    return notePath.startsWith(inc) || notePath.startsWith(incScope);
+  });
 }
 
 function applyScope(results: RawResult[], scope?: string | string[]): RawResult[] {
@@ -115,6 +129,14 @@ function applyTagFilter(results: RawResult[], tag: string | string[]): RawResult
   const allowedPaths = filterNotePathsByTag(
     results.map((result) => result.path),
     tag,
+  );
+  return results.filter((result) => allowedPaths.has(result.path));
+}
+
+function applyFrontmatterFilter(results: RawResult[], frontmatter: string | string[]): RawResult[] {
+  const allowedPaths = filterNotePathsByFrontmatter(
+    results.map((result) => result.path),
+    frontmatter,
   );
   return results.filter((result) => allowedPaths.has(result.path));
 }
@@ -869,6 +891,9 @@ export function bumpIndexVersion(): void {
 function cacheKey(input: string, options: SearchOptions): string {
   const scopeStr = Array.isArray(options.scope) ? options.scope.join(',') : (options.scope ?? '');
   const tagStr = Array.isArray(options.tag) ? options.tag.join(',') : (options.tag ?? '');
+  const fmStr = Array.isArray(options.frontmatter)
+    ? options.frontmatter.join(',')
+    : (options.frontmatter ?? '');
   // Include reranker model so that changing RERANKER_MODEL invalidates the cache
   const rerankStr = options.rerank ? config.rerankerModel : '';
   const queriesStr = options.queries && options.queries.length > 1 ? options.queries.join('|') : '';
@@ -876,7 +901,7 @@ function cacheKey(input: string, options: SearchOptions): string {
   //   getDbVersion() — shared via SQLite settings; any process that modifies the DB
   //                    bumps it, invalidating caches in all other processes.
   //   localVersion   — in-process counter; bumpIndexVersion() for test-suite isolation.
-  return `v${getDbVersion()}_${localVersion}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}\0${rerankStr}\0${queriesStr}`;
+  return `v${getDbVersion()}_${localVersion}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${fmStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}\0${rerankStr}\0${queriesStr}`;
 }
 
 // eslint-disable-next-line sonarjs/cognitive-complexity -- primary search entry-point; complexity is inherent in the multi-mode, multi-filter pipeline
@@ -935,6 +960,77 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     return related;
   }
 
+  // Filter-only mode: no text query, but filters present (frontmatter, tag, scope)
+  // Return all matching notes sorted by title
+  const hasFrontmatterFilter =
+    options.frontmatter && (!Array.isArray(options.frontmatter) || options.frontmatter.length > 0);
+  const hasTagFilter = options.tag && (!Array.isArray(options.tag) || options.tag.length > 0);
+  const hasScopeFilter =
+    options.scope && (!Array.isArray(options.scope) || options.scope.length > 0);
+
+  if (!input && !isPathLookup && (hasFrontmatterFilter || hasTagFilter || hasScopeFilter)) {
+    const effectiveLimit = limit === 0 ? 10000 : limit;
+    let fmResults: RawResult[];
+
+    if (hasFrontmatterFilter) {
+      const matches = getMatchingNotesByFrontmatter(options.frontmatter!, effectiveLimit);
+      fmResults = matches.map((m) => ({
+        path: m.path,
+        title: m.title ?? '',
+        tags: m.tags ?? '[]',
+        aliases: m.aliases,
+        snippet: '',
+        score: 1.0,
+        scores: { hybrid: 1.0 },
+      }));
+    } else {
+      const db = getDb();
+      const rows = db
+        .prepare('SELECT path, title, tags, aliases FROM notes ORDER BY title ASC LIMIT ?')
+        .all(effectiveLimit) as Array<{
+        path: string;
+        title: string;
+        tags: string;
+        aliases: string | null;
+      }>;
+      fmResults = rows.map((m) => ({
+        path: m.path,
+        title: m.title ?? '',
+        tags: m.tags ?? '[]',
+        aliases: m.aliases,
+        snippet: '',
+        score: 1.0,
+        scores: { hybrid: 1.0 },
+      }));
+    }
+
+    // Apply scope filter
+    if (hasScopeFilter) {
+      fmResults = fmResults.filter((r) => matchesScopeFilter(r.path, options.scope!));
+    }
+
+    // Apply tag filter
+    if (hasTagFilter) {
+      fmResults = applyTagFilter(fmResults, options.tag!);
+    }
+
+    // Apply frontmatter filter (shouldn't be needed since we used getMatchingNotesByFrontmatter, but for completeness)
+    if (hasFrontmatterFilter) {
+      fmResults = applyFrontmatterFilter(fmResults, options.frontmatter!);
+    }
+
+    const finalResults = fmResults.map((r, i) => {
+      const sr = toSearchResult(r);
+      sr.rank = i + 1;
+      return sr;
+    });
+
+    const fmKey = `fm\0${JSON.stringify(options)}\0${limit}`;
+    searchCache.set(fmKey, finalResults);
+
+    return finalResults;
+  }
+
   // For path lookups, include mtime in cache key so stale entries auto-invalidate
   let key = cacheKey(resolvedPath, options);
   if (isPathLookup) {
@@ -976,6 +1072,12 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   results = applyThreshold(results, threshold);
   if (options.tag && (!Array.isArray(options.tag) || options.tag.length > 0)) {
     results = applyTagFilter(results, options.tag);
+  }
+  if (
+    options.frontmatter &&
+    (!Array.isArray(options.frontmatter) || options.frontmatter.length > 0)
+  ) {
+    results = applyFrontmatterFilter(results, options.frontmatter);
   }
   results = results.slice(0, limit);
 
