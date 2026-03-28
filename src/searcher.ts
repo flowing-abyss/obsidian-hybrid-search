@@ -648,6 +648,7 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
       WITH ranked AS (
         SELECT vc.chunk_id, vc.distance,
                c.note_id, c.chunk_index, c.text AS chunk_text, c.heading_path,
+               c.char_start, c.char_end,
                n.path, n.title, n.tags, n.aliases,
                ROW_NUMBER() OVER (PARTITION BY c.note_id ORDER BY vc.distance, c.chunk_index) AS row_num
         FROM vec_chunks AS vc
@@ -656,7 +657,8 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
         WHERE vc.embedding MATCH ?
           AND k = ?
       )
-      SELECT chunk_id, distance, note_id, chunk_index, chunk_text, heading_path, path, title, tags, aliases
+      SELECT chunk_id, distance, note_id, chunk_index, chunk_text, heading_path,
+             char_start, char_end, path, title, tags, aliases
       FROM ranked
       WHERE row_num = 1
       ORDER BY distance, chunk_index
@@ -670,6 +672,8 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
       chunk_index: number;
       chunk_text: string;
       heading_path: string | null;
+      char_start: number | null;
+      char_end: number | null;
       path: string;
       title: string;
       tags: string;
@@ -688,6 +692,13 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
         chunkText: row.chunk_text,
         score: similarity,
         scores: { semantic: similarity },
+        semanticAnchor: {
+          kind: 'semantic' as const,
+          headingPath: row.heading_path ?? null,
+          matchText: buildMatchText(row.chunk_text),
+          charStart: row.char_start ?? null,
+          charEnd: row.char_end ?? null,
+        },
       };
     });
   } catch {
@@ -709,10 +720,12 @@ function rrfFusion(lists: RawResult[][], k = 60, weights?: number[]): RawResult[
         if (result.scores.semantic !== undefined) {
           existing.result.snippet = result.snippet;
           existing.result.scores.semantic = result.scores.semantic;
+          if (result.semanticAnchor) existing.result.semanticAnchor = result.semanticAnchor;
         }
         if (result.scores.bm25 !== undefined) {
           existing.result.scores.bm25 = result.scores.bm25;
           if (!existing.result.scores.semantic) existing.result.snippet = result.snippet;
+          if (result.bm25Anchor) existing.result.bm25Anchor = result.bm25Anchor;
         }
         if (result.scores.fuzzy_title !== undefined) {
           existing.result.scores.fuzzy_title = result.scores.fuzzy_title;

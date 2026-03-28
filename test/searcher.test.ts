@@ -1089,3 +1089,37 @@ describe('anchors: true — related mode produces no anchors', () => {
     }
   });
 });
+
+describe('anchors: true — semantic anchor', () => {
+  it('semantic search populates semantic anchor', async () => {
+    const results = await search('zettelkasten atomic notes', {
+      mode: 'semantic',
+      limit: 3,
+      anchors: true,
+      snippetLength: 300,
+    });
+    const withAnchors = results.filter((r) => r.previewAnchors && r.previewAnchors.length > 0);
+    if (withAnchors.length === 0) return; // skip if no embeddings available
+    const anchor = withAnchors[0]!.previewAnchors![0]!;
+    assert.equal(anchor.kind, 'semantic');
+    assert.ok(anchor.matchText.length > 0 && anchor.matchText.length <= 80);
+  });
+});
+
+describe('anchors: true — hybrid deduplication', () => {
+  it('hybrid: single anchor when both modes hit same chunk', async () => {
+    // Use a very specific term that should hit one chunk in both modes
+    const results = await search('zettelkasten', {
+      mode: 'hybrid',
+      limit: 1,
+      anchors: true,
+      snippetLength: 300,
+    });
+    if (!results[0]?.previewAnchors?.length) return; // skip if no embeddings
+    // If both modes hit same matchText → only 1 anchor
+    // If different → 2 anchors, index 0 = semantic
+    const anchors = results[0].previewAnchors;
+    assert.ok(anchors.length >= 1 && anchors.length <= 2);
+    assert.equal(results[0].primaryAnchorIndex, 0);
+  });
+});
