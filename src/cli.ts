@@ -74,7 +74,7 @@ interface SearchOpts {
   mode?: 'hybrid' | 'semantic' | 'fulltext' | 'title';
   scope: string[];
   folder: string[];
-  limit: string;
+  limit?: string;
   threshold: string;
   tag: string[];
   frontmatter: string[];
@@ -390,7 +390,7 @@ program
     (v: string, a: string[]) => [...a, v],
     [] as string[],
   )
-  .option('--limit <n>', 'Maximum results', '10')
+  .option('--limit <n>', 'Maximum results')
   .option('--threshold <n>', 'Minimum score threshold 0..1', '0')
   .option(
     '--tag <tag>',
@@ -437,12 +437,13 @@ program
 
     await init();
 
-    const effectiveLimit = parseInt(opts.limit);
     const isFilterOnlyMode = !effectiveInput && !opts.path;
+    // No explicit --limit in filter-only mode → 0 (return all). Otherwise use the specified value or default 10.
+    const parsedLimit = opts.limit !== undefined ? parseInt(opts.limit) : isFilterOnlyMode ? 0 : 10;
     const results = await search(effectiveInput ?? '', {
       mode: opts.mode,
       scope: scopeFilters.length > 0 ? scopeFilters : undefined,
-      limit: isFilterOnlyMode ? 0 : opts.limit === '0' ? 0 : effectiveLimit,
+      limit: parsedLimit,
       threshold: parseFloat(opts.threshold),
       tag: opts.tag.length > 0 ? opts.tag : undefined,
       frontmatter: frontmatterFilters.length > 0 ? frontmatterFilters : undefined,

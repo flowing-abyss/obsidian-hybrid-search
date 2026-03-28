@@ -969,11 +969,16 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     options.scope && (!Array.isArray(options.scope) || options.scope.length > 0);
 
   if (!input && !isPathLookup && (hasFrontmatterFilter || hasTagFilter || hasScopeFilter)) {
-    const effectiveLimit = limit === 0 ? 10000 : limit;
+    const fmKey = cacheKey('', options);
+    const cachedFm = searchCache.get(fmKey);
+    if (cachedFm) return cachedFm;
+
+    // Always fetch a large batch so filters can see the full vault, then slice to limit.
+    const FETCH_ALL = 10000;
     let fmResults: RawResult[];
 
     if (hasFrontmatterFilter) {
-      const matches = getMatchingNotesByFrontmatter(options.frontmatter!, effectiveLimit);
+      const matches = getMatchingNotesByFrontmatter(options.frontmatter!, FETCH_ALL);
       fmResults = matches.map((m) => ({
         path: m.path,
         title: m.title ?? '',
@@ -987,7 +992,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
       const db = getDb();
       const rows = db
         .prepare('SELECT path, title, tags, aliases FROM notes ORDER BY title ASC LIMIT ?')
-        .all(effectiveLimit) as Array<{
+        .all(FETCH_ALL) as Array<{
         path: string;
         title: string;
         tags: string;
@@ -1014,9 +1019,14 @@ export async function search(input: string, options: SearchOptions = {}): Promis
       fmResults = applyTagFilter(fmResults, options.tag!);
     }
 
-    // Apply frontmatter filter (shouldn't be needed since we used getMatchingNotesByFrontmatter, but for completeness)
+    // Apply frontmatter filter
     if (hasFrontmatterFilter) {
       fmResults = applyFrontmatterFilter(fmResults, options.frontmatter!);
+    }
+
+    // Apply limit (0 = no limit)
+    if (limit > 0) {
+      fmResults = fmResults.slice(0, limit);
     }
 
     const finalResults = fmResults.map((r, i) => {
@@ -1025,7 +1035,6 @@ export async function search(input: string, options: SearchOptions = {}): Promis
       return sr;
     });
 
-    const fmKey = `fm\0${JSON.stringify(options)}\0${limit}`;
     searchCache.set(fmKey, finalResults);
 
     return finalResults;
