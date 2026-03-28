@@ -879,6 +879,9 @@ export function filterNotePathsByFrontmatter(
     includeExistsParams.push(field, fieldValue);
   }
 
+  // If there were includes but none had a valid "field:value" format, return nothing
+  if (includes.length > 0 && includeExistsClauses.length === 0) return new Set();
+
   const includeClause = includeExistsClauses.length > 0 ? includeExistsClauses.join(' AND ') : '1';
 
   // Exclude = AND logic (note must NOT have ANY of the excluded field values)
@@ -935,6 +938,9 @@ export function getMatchingNotesByFrontmatter(
     );
     includeExistsParams.push(field, fieldValue);
   }
+
+  // If there were includes but none had a valid "field:value" format, return nothing
+  if (includes.length > 0 && includeExistsClauses.length === 0) return [];
 
   const includeClause = includeExistsClauses.length > 0 ? includeExistsClauses.join(' AND ') : '1';
 
