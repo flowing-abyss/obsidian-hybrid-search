@@ -1015,7 +1015,7 @@ interface EventLogEntry {
 export function getStats(): {
   total: number;
   indexed: number;
-  pending: number;
+  withoutChunks: number;
   chunks: number;
   failedChunks: number;
   links: number;
@@ -1069,7 +1069,7 @@ export function getStats(): {
   return {
     total,
     indexed,
-    pending: total - indexed,
+    withoutChunks: total - indexed,
     chunks,
     failedChunks,
     links,

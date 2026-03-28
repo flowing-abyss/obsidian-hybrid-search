@@ -548,7 +548,7 @@ program
       vault: config.vaultPath,
       total: stats.total,
       indexed: stats.indexed,
-      pending: stats.pending + indexingStatus.queued,
+      pending: indexingStatus.queued,
       chunks: stats.chunks,
       links: stats.links,
       last_indexed: stats.lastIndexed,
