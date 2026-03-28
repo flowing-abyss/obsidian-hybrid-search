@@ -851,6 +851,31 @@ describe('indexFile error handling', () => {
   });
 });
 
+// ─── frontmatter-only notes ───────────────────────────────────────────────────
+
+describe('frontmatter-only note indexing', () => {
+  it('indexes notes with no body content so tag/frontmatter filters can find them', async () => {
+    const { writeFileSync, mkdirSync } = await import('node:fs');
+    const { indexFile } = await import('../src/indexer.js');
+
+    // Write a note with only frontmatter and no body
+    const vaultPath = process.env.OBSIDIAN_VAULT_PATH!;
+    mkdirSync(`${vaultPath}/sources`, { recursive: true });
+    const notePath = `${vaultPath}/sources/frontmatter-only.md`;
+    writeFileSync(
+      notePath,
+      `---\ntags:\n  - source\n  - category/test\nstatus: active\ntitle: Frontmatter Only Note\n---\n`,
+    );
+
+    const result = await indexFile(notePath, 512);
+    assert.equal(result, 'indexed', 'frontmatter-only note should be indexed, not skipped');
+
+    const note = getNoteByPath('sources/frontmatter-only.md'.normalize('NFD'));
+    assert.ok(note, 'note should be in DB after indexing');
+    assert.equal(note.title, 'Frontmatter Only Note');
+  });
+});
+
 // ─── event_log ───────────────────────────────────────────────────────────────
 
 describe('event_log', () => {

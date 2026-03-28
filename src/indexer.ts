@@ -98,10 +98,6 @@ export async function indexFile(
     const ctxLen = contextLength ?? (await getContextLength());
     const chunks = chunkNote(content, ctxLen).filter((c) => c.text.trim().length > 0);
 
-    if (chunks.length === 0) {
-      return 'skipped';
-    }
-
     // Prepend title + heading chain to every chunk so embeddings carry document context.
     // Heading markers (# / ## / ###) are stripped for readability in the prefix.
     // Chunks with no headings get just the title. This improves semantic recall for
@@ -111,7 +107,9 @@ export async function indexFile(
       const prefix = cleanChain.length > 0 ? `${title} > ${cleanChain.join(' > ')}` : title;
       return prefix ? `${prefix}\n${c.text}` : c.text;
     });
-    const embeddings = await embed(textsToEmbed, 'document');
+    // Notes with no body content (only frontmatter) still get indexed so that
+    // tag/frontmatter filters and title search can find them.
+    const embeddings = chunks.length > 0 ? await embed(textsToEmbed, 'document') : [];
 
     upsertNote({
       path: relPath,
