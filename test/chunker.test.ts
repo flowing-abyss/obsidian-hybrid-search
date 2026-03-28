@@ -258,4 +258,15 @@ describe('buildMatchText', () => {
     assert.ok(result.length > 0);
     assert.ok(!result.startsWith('##'));
   });
+
+  it('strips callout type marker from first line', () => {
+    assert.equal(
+      buildMatchText('> [!faq] Правильный вопрос\n> body text here'),
+      'Правильный вопрос',
+    );
+  });
+
+  it('strips plain blockquote marker', () => {
+    assert.equal(buildMatchText('> Some quoted text here'), 'Some quoted text here');
+  });
 });

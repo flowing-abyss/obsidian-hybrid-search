@@ -169,6 +169,7 @@ export function buildMatchText(chunkText: string): string {
   const raw = (bodyLines.find((l) => l.trim().length > 0) ?? fallback).trim();
 
   return raw
+    .replace(/^(?:>\s*)+(?:\[![^\]]*\]\s*)?/, '') // strip blockquote/callout markers ("> [!type] " or "> ")
     .replace(/!\[.*?\]\(.*?\)/g, '') // images
     .replace(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g, '$1') // [[wikilinks]] → text
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [links](url) → text
