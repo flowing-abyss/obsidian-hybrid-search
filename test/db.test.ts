@@ -1004,3 +1004,85 @@ describe('applyDbConfigDefaults', () => {
     });
   });
 });
+
+describe('chunks char_start / char_end columns', () => {
+  it('migration adds columns without breaking existing data', () => {
+    const db = getDb();
+    const cols = db.prepare('PRAGMA table_info(chunks)').all() as { name: string }[];
+    assert.ok(
+      cols.some((c) => c.name === 'char_start'),
+      'char_start column missing',
+    );
+    assert.ok(
+      cols.some((c) => c.name === 'char_end'),
+      'char_end column missing',
+    );
+  });
+
+  it('insert + select roundtrip preserves charStart / charEnd', () => {
+    // Insert a note with chunk positions
+    upsertNote({
+      path: 'position-test.md',
+      title: 'Position Test',
+      tags: [],
+      content: 'Some content for testing char positions in the database.',
+      mtime: Date.now(),
+      hash: 'pos-hash-1',
+      chunks: [
+        {
+          text: 'Some content for testing',
+          headingPath: null,
+          embedding: null,
+          charStart: 42,
+          charEnd: 100,
+        },
+      ],
+    });
+
+    const db = getDb();
+    const row = db
+      .prepare(
+        `
+        SELECT c.char_start, c.char_end
+        FROM chunks c
+        JOIN notes n ON n.id = c.note_id
+        WHERE n.path = 'position-test.md'
+        LIMIT 1
+      `,
+      )
+      .get() as { char_start: number | null; char_end: number | null } | undefined;
+
+    assert.ok(row, 'chunk row not found');
+    assert.equal(row.char_start, 42);
+    assert.equal(row.char_end, 100);
+  });
+
+  it('chunk without positions stores NULL', () => {
+    upsertNote({
+      path: 'no-position-test.md',
+      title: 'No Position',
+      tags: [],
+      content: 'Content without position data.',
+      mtime: Date.now(),
+      hash: 'no-pos-hash',
+      chunks: [{ text: 'Content without', headingPath: null, embedding: null }],
+    });
+
+    const db = getDb();
+    const row = db
+      .prepare(
+        `
+        SELECT c.char_start, c.char_end
+        FROM chunks c
+        JOIN notes n ON n.id = c.note_id
+        WHERE n.path = 'no-position-test.md'
+        LIMIT 1
+      `,
+      )
+      .get() as { char_start: number | null; char_end: number | null } | undefined;
+
+    assert.ok(row, 'chunk row not found');
+    assert.equal(row.char_start, null);
+    assert.equal(row.char_end, null);
+  });
+});

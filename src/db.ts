@@ -262,6 +262,12 @@ function runMigrations(db: DB): void {
   if (!chunkCols.some((c) => c.name === 'embedding_status')) {
     db.exec("ALTER TABLE chunks ADD COLUMN embedding_status TEXT NOT NULL DEFAULT 'ok'");
   }
+  if (!chunkCols.some((c) => c.name === 'char_start')) {
+    db.exec('ALTER TABLE chunks ADD COLUMN char_start INTEGER');
+  }
+  if (!chunkCols.some((c) => c.name === 'char_end')) {
+    db.exec('ALTER TABLE chunks ADD COLUMN char_end INTEGER');
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS note_aliases (
@@ -609,7 +615,13 @@ export function upsertNote(note: {
   frontmatter?: Record<string, unknown>;
   mtime: number;
   hash: string;
-  chunks: { text: string; headingPath?: string | null; embedding: Float32Array | null }[];
+  chunks: {
+    text: string;
+    headingPath?: string | null;
+    embedding: Float32Array | null;
+    charStart?: number | null;
+    charEnd?: number | null;
+  }[];
 }): void {
   const db = getDb();
   const aliases = note.aliases?.filter((alias): alias is string => typeof alias === 'string') ?? [];
@@ -682,17 +694,31 @@ export function upsertNote(note: {
 function insertChunks(
   db: DB,
   noteId: number,
-  chunks: { text: string; headingPath?: string | null; embedding: Float32Array | null }[],
+  chunks: {
+    text: string;
+    headingPath?: string | null;
+    embedding: Float32Array | null;
+    charStart?: number | null;
+    charEnd?: number | null;
+  }[],
 ): void {
   const insertChunk = db.prepare(
-    'INSERT INTO chunks (note_id, chunk_index, text, heading_path, embedding_status) VALUES (?, ?, ?, ?, ?)',
+    'INSERT INTO chunks (note_id, chunk_index, text, heading_path, embedding_status, char_start, char_end) VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
   const insertVec = db.prepare('INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)');
 
   for (let i = 0; i < chunks.length; i++) {
-    const { text, headingPath, embedding } = chunks[i]!;
+    const { text, headingPath, embedding, charStart, charEnd } = chunks[i]!;
     const status = embedding !== null ? 'ok' : 'failed';
-    const result = insertChunk.run(noteId, i, text, headingPath ?? null, status);
+    const result = insertChunk.run(
+      noteId,
+      i,
+      text,
+      headingPath ?? null,
+      status,
+      charStart ?? null,
+      charEnd ?? null,
+    );
     if (embedding !== null) {
       // sqlite-vec vec0 requires INTEGER (BigInt), not REAL (JS number)
       const chunkId = BigInt(result.lastInsertRowid);
