@@ -262,9 +262,8 @@ export function searchBm25(
         bm25: Math.max(0, Math.abs(row.rank) / (1 + Math.abs(row.rank))),
       },
     }));
-    // Enrich BM25 snippets with heading breadcrumb from the chunks table.
-    // Skip when snippetLength=0 (e.g. Obsidian plugin): the snippet would be
-    // discarded anyway and the DB lookups (2 per result) are wasted work.
+    // Enrich BM25 snippets with heading breadcrumb and/or build anchor data.
+    // Skip when neither is needed (snippetLength=0 and buildAnchors=false).
     if (snippetLength > 0 || buildAnchors) {
       const chunkDataMap = getChunkDataForBm25Results(results);
       for (const result of results) {
@@ -273,13 +272,15 @@ export function searchBm25(
           if (snippetLength > 0) {
             result.snippet = `${data.headingPath}\n${result.snippet}`;
           }
-          result.bm25Anchor = {
-            kind: 'bm25',
-            headingPath: data.headingPath,
-            matchText: buildMatchText(data.chunkText),
-            charStart: data.charStart,
-            charEnd: data.charEnd,
-          };
+          if (buildAnchors) {
+            result.bm25Anchor = {
+              kind: 'bm25',
+              headingPath: data.headingPath,
+              matchText: buildMatchText(data.chunkText),
+              charStart: data.charStart,
+              charEnd: data.charEnd,
+            };
+          }
         }
       }
     }
