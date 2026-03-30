@@ -20,7 +20,6 @@ Evaluated on the [Obsidian Help vault](eval/README.md) (171 notes, 58 queries, l
 | MRR            |         **0.771**          |               0.665                |
 | Hit@1          |         **0.690**          |               0.500                |
 | Avg query time |         **571 ms**         |               754 ms               |
-| Index size     |           5.4 MB           |               5.5 MB               |
 | Model download |        **~117 MB**         |              ~2.2 GB               |
 
 obsidian-hybrid-search uses `Xenova/multilingual-e5-small` (no rerank). qmd uses LLM query expansion + reranking. [Full benchmark →](eval/README.md)
