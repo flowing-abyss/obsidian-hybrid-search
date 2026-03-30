@@ -10,6 +10,8 @@ Once connected, any MCP-compatible AI assistant can answer questions grounded in
 
 No external services required. A bundled `@huggingface/transformers` model handles embeddings locally by default. Any OpenAI-compatible API (OpenRouter, Ollama, LM Studio) works as a drop-in replacement.
 
+> **nDCG@5 = 0.737** with `--rerank` (local model · 171 notes · 58 queries) — [full benchmark](eval/README.md)
+
 ## Features
 
 - **Hybrid search**
