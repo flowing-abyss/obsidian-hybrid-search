@@ -10,7 +10,20 @@ Once connected, any MCP-compatible AI assistant can answer questions grounded in
 
 No external services required. A bundled `@huggingface/transformers` model handles embeddings locally by default. Any OpenAI-compatible API (OpenRouter, Ollama, LM Studio) works as a drop-in replacement.
 
-> **nDCG@5 = 0.737** with `--rerank` (local model · 171 notes · 58 queries) — [full benchmark](eval/README.md)
+## Search quality
+
+Evaluated on the [Obsidian Help vault](eval/README.md) (171 notes, 58 queries, local model):
+
+|                | **obsidian-hybrid-search** | [qmd](https://github.com/tobi/qmd) |
+| -------------- | :------------------------: | :--------------------------------: |
+| nDCG@5         |         **0.736**          |               0.659                |
+| MRR            |         **0.771**          |               0.665                |
+| Hit@1          |         **0.690**          |               0.500                |
+| Avg query time |         **571 ms**         |               754 ms               |
+| Index size     |           5.4 MB           |               5.5 MB               |
+| Model download |        **~117 MB**         |              ~2.2 GB               |
+
+obsidian-hybrid-search uses `Xenova/multilingual-e5-small` (no rerank). qmd uses LLM query expansion + reranking. [Full benchmark →](eval/README.md)
 
 ## Features
 
