@@ -1006,16 +1006,29 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     const direction = options.direction ?? 'both';
     const scopeStr = Array.isArray(options.scope) ? options.scope.join(',') : (options.scope ?? '');
     const tagStr = Array.isArray(options.tag) ? options.tag.join(',') : (options.tag ?? '');
-    const key = `related\0${resolvedPath}\0${maxDepth}\0${direction}\0${snippetLength}\0${scopeStr}\0${tagStr}`;
+    const fmStr = Array.isArray(options.frontmatter)
+      ? options.frontmatter.join(',')
+      : (options.frontmatter ?? '');
+    const key = `related\0${resolvedPath}\0${maxDepth}\0${direction}\0${snippetLength}\0${scopeStr}\0${tagStr}\0${fmStr}`;
     const cached = searchCache.get(key);
     if (cached) return cached;
     let related = searchRelated(resolvedPath, maxDepth, direction, snippetLength);
-    // Apply scope and tag filters (related bypasses the normal pipeline)
+    // Apply scope, tag, and frontmatter filters (related bypasses the normal pipeline)
     if (options.scope) related = related.filter((r) => matchesScopeFilter(r.path, options.scope!));
     if (options.tag && (!Array.isArray(options.tag) || options.tag.length > 0)) {
       const allowedPaths = filterNotePathsByTag(
         related.map((result) => result.path),
         options.tag,
+      );
+      related = related.filter((result) => allowedPaths.has(result.path));
+    }
+    if (
+      options.frontmatter &&
+      (!Array.isArray(options.frontmatter) || options.frontmatter.length > 0)
+    ) {
+      const allowedPaths = filterNotePathsByFrontmatter(
+        related.map((result) => result.path),
+        options.frontmatter,
       );
       related = related.filter((result) => allowedPaths.has(result.path));
     }
