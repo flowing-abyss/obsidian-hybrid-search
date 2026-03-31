@@ -86,6 +86,7 @@ interface SearchOpts {
   json?: boolean;
   open?: boolean;
   extended?: boolean;
+  onlyPaths?: boolean;
   rerank?: boolean;
   anchors?: boolean;
 }
@@ -419,6 +420,7 @@ program
   )
   .option('--snippet-length <n>', 'Max snippet length in characters (default: 300)')
   .option('--json', 'Output as JSON')
+  .option('--only-paths', 'Output note paths one per line (for use in pipes)')
   .option('--open', 'Open results in Obsidian')
   .option('--extended', 'Show tags and aliases column in output table')
   .option(
@@ -464,6 +466,13 @@ program
 
     if (opts.json) {
       console.log(JSON.stringify(results, null, 2));
+      return;
+    }
+
+    if (opts.onlyPaths) {
+      for (const r of results) {
+        console.log(r.path);
+      }
       return;
     }
 

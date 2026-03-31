@@ -220,6 +220,10 @@ obsidian-hybrid-search "zettelkasten" --extended
 # JSON output (for scripting)
 obsidian-hybrid-search "spaced repetition" --json
 
+# Output only paths (one per line) — useful for piping into read
+obsidian-hybrid-search --frontmatter id:OHS-4 --only-paths
+ohs read ${(f)"$(ohs search --frontmatter status:todo --only-paths)"}  # zsh: read all matching notes
+
 # Open results in Obsidian (each in a new tab)
 obsidian-hybrid-search "zettelkasten" --open
 
