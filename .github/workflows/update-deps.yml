@@ -31,6 +31,13 @@ jobs:
         run: |
           git diff --quiet package-lock.json || echo "changed=true" >> $GITHUB_OUTPUT
 
+      - name: Bump patch version
+        if: steps.changes.outputs.changed == 'true'
+        id: bump
+        run: |
+          npm version patch --no-git-tag-version
+          echo "version=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
+
       - name: Build
         if: steps.changes.outputs.changed == 'true'
         run: npm run build
@@ -52,6 +59,7 @@ jobs:
             Automated weekly dependency update.
 
             - `npm update` was run to update all dependencies within their semver ranges
+            - Version bumped to `${{ steps.bump.outputs.version }}`
             - Build and unit tests passed ✅
           labels: dependencies
 

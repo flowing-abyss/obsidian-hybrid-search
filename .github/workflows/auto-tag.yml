@@ -1,0 +1,44 @@
+name: Auto-tag after dependency update merge
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  tag:
+    # Only run when the weekly deps PR is squash-merged into master.
+    # GitHub formats the squash commit as "<PR title> (#N)", so startsWith
+    # on the PR title is a reliable filter.
+    if: startsWith(github.event.head_commit.message, 'chore: weekly dependency update')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify version was bumped relative to previous commit
+        run: |
+          PREV=$(git show HEAD~1:package.json | jq -r .version)
+          CURR=$(jq -r .version package.json)
+          if [ "$PREV" = "$CURR" ]; then
+            echo "ERROR: package.json version was not bumped (still $CURR). Aborting tag creation."
+            exit 1
+          fi
+          echo "Version bumped: $PREV → $CURR ✅"
+
+      - name: Read version from package.json
+        id: version
+        run: echo "version=v$(jq -r .version package.json)" >> $GITHUB_OUTPUT
+
+      - name: Create and push tag
+        run: |
+          if git rev-parse "${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "Tag ${{ steps.version.outputs.version }} already exists, skipping."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "${{ steps.version.outputs.version }}"
+            git push origin "${{ steps.version.outputs.version }}"
+            echo "Pushed tag ${{ steps.version.outputs.version }} ✅"
+          fi
