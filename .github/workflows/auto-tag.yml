@@ -9,7 +9,7 @@ jobs:
     # Only run when the weekly deps PR is squash-merged into master.
     # GitHub formats the squash commit as "<PR title> (#N)", so startsWith
     # on the PR title is a reliable filter.
-    if: startsWith(github.event.head_commit.message, 'chore: weekly dependency update')
+    if: "startsWith(github.event.head_commit.message, 'chore: weekly dependency update')"
     runs-on: ubuntu-latest
     permissions:
       contents: write
