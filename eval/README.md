@@ -153,21 +153,21 @@ Useful for diagnosing retrieval vs. ranking problems:
 
 ---
 
-## Metric benchmarks (from S-16)
+## Metric benchmarks
 
 Primary metric: **nDCG@5** and **nDCG@10**.
 
-| Configuration            | nDCG      | Notes            |
-| ------------------------ | --------- | ---------------- |
-| BM25-only                | 0.45–0.55 | starting point   |
-| Hybrid (BM25 + semantic) | 0.58–0.65 | good result      |
-| Hybrid + cross-encoder   | 0.65–0.72 | target after S-9 |
+| Configuration            | nDCG      | Notes          |
+| ------------------------ | --------- | -------------- |
+| BM25-only                | 0.45–0.55 | starting point |
+| Hybrid (BM25 + semantic) | 0.58–0.65 | good result    |
+| Hybrid + cross-encoder   | 0.65–0.72 | target         |
 
 ## Measured baseline
 
 Vault: `fixtures/obsidian-help/en` (171 notes)
 Model: `Xenova/multilingual-e5-small` (local, no API)
-Golden set: `eval/golden-sets/obsidian-help.json` (20 queries)
+Golden set: `eval/golden-sets/obsidian-help.json` (58 queries)
 
 | Metric    | Value     | Interpretation                                                                  |
 | --------- | --------- | ------------------------------------------------------------------------------- |
@@ -239,7 +239,7 @@ nDCG@5     0.603      0.648      +0.045  ✓   ← improvement ≥0.01 is marked
 MRR        0.688      0.650      -0.038      ← regression
 ```
 
-`|delta| ≥ 0.01` is considered meaningful at 20 queries.
+`|delta| ≥ 0.01` is considered meaningful at 58 queries.
 For statistically confident conclusions you need 50+ queries.
 
 ## Personal golden set
