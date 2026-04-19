@@ -101,7 +101,7 @@ See `eval/README.md` for full benchmark table and model configuration options.
 
 **Coverage gates** (enforced in CI via `npm run coverage`):
 
-- Lines ≥ 40%, Functions ≥ 45%, Branches ≥ 33%
+- Lines ≥ 60%, Functions ≥ 65%, Branches ≥ 47%
 - `embedder.ts`, `server.ts`, `cli.ts` are intentionally low coverage (require API key or OS I/O)
 - Do not lower these thresholds — raise them as new testable code is added
 
