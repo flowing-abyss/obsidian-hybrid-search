@@ -193,12 +193,15 @@ async function main() {
     { name: 'obsidian-hybrid-search', version },
     { capabilities: { tools: {} } },
   );
+  const toolName = (name: string): string => `${config.obsidianPrefix}${name}`;
+  const isTool = (actual: string, expected: string): boolean =>
+    actual === toolName(expected) || actual === expected;
 
   // eslint-disable-next-line @typescript-eslint/require-await
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
       {
-        name: 'search',
+        name: toolName('search'),
         description:
           "Search the user's personal Obsidian knowledge base — their notes, ideas, and research. " +
           'Use this tool whenever the user asks about something they may have written about, wants to find related notes, or wants to explore their knowledge graph. ' +
@@ -313,7 +316,7 @@ async function main() {
         },
       },
       {
-        name: 'reindex',
+        name: toolName('reindex'),
         description:
           'Reindex a specific file or the entire vault (incremental — only changed files)',
         inputSchema: {
@@ -331,7 +334,7 @@ async function main() {
         },
       },
       {
-        name: 'status',
+        name: toolName('status'),
         description: 'Get indexing status and configuration',
         inputSchema: {
           type: 'object',
@@ -344,7 +347,7 @@ async function main() {
         },
       },
       {
-        name: 'read',
+        name: toolName('read'),
         description:
           'Fetch one or more Obsidian notes by vault-relative path and return their full content with metadata. ' +
           'Use after search or related traversal to read the actual content of notes you found. ' +
@@ -387,7 +390,7 @@ async function main() {
     const a: Record<string, unknown> = args ?? {};
 
     try {
-      if (name === 'search') {
+      if (isTool(name, 'search')) {
         const notePath = a.path as string | undefined;
         const singleQuery = (a.query as string | undefined) ?? '';
         const extraQueriesRaw = a.queries;
@@ -418,14 +421,14 @@ async function main() {
         };
       }
 
-      if (name === 'reindex') {
+      if (isTool(name, 'reindex')) {
         const result = await handleReindex(a, contextLength, modelName, embeddingDim);
         return {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
         };
       }
 
-      if (name === 'status') {
+      if (isTool(name, 'status')) {
         const stats = getStats();
         const indexingStatus = getIndexingStatus();
         const output: Record<string, unknown> = {
@@ -472,7 +475,7 @@ async function main() {
         };
       }
 
-      if (name === 'read') {
+      if (isTool(name, 'read')) {
         const rawPaths = parseArrayParam(a.paths);
         const pathsArray: string[] = Array.isArray(rawPaths)
           ? rawPaths

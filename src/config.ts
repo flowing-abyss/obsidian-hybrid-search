@@ -1,6 +1,9 @@
 import path from 'node:path';
 
 export const config = {
+  get obsidianPrefix(): string {
+    return process.env.OBSIDIAN_PREFIX ?? '';
+  },
   get vaultPath(): string {
     const v = process.env.OBSIDIAN_VAULT_PATH;
     if (!v) throw new Error('OBSIDIAN_VAULT_PATH environment variable is required');

@@ -338,7 +338,8 @@ Uses the built-in `Xenova/multilingual-e5-small` model — works fully offline, 
       "command": "npx",
       "args": ["-y", "-p", "obsidian-hybrid-search@latest", "obsidian-hybrid-search-mcp"],
       "env": {
-        "OBSIDIAN_VAULT_PATH": "/path/to/your/vault"
+        "OBSIDIAN_VAULT_PATH": "/path/to/your/vault",
+        "OBSIDIAN_PREFIX": ""
       }
     }
   }
@@ -355,6 +356,7 @@ Uses the built-in `Xenova/multilingual-e5-small` model — works fully offline, 
       "args": ["-y", "-p", "obsidian-hybrid-search@latest", "obsidian-hybrid-search-mcp"],
       "env": {
         "OBSIDIAN_VAULT_PATH": "/path/to/your/vault",
+        "OBSIDIAN_PREFIX": "myvault_",
         "OBSIDIAN_IGNORE_PATTERNS": ".obsidian/**,templates/**,*.canvas",
         "OPENAI_API_KEY": "sk-or-v1-...",
         "OPENAI_BASE_URL": "https://openrouter.ai/api/v1",
@@ -376,11 +378,14 @@ The server exposes four tools:
 | `reindex` | Reindex the vault or a specific file                                                                                                                                                                                                                                                                                                                      |
 | `status`  | Show total notes, indexed count, last indexed time                                                                                                                                                                                                                                                                                                        |
 
+If `OBSIDIAN_PREFIX` is set, tool names are prefixed in the MCP list (for example `myvault_search`, `myvault_read`). By default `OBSIDIAN_PREFIX` is empty, so tool names remain `search`, `read`, `reindex`, `status`.
+
 ## Configuration
 
 | Environment variable       | Default                              | Description                                                                        |
 | -------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
 | `OBSIDIAN_VAULT_PATH`      | Required for MCP; CLI auto-detects   | Absolute path to your vault                                                        |
+| `OBSIDIAN_PREFIX`          | `""`                                 | Optional MCP tool prefix, e.g. `myvault_` → `myvault_search`, `myvault_read`       |
 | `OBSIDIAN_IGNORE_PATTERNS` | `.obsidian/**,templates/**,*.canvas` | Comma-separated ignore patterns                                                    |
 | `OPENAI_API_KEY`           | —                                    | API key; omit to use local model embeddings or keyless servers (Ollama, LM Studio) |
 | `OPENAI_BASE_URL`          | `https://api.openai.com/v1`          | API base URL                                                                       |
