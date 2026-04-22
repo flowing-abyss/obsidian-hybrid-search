@@ -313,6 +313,7 @@ function printSearchTable(
 
   if (extended && hasSnippets) heads.push('TAGS/ALIASES', 'SNIPPET');
   else if (extended) heads.push('TAGS/ALIASES');
+  else if (hasSnippets) heads.push('SNIPPET');
 
   const table = new Table({
     head: heads,
@@ -329,6 +330,8 @@ function printSearchTable(
       row.push(formatMeta(r), r.snippet ?? '');
     } else if (extended) {
       row.push(formatMeta(r));
+    } else if (hasSnippets) {
+      row.push(r.snippet ?? '');
     }
     table.push(row);
   }
