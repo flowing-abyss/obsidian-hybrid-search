@@ -3,8 +3,8 @@
   "version": "0.12.14",
   "type": "module",
   "bin": {
-    "obsidian-hybrid-search": "./dist/src/cli.js",
-    "obsidian-hybrid-search-mcp": "./dist/src/server.js"
+    "obsidian-hybrid-search": "./bin/obsidian-hybrid-search",
+    "obsidian-hybrid-search-mcp": "./bin/obsidian-hybrid-search-mcp"
   },
   "scripts": {
     "prepare": "husky",
