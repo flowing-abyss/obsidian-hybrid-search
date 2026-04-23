@@ -133,7 +133,7 @@ describe('CrossEncoderReranker.ensureLoaded deduplication', () => {
 describe('CrossEncoderReranker.ensureLoaded failure', () => {
   it('returns zeros when model load fails', async () => {
     const r = new CrossEncoderReranker('mock-model');
-    (r as unknown as Record<string, unknown>)['_loadModel'] = async () => {
+    (r as unknown as Record<string, unknown>)['_loadModel'] = () => {
       throw new Error('model load failed');
     };
 
