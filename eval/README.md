@@ -171,16 +171,28 @@ Golden set: `eval/golden-sets/obsidian-help.json` (58 queries)
 
 | Metric    | Value     | Interpretation                                                              |
 | --------- | --------- | --------------------------------------------------------------------------- |
-| nDCG@5    | **0.727** | keyword=0.866 / conceptual=0.388 / multilingual=0.415 / syntax=0.770        |
-| nDCG@10   | 0.742     | most relevant docs present somewhere in top 10                              |
-| MRR       | 0.769     | right answer is typically at position 1–2                                   |
-| Hit@1     | 0.690     | 69% of queries return the right doc as #1                                   |
+| nDCG@5    | **0.733** | keyword=0.866 / conceptual=0.388 / multilingual=0.415 / syntax=0.770        |
+| nDCG@10   | 0.763     | most relevant docs present somewhere in top 10                              |
+| MRR       | 0.788     | right answer is typically at position 1–2                                   |
+| Hit@1     | 0.724     | 72% of queries return the right doc as #1                                   |
 | Hit@3     | 0.828     | 83% of queries have the right doc in top 3 — gap from Hit@1 = ranking issue |
 | Hit@5     | 0.862     | positions 4–5 add a few new relevant results                                |
-| Recall@10 | 0.897     | most relevant docs are retrieved; ranking is the limiting factor            |
+| Recall@10 | 0.914     | most relevant docs are retrieved; ranking is the limiting factor            |
 
-nDCG@5=0.727 falls above the "good hybrid" range (0.58–0.65).
+nDCG@5=0.733 falls above the "good hybrid" range (0.58–0.65).
 Weak spot: **conceptual queries** (0.388) — paraphrased queries with no keyword overlap with the target file.
+
+### With rerank (`--rerank`)
+
+| Metric    | Value     | Interpretation                                                           |
+| --------- | --------- | ------------------------------------------------------------------------ |
+| nDCG@5    | **0.736** | slight improvement over no-rerank; reranker reorders top candidates      |
+| nDCG@10   | 0.766     | marginal gain in deeper positions                                        |
+| MRR       | 0.780     | comparable to no-rerank (reranker sometimes demotes exact alias matches) |
+| Hit@1     | 0.672     | slightly lower than no-rerank; trade-off for better top-3/5 coverage     |
+| Hit@3     | 0.862     | improved over no-rerank — reranker surfaces hidden relevant docs         |
+| Hit@5     | 0.914     | best-in-class coverage for this vault                                    |
+| Recall@10 | 0.966     | near-perfect retrieval when reranker is active                           |
 
 ## Speed benchmark
 

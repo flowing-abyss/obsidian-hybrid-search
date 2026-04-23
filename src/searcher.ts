@@ -1389,7 +1389,7 @@ async function searchByQuery(
   let results = rrfFusion(
     [vectorResults, bm25Results, exactAliasResults, partialFuzzyResults],
     60,
-    [1.0, 2.0, 2.0, 0.5],
+    [1.5, 1.5, 2.0, 0.25],
   );
 
   // Populate scores.hybrid for hybrid mode — always, regardless of rerank flag

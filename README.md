@@ -16,9 +16,9 @@ Evaluated on the [Obsidian Help vault](eval/README.md) (171 notes, 58 queries, l
 
 |                | **OHS** (this project) | [qmd](https://github.com/tobi/qmd) |
 | -------------- | :--------------------: | :--------------------------------: |
-| nDCG@5         |       **0.727**        |               0.659                |
-| MRR            |       **0.769**        |               0.665                |
-| Hit@1          |       **0.690**        |               0.500                |
+| nDCG@5         |       **0.733**        |               0.659                |
+| MRR            |       **0.788**        |               0.665                |
+| Hit@1          |       **0.724**        |               0.500                |
 | Avg query time |      **571 ms** ¹      |              754 ms ²              |
 | Model download |      **~117 MB**       |              ~2.2 GB               |
 
