@@ -13,6 +13,7 @@ coverage/
 .vscode/
 .claude/
 .codex/
+.pi/
 reports/
 opencode.json
 .zed/

@@ -89,7 +89,7 @@ Files in `eval/results/` are **working artifacts** — generate as many as you n
 freely. The regression test (`test/eval/regression.test.ts`) does NOT read them; it only reads
 `eval/results/baseline-no-rerank.json` (the committed reference) and checks absolute thresholds.
 
-Current committed baseline: **nDCG@5 = 0.780** (hybrid, local model, no rerank, 20 queries).
+Current committed baseline: **nDCG@5 = 0.727** (hybrid, local model, no rerank, 58 queries).
 See `eval/README.md` for full benchmark table and model configuration options.
 
 **Updating regression test thresholds** — only when a change genuinely improves ranking:

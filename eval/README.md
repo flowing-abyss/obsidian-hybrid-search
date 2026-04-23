@@ -169,18 +169,18 @@ Vault: `fixtures/obsidian-help/en` (171 notes)
 Model: `Xenova/multilingual-e5-small` (local, no API)
 Golden set: `eval/golden-sets/obsidian-help.json` (58 queries)
 
-| Metric    | Value     | Interpretation                                                                  |
-| --------- | --------- | ------------------------------------------------------------------------------- |
-| nDCG@5    | **0.682** | keyword=0.704 / conceptual=0.352 / multilingual=0.624 / syntax=0.791            |
-| nDCG@10   | 0.724     | most relevant docs present somewhere in top 10                                  |
-| MRR       | 0.769     | right answer is typically at position 1–2                                       |
-| Hit@1     | 0.650     | 65% of queries return the right doc as #1                                       |
-| Hit@3     | 0.850     | 85% of queries have the right doc in top 3 — gap from Hit@1 = ranking issue     |
-| Hit@5     | 0.850     | same as Hit@3 — positions 4–5 add no new relevant results                       |
-| Recall@10 | 1.000     | all relevant docs are retrieved; ranking, not retrieval, is the limiting factor |
+| Metric    | Value     | Interpretation                                                              |
+| --------- | --------- | --------------------------------------------------------------------------- |
+| nDCG@5    | **0.727** | keyword=0.866 / conceptual=0.388 / multilingual=0.415 / syntax=0.770        |
+| nDCG@10   | 0.742     | most relevant docs present somewhere in top 10                              |
+| MRR       | 0.769     | right answer is typically at position 1–2                                   |
+| Hit@1     | 0.690     | 69% of queries return the right doc as #1                                   |
+| Hit@3     | 0.828     | 83% of queries have the right doc in top 3 — gap from Hit@1 = ranking issue |
+| Hit@5     | 0.862     | positions 4–5 add a few new relevant results                                |
+| Recall@10 | 0.897     | most relevant docs are retrieved; ranking is the limiting factor            |
 
-nDCG@5=0.682 falls above the "good hybrid" range (0.58–0.65).
-Weak spot: **conceptual queries** (0.352) — paraphrased queries with no keyword overlap with the target file.
+nDCG@5=0.727 falls above the "good hybrid" range (0.58–0.65).
+Weak spot: **conceptual queries** (0.388) — paraphrased queries with no keyword overlap with the target file.
 
 ## Speed benchmark
 
