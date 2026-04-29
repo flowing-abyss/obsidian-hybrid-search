@@ -1,6 +1,6 @@
 {
   "name": "obsidian-hybrid-search",
-  "version": "0.12.18",
+  "version": "0.12.19",
   "type": "module",
   "bin": {
     "obsidian-hybrid-search": "./dist/src/cli.js",
@@ -43,6 +43,7 @@
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "ajv": "^8.17.1",
     "better-sqlite3": "^12.8.0",
     "chokidar": "^5.0.0",
     "cli-table3": "^0.6.3",
