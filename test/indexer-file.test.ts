@@ -4,6 +4,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 
+vi.mock('chokidar', () => ({
+  watch: vi.fn().mockReturnValue({
+    on: vi.fn().mockReturnThis(),
+  }),
+}));
+
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-indexer-file-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
@@ -286,6 +292,60 @@ describe('startBackgroundIndexing', () => {
     // Clean up global state so other test files see idle defaults
     resetIndexingState();
   });
+
+  it('handles empty vault gracefully', async () => {
+    const emptyVault = mkdtempSync(path.join(tmpdir(), 'ohs-bg-empty-'));
+    const originalVault = process.env.OBSIDIAN_VAULT_PATH;
+    process.env.OBSIDIAN_VAULT_PATH = emptyVault;
+
+    try {
+      wipeDatabaseFiles();
+      openDb();
+      initVecTable(4);
+      resetIndexingState();
+
+      await startBackgroundIndexing(512);
+
+      const status = getIndexingStatus();
+      assert.equal(status.queued, 0);
+      assert.equal(status.total, 0);
+      assert.equal(status.isRunning, false);
+    } finally {
+      process.env.OBSIDIAN_VAULT_PATH = originalVault;
+      rmSync(emptyVault, { recursive: true, force: true });
+    }
+  });
+
+  it('logs background indexing errors', async () => {
+    writeFileSync(path.join(vaultDir, 'bg-error.md'), '# BG Error');
+
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+    resetIndexingState();
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      if (typeof chunk === 'string' && chunk.includes('Indexing vault')) {
+        throw new Error('stderr broken');
+      }
+      return true;
+    });
+
+    await startBackgroundIndexing(512);
+
+    // Wait for async error handling
+    await new Promise((r) => setTimeout(r, 100));
+
+    assert.ok(
+      warnSpy.mock.calls.some((c) => String(c[0]).includes('background indexing error')),
+      'expected console.warn to be called with error message',
+    );
+
+    warnSpy.mockRestore();
+    stderrSpy.mockRestore();
+    resetIndexingState();
+  });
 });
 
 // ─── indexVaultSync ──────────────────────────────────────────────────────────
@@ -327,5 +387,120 @@ describe('indexVaultSync', () => {
     const second = await indexVaultSync(true);
     assert.ok(second.indexed > 0 || second.skipped > 0);
     stderrSpy.mockRestore();
+  });
+
+  it('reports errors to stderr when indexing fails', async () => {
+    const filePath = path.join(vaultDir, 'error-test.md');
+    writeFileSync(filePath, '# Error Test\n\nSome content here.', 'utf-8');
+
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+    resetIndexingState();
+
+    // Make the next embed call fail
+    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    embedSpy.mockRejectedValueOnce(new Error('embed failure'));
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const result = await indexVaultSync(false, 'Test indexing...');
+
+    assert.ok(result.errors.length > 0, 'expected at least one error');
+    assert.ok(
+      stderrSpy.mock.calls.some((c) => c[0]?.toString().includes('embed failure')),
+      'expected error message in stderr',
+    );
+    stderrSpy.mockRestore();
+  });
+
+  it('returns zero counts for empty vault', async () => {
+    const emptyVault = mkdtempSync(path.join(tmpdir(), 'ohs-empty-'));
+    const originalVault = process.env.OBSIDIAN_VAULT_PATH;
+    process.env.OBSIDIAN_VAULT_PATH = emptyVault;
+
+    try {
+      wipeDatabaseFiles();
+      openDb();
+      initVecTable(4);
+      resetIndexingState();
+
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const result = await indexVaultSync(false);
+      stderrSpy.mockRestore();
+
+      assert.equal(result.indexed, 0);
+      assert.equal(result.skipped, 0);
+      assert.equal(result.errors.length, 0);
+    } finally {
+      process.env.OBSIDIAN_VAULT_PATH = originalVault;
+      rmSync(emptyVault, { recursive: true, force: true });
+    }
+  });
+
+  it('renders TTY progress bar when stderr is a TTY', async () => {
+    const filePath = path.join(vaultDir, 'tty-note.md');
+    writeFileSync(filePath, '# TTY Note\n\nContent here.');
+
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+    resetIndexingState();
+
+    const originalIsTTY = process.stderr.isTTY;
+    process.stderr.isTTY = true;
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await indexVaultSync(false);
+
+    assert.ok(
+      stderrSpy.mock.calls.some((c) => c[0]?.toString().includes('\r\x1b[2K')),
+      'expected TTY progress bar with carriage return and clear line',
+    );
+
+    stderrSpy.mockRestore();
+    process.stderr.isTTY = originalIsTTY;
+  });
+
+  it('cleanupStaleNotes removes notes matching updated ignore patterns', async () => {
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+
+    const { upsertNote } = await import('../src/db');
+    upsertNote({
+      path: 'temp-ignore.md',
+      title: 'Ignore me',
+      tags: [],
+      content: '',
+      mtime: 1,
+      hash: 'hash1',
+      chunks: [],
+    });
+
+    const { getDb } = await import('../src/db');
+    const db = getDb();
+    const allNotes = db.prepare('SELECT path FROM notes').all() as { path: string }[];
+    assert.equal(allNotes.length, 1);
+
+    // Store empty patterns first so a change is detected later
+    const { getPathsToRemoveForIgnoreChange } = await import('../src/db');
+    getPathsToRemoveForIgnoreChange([]);
+
+    process.env.OBSIDIAN_IGNORE_PATTERNS = 'temp-ignore.md';
+    const { cleanupStaleNotes } = await import('../src/indexer');
+    cleanupStaleNotes();
+
+    const after = db.prepare('SELECT path FROM notes').all() as { path: string }[];
+    assert.equal(after.length, 0, 'note should be removed after cleanup');
+
+    delete process.env.OBSIDIAN_IGNORE_PATTERNS;
+  });
+
+  it('startWatcher calls chokidar.watch', async () => {
+    const chokidar = await import('chokidar');
+    const { startWatcher } = await import('../src/indexer');
+    startWatcher(4);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal((chokidar.watch as ReturnType<typeof vi.fn>).mock.calls.length, 1);
   });
 });

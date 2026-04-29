@@ -13,6 +13,20 @@ describe('estimateTokens', () => {
     assert.equal(estimateTokens('hello'), 2);
     assert.equal(estimateTokens('a'.repeat(100)), 25);
   });
+
+  it('counts Cyrillic chars as ~1 token each', () => {
+    assert.equal(estimateTokens('Привет'), 6);
+  });
+
+  it('counts CJK chars as ~1 token each', () => {
+    assert.equal(estimateTokens('你好世界'), 4);
+  });
+
+  it('mixed ASCII and non-ASCII', () => {
+    // 'hi' = 2 * 0.25 = 0.5 → ceil = 1
+    // 'Привет' = 6 * 1 = 6
+    assert.equal(estimateTokens('hiПривет'), 7);
+  });
 });
 
 describe('splitBySections', () => {
@@ -45,6 +59,15 @@ describe('slidingWindow', () => {
     const text = 'word '.repeat(1000);
     const chunks = slidingWindow(text, 50, 10);
     assert.ok(chunks.length > 1);
+  });
+
+  it('falls back to single chunk when all text would be skipped', () => {
+    const text = '---\n'; // horizontal separator matches skip pattern
+    const chunks = slidingWindow(text, 512, 64, [], 0);
+    assert.equal(chunks.length, 1);
+    assert.equal(chunks[0]!.text, text.trim());
+    assert.equal(chunks[0]!.charStart, 0);
+    assert.equal(chunks[0]!.charEnd, text.length);
   });
 });
 
@@ -169,6 +192,15 @@ describe('chunkNote', () => {
     const chunks = chunkNote(bigSection, 50);
     assert.ok(chunks.length > 1);
   });
+
+  it('oversized section in multi-section note uses sliding window', () => {
+    const longBody = 'word '.repeat(1000);
+    const shortBody =
+      'This is a moderately long section body that passes the minimum length filter easily.';
+    const content = `## Small Section\n\n${shortBody}\n\n## Big Section\n\n${longBody}`;
+    const chunks = chunkNote(content, 50);
+    assert.ok(chunks.length > 2);
+  });
 });
 
 describe('splitBySections — position tracking', () => {
@@ -285,10 +317,14 @@ describe('buildMatchText', () => {
     assert.equal(buildMatchText('![[Some embedded note]] and more text'), 'and more text');
   });
 
-  it('skips fenced code block delimiter lines', () => {
+  it('strips fenced code block delimiter lines', () => {
     assert.equal(
       buildMatchText('```table-of-contents\nstyle: nestedList\n```\nActual content here'),
       'Actual content here',
     );
+  });
+
+  it('returns empty string when all lines strip to nothing', () => {
+    assert.equal(buildMatchText('![image](url)'), '');
   });
 });

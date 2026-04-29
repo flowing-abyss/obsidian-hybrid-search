@@ -11,8 +11,8 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
 // ─── Module imports (after env is set) ───────────────────────────────────────
 
-const { openDb, initVecTable, upsertNote, upsertLinks } = await import('../src/db.js');
-const { search, bumpIndexVersion } = await import('../src/searcher.js');
+const { openDb, initVecTable, upsertNote, upsertLinks, getDb } = await import('../src/db.js');
+const { search, bumpIndexVersion, readNotes } = await import('../src/searcher.js');
 const { reranker } = await import('../src/reranker.js');
 
 const fakeEmbedding = new Float32Array([0.1, 0.2, 0.3, 0.4]);
@@ -304,6 +304,101 @@ describe('BFS direction filtering', () => {
   });
 });
 
+// ─── Related mode with filters ───────────────────────────────────────────────
+
+describe('related mode with tag filter', () => {
+  it('filters related results by include tag', async () => {
+    // note-a links to note-b; note-b links to note-c
+    // If note-b has tag 'filter-me', filtering should only keep note-b
+    upsertNote({
+      path: 'note-b.md',
+      title: 'Note B',
+      tags: ['filter-me'],
+      content: 'Content of note B.',
+      mtime: Date.now(),
+      hash: 'hash-note-b-v2',
+      chunks: [{ text: 'Content of note B.', embedding: fakeEmbedding }],
+    });
+    bumpIndexVersion();
+
+    const results = await search('note-a.md', {
+      related: true,
+      direction: 'outgoing',
+      depth: 1,
+      tag: 'filter-me',
+    });
+    const paths = results.map((r) => r.path);
+    assert.ok(!paths.includes('note-a.md'), 'source without tag should be excluded');
+    assert.ok(paths.includes('note-b.md'), 'note-b with tag should be included');
+  });
+
+  it('filters related results by exclude tag', async () => {
+    upsertNote({
+      path: 'note-b.md',
+      title: 'Note B',
+      tags: ['exclude-me'],
+      content: 'Content of note B.',
+      mtime: Date.now(),
+      hash: 'hash-note-b-v3',
+      chunks: [{ text: 'Content of note B.', embedding: fakeEmbedding }],
+    });
+    bumpIndexVersion();
+
+    const results = await search('note-a.md', {
+      related: true,
+      direction: 'outgoing',
+      depth: 1,
+      tag: '-exclude-me',
+    });
+    const paths = results.map((r) => r.path);
+    assert.ok(!paths.includes('note-b.md'), 'note-b with excluded tag should be removed');
+    assert.ok(paths.includes('note-a.md'), 'source without excluded tag should remain');
+  });
+});
+
+describe('related mode with frontmatter filter', () => {
+  it('filters related results by frontmatter field', async () => {
+    upsertNote({
+      path: 'note-b.md',
+      title: 'Note B',
+      tags: [],
+      content: 'Content of note B.',
+      frontmatter: { status: 'active' },
+      mtime: Date.now(),
+      hash: 'hash-note-b-v4',
+      chunks: [{ text: 'Content of note B.', embedding: fakeEmbedding }],
+    });
+    bumpIndexVersion();
+
+    const results = await search('note-a.md', {
+      related: true,
+      direction: 'outgoing',
+      depth: 1,
+      frontmatter: 'status:active',
+    });
+    const paths = results.map((r) => r.path);
+    assert.ok(
+      !paths.includes('note-a.md'),
+      'source without matching frontmatter should be excluded',
+    );
+    assert.ok(paths.includes('note-b.md'), 'note-b with matching frontmatter should be included');
+  });
+});
+
+describe('related mode with invalid JSON tags', () => {
+  it('gracefully handles malformed tags JSON in related results', async () => {
+    // Directly insert a note with invalid JSON tags
+    const db = getDb();
+    db.prepare('UPDATE notes SET tags = ? WHERE path = ?').run('not-valid-json', 'note-b.md');
+    bumpIndexVersion();
+
+    const results = await search('note-a.md', { related: true, direction: 'outgoing', depth: 1 });
+    const nb = results.find((r) => r.path === 'note-b.md');
+    assert.ok(nb, 'note-b should still appear despite invalid tags JSON');
+    assert.deepEqual(nb.tags, [], 'tags should fallback to empty array');
+  });
+});
+
 // ─── Tag filter ───────────────────────────────────────────────────────────────
 
 describe('tag filter', () => {
@@ -454,6 +549,21 @@ describe('filter-only mode', () => {
     const paths = results.map((r) => r.path);
     assert.ok(paths.includes('projects/active-project.md'));
     assert.ok(!paths.includes('projects/done-project.md'));
+  });
+
+  it('filter-only with frontmatter exclude filters out matching notes', async () => {
+    const results = await search('', { frontmatter: '-status:done' });
+    assert.ok(results.length > 0, 'should return notes');
+    const paths = results.map((r) => r.path);
+    assert.ok(!paths.includes('projects/done-project.md'), 'done project should be excluded');
+    assert.ok(paths.includes('projects/active-project.md'), 'active project should remain');
+  });
+
+  it('filter-only with frontmatter include and exclude combined', async () => {
+    const results = await search('', { frontmatter: ['status:active', '-priority:low'] });
+    assert.ok(results.length > 0, 'should return results');
+    const paths = results.map((r) => r.path);
+    assert.ok(paths.includes('projects/active-project.md'), 'active project should match');
   });
 
   it('cache invalidation: new note appears after bumpIndexVersion', async () => {
@@ -1152,5 +1262,110 @@ describe('rerank option', () => {
       rerank: true,
     });
     assert.ok(results.length > 0);
+  });
+
+  it('falls back to original order when reranker throws', async () => {
+    bumpIndexVersion(); // invalidate cache from previous rerank test
+    vi.spyOn(reranker, 'scoreAll').mockRejectedValue(new Error('pipeline exploded'));
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const results = await search('zettelkasten', {
+      mode: 'hybrid',
+      limit: 3,
+      rerank: true,
+    });
+    assert.ok(results.length > 0);
+    assert.ok(
+      stderrSpy.mock.calls.some((c) =>
+        c[0]?.toString().includes('Reranking failed: pipeline exploded'),
+      ),
+    );
+    stderrSpy.mockRestore();
+  });
+
+  it('warns when multi-query rerank is requested in non-hybrid mode', async () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const results = await search('note', {
+      mode: 'fulltext',
+      limit: 3,
+      queries: ['note a', 'note b'],
+      rerank: true,
+    });
+    assert.ok(results.length > 0);
+    assert.ok(
+      stderrSpy.mock.calls.some((c) =>
+        c[0]?.toString().includes('Reranking is only supported in hybrid mode'),
+      ),
+    );
+    stderrSpy.mockRestore();
+  });
+
+  it('applies rerank in multi-query hybrid mode', async () => {
+    vi.spyOn(reranker, 'scoreAll').mockResolvedValue([0.9, 0.5, 0.1]);
+    const results = await search('zettelkasten', {
+      mode: 'hybrid',
+      limit: 3,
+      queries: ['zettelkasten', 'note'],
+      rerank: true,
+    });
+    assert.ok(results.length > 0);
+  });
+
+  it('applies frontmatter filter in multi-query search', async () => {
+    const results = await search('project', {
+      mode: 'fulltext',
+      limit: 20,
+      queries: ['project'],
+      frontmatter: 'status:active',
+    });
+    const paths = results.map((r) => r.path);
+    assert.ok(paths.includes('projects/active-project.md'));
+    assert.ok(!paths.includes('projects/done-project.md'));
+  });
+
+  it('applies frontmatter filter in related mode', async () => {
+    upsertLinks('note-a.md', ['projects/active-project.md', 'projects/done-project.md']);
+    const results = await search('note-a.md', {
+      mode: 'fulltext',
+      related: true,
+      limit: 20,
+      frontmatter: 'status:active',
+    });
+    const paths = results.map((r) => r.path);
+    assert.ok(paths.includes('projects/active-project.md'));
+    assert.ok(!paths.includes('projects/done-project.md'));
+  });
+});
+
+// ─── readNotes ───────────────────────────────────────────────────────────────
+
+describe('readNotes', () => {
+  it('returns note data for existing path', () => {
+    const results = readNotes(['note-a.md']);
+    assert.equal(results.length, 1);
+    const r = results[0]!;
+    assert.equal(r.found, true);
+    assert.equal(r.path, 'note-a.md');
+  });
+
+  it('returns miss with suggestions for non-existent path', () => {
+    const results = readNotes(['nonexistent.md']);
+    assert.equal(results.length, 1);
+    const r = results[0]!;
+    assert.equal(r.found, false);
+    assert.ok(Array.isArray(r.suggestions));
+  });
+
+  it('handles malformed JSON tags gracefully', () => {
+    // Insert a note with invalid JSON in the tags column directly
+    const db = getDb();
+    db.prepare(
+      'INSERT OR REPLACE INTO notes (path, title, tags, content, frontmatter, mtime, hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run('bad-tags.md', 'Bad Tags', 'not-json', 'Content.', '', 1, 'h-bad');
+
+    const results = readNotes(['bad-tags.md']);
+    assert.equal(results.length, 1);
+    const r = results[0]!;
+    assert.equal(r.found, true);
+    assert.deepEqual(r.tags, []);
   });
 });

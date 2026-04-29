@@ -286,3 +286,75 @@ describe('embed() — Ollama semaphore serializes concurrent calls', () => {
     assert.equal(maxInFlight, 2, 'query requests should run in parallel');
   });
 });
+
+describe('embed() — API error response formats', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('returns null after retries when response has data.error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => ({ error: { message: 'model not found' } }),
+      }),
+    );
+
+    vi.useFakeTimers();
+    const embedPromise = embed(['hello'], 'document');
+    await vi.runAllTimersAsync();
+    const result = await embedPromise;
+    vi.useRealTimers();
+
+    assert.equal(result[0], null);
+  });
+
+  it('returns null after retries when response lacks data.data', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => ({ unexpected: 'format' }),
+      }),
+    );
+
+    vi.useFakeTimers();
+    const embedPromise = embed(['hello'], 'document');
+    await vi.runAllTimersAsync();
+    const result = await embedPromise;
+    vi.useRealTimers();
+
+    assert.equal(result[0], null);
+  });
+});
+
+describe('embed() — batch sorting by index', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('sorts results by index field from API', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => ({
+          data: [
+            { embedding: [0.2, 0.2], index: 1 },
+            { embedding: [0.1, 0.1], index: 0 },
+          ],
+        }),
+      }),
+    );
+
+    const result = await embed(['first', 'second'], 'document');
+    assert.equal(result.length, 2);
+    const first = result[0]!;
+    const second = result[1]!;
+    assert.ok(first instanceof Float32Array);
+    assert.ok(second instanceof Float32Array);
+    // After sorting by index, first result should have embedding [0.1, 0.1]
+    assert.ok(Math.abs(first[0]! - 0.1) < 0.001);
+    assert.ok(Math.abs(second[0]! - 0.2) < 0.001);
+  });
+});
