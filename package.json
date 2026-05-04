@@ -1,6 +1,6 @@
 {
   "name": "obsidian-hybrid-search",
-  "version": "0.12.19",
+  "version": "0.12.20",
   "type": "module",
   "bin": {
     "obsidian-hybrid-search": "./dist/src/cli.js",
