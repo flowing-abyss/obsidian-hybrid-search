@@ -1,6 +1,6 @@
 {
   "name": "obsidian-hybrid-search",
-  "version": "0.12.23",
+  "version": "0.12.24",
   "type": "module",
   "bin": {
     "obsidian-hybrid-search": "./dist/src/cli.js",
@@ -50,38 +50,38 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.13.1",
-    "better-sqlite3": "^12.1.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-sqlite3": "^12.9.0",
     "chokidar": "^5.0.0",
     "cli-table3": "^0.6.5",
     "commander": "^14.0.3",
     "gray-matter": "^4.0.3",
-    "onnxruntime-node": "^1.20.1",
+    "onnxruntime-node": "^1.26.0",
     "picocolors": "^1.1.1",
-    "sqlite-vec": "^0.1.6",
-    "yaml": "^2.7.1",
+    "sqlite-vec": "^0.1.9",
+    "yaml": "^2.8.4",
     "zod": "^4.4.3"
   },
   "optionalDependencies": {
     "@huggingface/transformers": "^4.2.0"
   },
   "devDependencies": {
-    "@commitlint/cli": "^20.4.3",
-    "@commitlint/config-conventional": "^20.4.3",
+    "@commitlint/cli": "^20.5.3",
+    "@commitlint/config-conventional": "^20.5.3",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^25.6.0",
+    "@types/node": "^25.6.2",
     "@vitest/coverage-v8": "^4.1.5",
-    "eslint": "^9.25.1",
-    "eslint-plugin-import": "^2.31.0",
+    "eslint": "^9.39.4",
+    "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-sonarjs": "^4.0.3",
     "husky": "^9.1.7",
-    "knip": "^6.11.0",
+    "knip": "^6.12.2",
     "lint-staged": "^16.4.0",
-    "prettier": "^3.5.3",
+    "prettier": "^3.8.3",
     "prettier-plugin-organize-imports": "^4.3.0",
-    "tsx": "^4.19.3",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.31.1",
+    "typescript-eslint": "^8.59.2",
     "vitest": "^4.1.5"
   },
   "lint-staged": {
