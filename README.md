@@ -371,6 +371,38 @@ Uses the built-in `Xenova/multilingual-e5-small` model — works fully offline, 
 
 > **Note:** On first run, `npx` will install the package automatically. Ignore patterns are persisted in the database and restored on every subsequent startup even if the env var is missing.
 
+### Shared HTTP server
+
+Use this when multiple MCP clients should share one long-lived search/indexing process.
+
+Start or reuse the background server:
+
+```bash
+obsidian-hybrid-search serve
+obsidian-hybrid-search serve --http
+```
+
+The command prints the server URL, PID, log path, and a client config snippet. The default bind address is `127.0.0.1:3939`.
+
+Configure URL-based clients with:
+
+```json
+{
+  "url": "http://127.0.0.1:3939/mcp"
+}
+```
+
+Manage the server:
+
+```bash
+obsidian-hybrid-search serve status
+obsidian-hybrid-search serve stop
+obsidian-hybrid-search serve --foreground
+obsidian-hybrid-search serve --http --foreground
+```
+
+HTTP mode uses MCP Streamable HTTP. If port 3939 is already in use, the command exits with an error instead of choosing another port automatically. Use `--port` for separate vaults.
+
 The server exposes four tools:
 
 | Tool      | Description                                                                                                                                                                                                                                                                                                                                               |
