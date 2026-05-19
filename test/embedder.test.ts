@@ -16,6 +16,10 @@ afterAll(() => {
   delete process.env.OPENAI_BASE_URL;
 });
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 const { embed, LOCAL_MODEL, clearOllamaSemaphore } = await import('../src/embedder.js');
 
 describe('LOCAL_MODEL constant', () => {
