@@ -35,6 +35,8 @@ import {
   startBackgroundIndexing,
   startWatcher,
 } from './indexer.js';
+import { runHttpMcpServerCli } from './mcp-http-server.js';
+import { ensureMcpServer, formatMcpInfo, getMcpStatus, stopMcpServer } from './mcp-supervisor.js';
 import { readNotes, search } from './searcher.js';
 import { handleStdioLine } from './stdio-server.js';
 
@@ -102,6 +104,15 @@ interface SearchOpts {
 interface ReindexOpts {
   force?: boolean;
 }
+
+interface ServeOpts {
+  stdio?: boolean;
+  http?: boolean;
+  host: string;
+  port: string;
+  foreground?: boolean;
+}
+
 /** Walk up from cwd looking for a file/dir with the given name. Returns the containing dir or undefined. */
 function walkUpFind(name: string): string | undefined {
   let dir = process.cwd();
@@ -374,9 +385,13 @@ const program = new Command()
   );
 
 // eslint-disable-next-line @typescript-eslint/require-await
-program.hook('preAction', async (thisCommand) => {
-  const opts = thisCommand.opts();
-  discoverConfig(opts.db as string | undefined);
+program.hook('preAction', async (_thisCommand, actionCommand) => {
+  const isServeCommand =
+    actionCommand.name() === 'serve' || actionCommand.parent?.name() === 'serve';
+  if (isServeCommand) return;
+
+  const opts = program.opts<{ db?: string }>();
+  discoverConfig(opts.db);
 });
 
 program
@@ -686,43 +701,115 @@ program
     },
   );
 
-program
+const serveCommand = program
   .command('serve')
   .description('Start a persistent search server')
-  .option('--stdio', 'Use JSON-over-stdin/stdout transport (LSP-style, for Obsidian plugin IPC)')
-  .action(async (opts: { stdio?: boolean }) => {
-    if (!opts.stdio) {
-      console.error('Error: specify a transport. Available: --stdio');
+  .option('--stdio', 'Use Obsidian plugin JSON-lines IPC over stdin/stdout')
+  .option('--http', 'Use MCP Streamable HTTP transport (default)')
+  .option('--host <host>', 'Host for HTTP MCP server', '127.0.0.1')
+  .option('--port <port>', 'Port for HTTP MCP server', '3939')
+  .option('--foreground', 'Run HTTP MCP server in the foreground')
+  .action(async (opts: ServeOpts) => {
+    const explicitHttp = serveCommand.getOptionValueSource('http') === 'cli';
+    const explicitHost = serveCommand.getOptionValueSource('host') === 'cli';
+    const explicitPort = serveCommand.getOptionValueSource('port') === 'cli';
+    if (opts.stdio && (explicitHttp || opts.foreground || explicitHost || explicitPort)) {
+      console.error(
+        'Error: --stdio is mutually exclusive with --http, --foreground, --host, and --port',
+      );
       process.exit(1);
     }
 
-    await init();
+    discoverConfig(program.opts<{ db?: string }>().db);
 
-    const contextLength = await getContextLength();
-    startBackgroundIndexing(contextLength).catch((err) => {
-      process.stderr.write(`[serve] background indexing error: ${String(err)}\n`);
-    });
-    startWatcher(contextLength);
+    if (opts.stdio) {
+      await init();
 
-    process.stdout.write(JSON.stringify({ ready: true }) + '\n');
+      const contextLength = await getContextLength();
+      startBackgroundIndexing(contextLength).catch((err) => {
+        process.stderr.write(`[serve] background indexing error: ${String(err)}\n`);
+      });
+      startWatcher(contextLength);
 
-    const { createInterface } = await import('node:readline');
-    const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+      process.stdout.write(JSON.stringify({ ready: true }) + '\n');
 
-    const cleanup = () => {
-      process.exit(0);
-    };
+      const { createInterface } = await import('node:readline');
+      const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
-    rl.on('close', cleanup);
-    rl.on('end', cleanup);
+      const cleanup = () => {
+        process.exit(0);
+      };
 
-    for await (const line of rl) {
-      // Fire-and-forget: process each request concurrently so that a slow in-flight
-      // search (e.g. embedding API call) does not block reading and starting the next
-      // one.  Responses carry their own `id` field so the plugin dispatches them
-      // correctly regardless of arrival order.
-      void handleStdioLine(line, search, (s) => process.stdout.write(s + '\n'));
+      rl.on('close', cleanup);
+      rl.on('end', cleanup);
+
+      for await (const line of rl) {
+        // Fire-and-forget: process each request concurrently so that a slow in-flight
+        // search (e.g. embedding API call) does not block reading and starting the next
+        // one.  Responses carry their own `id` field so the plugin dispatches them
+        // correctly regardless of arrival order.
+        void handleStdioLine(line, search, (s) => process.stdout.write(s + '\n'));
+      }
+      return;
     }
+
+    const port = Number.parseInt(opts.port, 10);
+    if (!Number.isInteger(port) || String(port) !== opts.port || port < 1 || port > 65535) {
+      console.error('Error: --port must be an integer between 1 and 65535');
+      process.exit(1);
+    }
+
+    try {
+      if (opts.foreground) {
+        await runHttpMcpServerCli(opts.host, port);
+        return;
+      }
+
+      const result = await ensureMcpServer({ host: opts.host, port });
+      console.log(formatMcpInfo(result.state, result.started));
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
+  });
+
+function validateServeManagementOptions(commandName: 'status' | 'stop'): void {
+  const explicitStdio = serveCommand.getOptionValueSource('stdio') === 'cli';
+  const explicitHttp = serveCommand.getOptionValueSource('http') === 'cli';
+  const explicitHost = serveCommand.getOptionValueSource('host') === 'cli';
+  const explicitPort = serveCommand.getOptionValueSource('port') === 'cli';
+  const explicitForeground = serveCommand.getOptionValueSource('foreground') === 'cli';
+  if (explicitStdio || explicitHttp || explicitForeground || explicitHost || explicitPort) {
+    console.error(
+      `Error: serve ${commandName} cannot be combined with --stdio, --http, --foreground, --host, or --port`,
+    );
+    process.exit(1);
+  }
+}
+
+serveCommand
+  .command('status')
+  .description('Show HTTP MCP server status')
+  .action(async () => {
+    validateServeManagementOptions('status');
+    const state = await getMcpStatus();
+    if (state === null) {
+      console.log('Obsidian Hybrid Search MCP server is not running');
+      return;
+    }
+    console.log(formatMcpInfo(state, false));
+  });
+
+serveCommand
+  .command('stop')
+  .description('Stop the HTTP MCP server')
+  .action(() => {
+    validateServeManagementOptions('stop');
+    if (stopMcpServer()) {
+      console.log('Obsidian Hybrid Search MCP server stopped');
+      return;
+    }
+    console.log('Obsidian Hybrid Search MCP server is not running');
   });
 
 program.parseAsync(process.argv).catch((err) => {
