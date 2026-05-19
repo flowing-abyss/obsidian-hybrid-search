@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
@@ -9,19 +10,31 @@ import {
   ensureMcpServer,
   formatPortConflictError,
   getMcpPaths,
+  getMcpStatus,
   isPidAlive,
   isPortAvailable,
   readMcpState,
+  stopMcpServer,
   writeMcpState,
   type McpState,
 } from '../src/mcp-supervisor.js';
 
 let tempDir: string | undefined;
 let vaultDir: string | undefined;
+let childProcess: ChildProcess | undefined;
 const originalXdgCacheHome = process.env.XDG_CACHE_HOME;
 const originalVaultPath = process.env.OBSIDIAN_VAULT_PATH;
 
-afterEach(() => {
+afterEach(async () => {
+  if (childProcess?.pid && isPidAlive(childProcess.pid)) {
+    childProcess.kill('SIGTERM');
+    await new Promise<void>((resolve) => {
+      childProcess?.once('exit', () => resolve());
+      setTimeout(resolve, 500);
+    });
+  }
+  childProcess = undefined;
+
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true });
     tempDir = undefined;
@@ -130,6 +143,224 @@ If this is a different vault/server, choose an explicit port:
 
   obsidian-hybrid-search serve --port 3940`,
     );
+  });
+
+  it('rejects a healthy existing state for a different requested port', async () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ohs-mcp-supervisor-test-'));
+    vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-mcp-supervisor-vault-'));
+    process.env.XDG_CACHE_HOME = tempDir;
+    process.env.OBSIDIAN_VAULT_PATH = vaultDir;
+
+    const server = http.createServer((req, res) => {
+      if (req.url === '/health') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            name: 'obsidian-hybrid-search',
+            transport: 'streamable-http',
+            vaultPath: vaultDir,
+          }),
+        );
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        server.off('error', reject);
+        resolve();
+      });
+    });
+
+    try {
+      const address = server.address();
+      assert.ok(address && typeof address !== 'string');
+      const existingUrls = buildMcpUrls('127.0.0.1', address.port);
+      const state: McpState = {
+        pid: process.pid,
+        host: '127.0.0.1',
+        port: address.port,
+        url: existingUrls.url,
+        healthUrl: existingUrls.healthUrl,
+        logPath: path.join(tempDir, 'obsidian-hybrid-search', 'mcp.log'),
+        vaultPath: vaultDir,
+        startedAt: '2026-05-19T00:00:00.000Z',
+      };
+      writeMcpState(state);
+
+      await assert.rejects(
+        ensureMcpServer({
+          host: '127.0.0.1',
+          port: address.port === 65535 ? address.port - 1 : address.port + 1,
+        }),
+        /already recorded for a different MCP server/,
+      );
+      assert.deepEqual(readMcpState(), state);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    }
+  });
+
+  it('does not stop a live pid when recorded health is unavailable', async () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ohs-mcp-supervisor-test-'));
+    vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-mcp-supervisor-vault-'));
+    process.env.XDG_CACHE_HOME = tempDir;
+    process.env.OBSIDIAN_VAULT_PATH = vaultDir;
+
+    childProcess = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: 'ignore',
+    });
+    assert.ok(childProcess.pid);
+
+    const urls = buildMcpUrls('127.0.0.1', 9);
+    writeMcpState({
+      pid: childProcess.pid,
+      host: '127.0.0.1',
+      port: 9,
+      url: urls.url,
+      healthUrl: urls.healthUrl,
+      logPath: path.join(tempDir, 'obsidian-hybrid-search', 'mcp.log'),
+      vaultPath: vaultDir,
+      startedAt: '2026-05-19T00:00:00.000Z',
+    });
+
+    assert.equal(await stopMcpServer(), false);
+    assert.equal(readMcpState(), null);
+    assert.equal(isPidAlive(childProcess.pid), true);
+  });
+
+  it('does not stop a live pid when health identity does not match state', async () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ohs-mcp-supervisor-test-'));
+    vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-mcp-supervisor-vault-'));
+    process.env.XDG_CACHE_HOME = tempDir;
+    process.env.OBSIDIAN_VAULT_PATH = vaultDir;
+
+    const server = http.createServer((req, res) => {
+      if (req.url === '/health') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            name: 'unrelated-service',
+            transport: 'streamable-http',
+            vaultPath: vaultDir,
+          }),
+        );
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        server.off('error', reject);
+        resolve();
+      });
+    });
+
+    const originalKill = process.kill.bind(process);
+    let attemptedSigterm = false;
+    process.kill = (pid: number, signal?: NodeJS.Signals | number) => {
+      if (pid === process.pid && signal === 'SIGTERM') {
+        attemptedSigterm = true;
+        return true;
+      }
+      return originalKill(pid, signal);
+    };
+
+    try {
+      const address = server.address();
+      assert.ok(address && typeof address !== 'string');
+      const urls = buildMcpUrls('127.0.0.1', address.port);
+      writeMcpState({
+        pid: process.pid,
+        host: '127.0.0.1',
+        port: address.port,
+        url: urls.url,
+        healthUrl: urls.healthUrl,
+        logPath: path.join(tempDir, 'obsidian-hybrid-search', 'mcp.log'),
+        vaultPath: vaultDir,
+        startedAt: '2026-05-19T00:00:00.000Z',
+      });
+
+      assert.equal(await stopMcpServer(), false);
+      assert.equal(attemptedSigterm, false);
+      assert.equal(readMcpState(), null);
+    } finally {
+      process.kill = originalKill;
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    }
+  });
+
+  it('keeps matching identity state in status checks', async () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ohs-mcp-supervisor-test-'));
+    vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-mcp-supervisor-vault-'));
+    process.env.XDG_CACHE_HOME = tempDir;
+    process.env.OBSIDIAN_VAULT_PATH = vaultDir;
+
+    const server = http.createServer((req, res) => {
+      if (req.url === '/health') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            name: 'obsidian-hybrid-search',
+            transport: 'streamable-http',
+            vaultPath: vaultDir,
+          }),
+        );
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        server.off('error', reject);
+        resolve();
+      });
+    });
+
+    try {
+      const address = server.address();
+      assert.ok(address && typeof address !== 'string');
+      const urls = buildMcpUrls('127.0.0.1', address.port);
+      const state: McpState = {
+        pid: process.pid,
+        host: '127.0.0.1',
+        port: address.port,
+        url: urls.url,
+        healthUrl: urls.healthUrl,
+        logPath: path.join(tempDir, 'obsidian-hybrid-search', 'mcp.log'),
+        vaultPath: vaultDir,
+        startedAt: '2026-05-19T00:00:00.000Z',
+      };
+      writeMcpState(state);
+
+      assert.deepEqual(await getMcpStatus(), state);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    }
   });
 
   it('removes written state when startup health never passes', async () => {

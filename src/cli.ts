@@ -803,9 +803,9 @@ serveCommand
 serveCommand
   .command('stop')
   .description('Stop the HTTP MCP server')
-  .action(() => {
+  .action(async () => {
     validateServeManagementOptions('stop');
-    if (stopMcpServer()) {
+    if (await stopMcpServer()) {
       console.log('Obsidian Hybrid Search MCP server stopped');
       return;
     }

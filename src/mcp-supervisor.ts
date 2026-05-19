@@ -42,6 +42,14 @@ export interface EnsureMcpResult {
   started: boolean;
 }
 
+export interface McpHealthInfo {
+  ok: true;
+  name?: unknown;
+  transport?: unknown;
+  vaultPath?: unknown;
+  version?: unknown;
+}
+
 export function getMcpPaths(): McpPaths {
   const cacheHome = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
   const dir = path.join(cacheHome, 'obsidian-hybrid-search');
@@ -136,15 +144,60 @@ Add this to your MCP client:
 }`;
 }
 
-export async function fetchHealth(healthUrl: string): Promise<boolean> {
+export function matchesRequestedState(
+  state: McpState,
+  options: EnsureMcpOptions,
+  vaultPath: string,
+): boolean {
+  return (
+    state.host === options.host && state.port === options.port && state.vaultPath === vaultPath
+  );
+}
+
+export function healthMatchesState(state: McpState, healthInfo: McpHealthInfo | null): boolean {
+  if (healthInfo === null) return false;
+  return (
+    healthInfo.ok === true &&
+    healthInfo.name === 'obsidian-hybrid-search' &&
+    healthInfo.transport === 'streamable-http' &&
+    healthInfo.vaultPath === state.vaultPath &&
+    state.healthUrl === buildMcpUrls(state.host, state.port).healthUrl
+  );
+}
+
+function formatMcpStateMismatchError(
+  state: McpState,
+  options: EnsureMcpOptions,
+  vaultPath: string,
+): string {
+  const requestedUrls = buildMcpUrls(options.host, options.port);
+  return `An MCP server is already recorded for a different MCP server.
+
+Current:
+  URL:   ${state.url}
+  Vault: ${state.vaultPath}
+
+Requested:
+  URL:   ${requestedUrls.url}
+  Vault: ${vaultPath}
+
+Run "obsidian-hybrid-search serve stop" before starting a different server, or set an explicit XDG_CACHE_HOME for separate state.`;
+}
+
+export async function fetchHealthInfo(healthUrl: string): Promise<McpHealthInfo | null> {
   try {
     const res = await fetch(healthUrl, { signal: AbortSignal.timeout(500) });
-    if (!res.ok) return false;
+    if (!res.ok) return null;
     const body = (await res.json()) as { ok?: unknown };
-    return body.ok === true;
+    if (body.ok !== true) return null;
+    return body as McpHealthInfo;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function fetchHealth(healthUrl: string): Promise<boolean> {
+  return (await fetchHealthInfo(healthUrl)) !== null;
 }
 
 export async function waitForHealth(healthUrl: string, timeoutMs = 10_000): Promise<boolean> {
@@ -156,10 +209,27 @@ export async function waitForHealth(healthUrl: string, timeoutMs = 10_000): Prom
   return false;
 }
 
+async function waitForStateHealth(state: McpState, timeoutMs = 10_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (healthMatchesState(state, await fetchHealthInfo(state.healthUrl))) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return false;
+}
+
 export async function ensureMcpServer(options: EnsureMcpOptions): Promise<EnsureMcpResult> {
+  const vaultPath = config.vaultPath;
   const existing = readMcpState();
-  if (existing && isPidAlive(existing.pid) && (await fetchHealth(existing.healthUrl))) {
-    return { state: existing, started: false };
+  if (
+    existing &&
+    isPidAlive(existing.pid) &&
+    healthMatchesState(existing, await fetchHealthInfo(existing.healthUrl))
+  ) {
+    if (matchesRequestedState(existing, options, vaultPath)) {
+      return { state: existing, started: false };
+    }
+    throw new Error(formatMcpStateMismatchError(existing, options, vaultPath));
   }
   if (existing) removeMcpState();
 
@@ -187,12 +257,12 @@ export async function ensureMcpServer(options: EnsureMcpOptions): Promise<Ensure
     url: urls.url,
     healthUrl: urls.healthUrl,
     logPath: paths.logPath,
-    vaultPath: config.vaultPath,
+    vaultPath,
     startedAt: new Date().toISOString(),
   };
   writeMcpState(state);
 
-  if (!(await waitForHealth(state.healthUrl, options.healthTimeoutMs)) || !isPidAlive(child.pid)) {
+  if (!(await waitForStateHealth(state, options.healthTimeoutMs)) || !isPidAlive(child.pid)) {
     removeMcpState();
     if (isPidAlive(child.pid)) {
       process.kill(child.pid, 'SIGTERM');
@@ -233,7 +303,7 @@ export async function getMcpStatus(): Promise<McpState | null> {
   const state = readMcpState();
   if (!state) return null;
 
-  if (isPidAlive(state.pid) && (await fetchHealth(state.healthUrl))) {
+  if (isPidAlive(state.pid) && healthMatchesState(state, await fetchHealthInfo(state.healthUrl))) {
     return state;
   }
 
@@ -241,14 +311,20 @@ export async function getMcpStatus(): Promise<McpState | null> {
   return null;
 }
 
-export function stopMcpServer(): boolean {
+export async function stopMcpServer(): Promise<boolean> {
   const state = readMcpState();
-  removeMcpState();
 
   if (!state || !isPidAlive(state.pid)) {
+    if (state) removeMcpState();
     return false;
   }
 
+  if (!healthMatchesState(state, await fetchHealthInfo(state.healthUrl))) {
+    removeMcpState();
+    return false;
+  }
+
+  removeMcpState();
   process.kill(state.pid, 'SIGTERM');
   return true;
 }
