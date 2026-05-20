@@ -11,6 +11,7 @@ coverage/
 .obsidian-hybrid-search.db*
 .claude/settings.local.json
 .vscode/
+.agents/
 .claude/
 .codex/
 .pi/
