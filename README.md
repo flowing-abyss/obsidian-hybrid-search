@@ -378,17 +378,20 @@ Use this when multiple MCP clients should share one long-lived search/indexing p
 Start or reuse the background server:
 
 ```bash
-obsidian-hybrid-search serve
-obsidian-hybrid-search serve --http
+OBSIDIAN_VAULT_PATH="/path/to/your/vault" obsidian-hybrid-search serve
 ```
 
-The command prints the server URL, PID, log path, and a client config snippet. The default bind address is `127.0.0.1:3939`.
+`serve` starts the MCP server over HTTP by default; `serve --http` is the explicit equivalent. The command prints the server URL, PID, log path, and a client config snippet. The default bind address is `127.0.0.1:3939`.
 
-Configure URL-based clients with:
+Then add this to a URL-based MCP client config (`.mcp.json`, `claude_desktop_config.json`, or equivalent):
 
 ```json
 {
-  "url": "http://127.0.0.1:3939/mcp"
+  "mcpServers": {
+    "obsidian-hybrid-search": {
+      "url": "http://127.0.0.1:3939/mcp"
+    }
+  }
 }
 ```
 
