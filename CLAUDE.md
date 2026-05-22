@@ -1,4 +1,4 @@
-# CLAUDE.md — Project Guide for AI Agents
+# Project Guide for AI Agents
 
 ## Quick Reference
 
