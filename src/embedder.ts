@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import { EmbeddingApiResponseSchema, formatValidationError } from './boundary-validation.js';
 import { config } from './config.js';
 
 export const LOCAL_MODEL = 'Xenova/multilingual-e5-small';
@@ -361,12 +362,29 @@ async function embedApiBatch(texts: string[]): Promise<Float32Array[]> {
     throw new Error(`Embedding API error ${res.status}: ${text}`);
   }
 
-  const data = (await res.json()) as {
-    data?: { embedding: number[]; index: number }[];
-    error?: { message: string };
-  };
-  if (data.error || !data.data) {
-    throw new Error(`Embedding API error: ${data.error?.message ?? 'unexpected response format'}`);
+  const response: unknown = await res.json();
+  const parsed = EmbeddingApiResponseSchema.safeParse(response);
+  if (!parsed.success) {
+    throw new Error(formatValidationError('Embedding API response invalid', parsed.error));
+  }
+
+  const data = parsed.data;
+  if (!('data' in data)) {
+    throw new Error(`Embedding API error: ${data.error.message ?? 'unexpected response format'}`);
+  }
+
+  const seenIndexes = new Set<number>();
+  const indexesMatchRequest =
+    data.data.length === texts.length &&
+    data.data.every((item) => {
+      if (item.index < 0 || item.index >= texts.length || seenIndexes.has(item.index)) {
+        return false;
+      }
+      seenIndexes.add(item.index);
+      return true;
+    });
+  if (!indexesMatchRequest) {
+    throw new Error('Embedding API error: response indexes do not match requested batch');
   }
 
   return [...data.data]

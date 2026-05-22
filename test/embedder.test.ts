@@ -331,10 +331,42 @@ describe('embed() — API error response formats', () => {
 
     assert.equal(result[0], null);
   });
+
+  it('returns null after retries when response embedding item is malformed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => ({ data: [{ embedding: ['bad'], index: 0 }] }),
+      }),
+    );
+
+    vi.useFakeTimers();
+    const embedPromise = embed(['hello'], 'document');
+    await vi.runAllTimersAsync();
+    const result = await embedPromise;
+    vi.useRealTimers();
+
+    assert.equal(result[0], null);
+  });
 });
 
 describe('embed() — batch sorting by index', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+  }
+
+  function requestInput(init: { body?: string }): string[] {
+    const body = JSON.parse(init.body ?? '{}') as unknown;
+    assert.ok(isRecord(body));
+    const input = body.input;
+    assert.ok(Array.isArray(input));
+    assert.ok(input.every((item) => typeof item === 'string'));
+    return input;
+  }
 
   it('sorts results by index field from API', async () => {
     vi.stubGlobal(
@@ -360,5 +392,106 @@ describe('embed() — batch sorting by index', () => {
     // After sorting by index, first result should have embedding [0.1, 0.1]
     assert.ok(Math.abs(first[0]! - 0.1) < 0.001);
     assert.ok(Math.abs(second[0]! - 0.2) < 0.001);
+  });
+
+  it('falls back to per-item requests when batch response is missing an embedding', async () => {
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: { body?: string }) => {
+      const input = requestInput(init);
+      if (input.length === 2) {
+        return {
+          ok: true,
+          status: 200,
+          json: () => ({ data: [{ embedding: [0.1, 0.1], index: 0 }] }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: () => ({
+          data: [{ embedding: input[0] === 'first' ? [0.3, 0.3] : [0.4, 0.4], index: 0 }],
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await embed(['first', 'second'], 'document');
+
+    assert.equal(fetchMock.mock.calls.length, 3);
+    assert.equal(result.length, 2);
+    assert.ok(result[0] instanceof Float32Array);
+    assert.ok(result[1] instanceof Float32Array);
+    assert.ok(Math.abs(result[0][0]! - 0.3) < 0.001);
+    assert.ok(Math.abs(result[1][0]! - 0.4) < 0.001);
+  });
+
+  it('falls back to per-item requests when batch response has duplicate indexes', async () => {
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: { body?: string }) => {
+      const input = requestInput(init);
+      if (input.length === 2) {
+        return {
+          ok: true,
+          status: 200,
+          json: () => ({
+            data: [
+              { embedding: [0.1, 0.1], index: 0 },
+              { embedding: [0.2, 0.2], index: 0 },
+            ],
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: () => ({
+          data: [{ embedding: input[0] === 'first' ? [0.3, 0.3] : [0.4, 0.4], index: 0 }],
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await embed(['first', 'second'], 'document');
+
+    assert.equal(fetchMock.mock.calls.length, 3);
+    assert.ok(result[0] instanceof Float32Array);
+    assert.ok(result[1] instanceof Float32Array);
+    assert.ok(Math.abs(result[0][0]! - 0.3) < 0.001);
+    assert.ok(Math.abs(result[1][0]! - 0.4) < 0.001);
+  });
+
+  it('falls back to per-item requests when batch response has an out-of-range index', async () => {
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: { body?: string }) => {
+      const input = requestInput(init);
+      if (input.length === 2) {
+        return {
+          ok: true,
+          status: 200,
+          json: () => ({
+            data: [
+              { embedding: [0.1, 0.1], index: 0 },
+              { embedding: [0.2, 0.2], index: 2 },
+            ],
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: () => ({
+          data: [{ embedding: input[0] === 'first' ? [0.3, 0.3] : [0.4, 0.4], index: 0 }],
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await embed(['first', 'second'], 'document');
+
+    assert.equal(fetchMock.mock.calls.length, 3);
+    assert.ok(result[0] instanceof Float32Array);
+    assert.ok(result[1] instanceof Float32Array);
+    assert.ok(Math.abs(result[0][0]! - 0.3) < 0.001);
+    assert.ok(Math.abs(result[1][0]! - 0.4) < 0.001);
   });
 });

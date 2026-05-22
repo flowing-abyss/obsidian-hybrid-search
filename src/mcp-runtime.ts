@@ -3,6 +3,15 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  formatValidationError,
+  parseStringArrayParam,
+  ReadToolArgumentsSchema,
+  ReindexToolArgumentsSchema,
+  SearchToolArgumentsSchema,
+  StatusToolArgumentsSchema,
+  type StringArrayParam,
+} from './boundary-validation.js';
 import { config } from './config.js';
 import {
   getDb,
@@ -49,6 +58,9 @@ export interface McpRuntime {
   embeddingDim: number | null;
   getUpdateStatus(): UpdateStatus;
 }
+
+type McpTextContent = { type: 'text'; text: string };
+type McpToolResult = { content: McpTextContent[]; isError?: true };
 
 export async function checkForUpdates(version = packageVersion): Promise<void> {
   try {
@@ -148,38 +160,14 @@ export function startMcpBackgroundServices(runtime: McpRuntime): void {
   startWatcher(runtime.contextLength);
 }
 
-/**
- * Parses a value that should be string | string[].
- * Some LLMs serialize arrays as JSON strings (e.g. `'["a","b"]'`); this handles both forms.
- */
-// eslint-disable-next-line sonarjs/function-return-type -- union return type is intentional; callers accept string | string[] | undefined
-function parseArrayParam(val: unknown): string | string[] | undefined {
-  if (val === undefined || val === null) return undefined;
-  if (Array.isArray(val)) return val as string[];
-  if (typeof val === 'string') {
-    const trimmed = val.trim();
-    if (trimmed.startsWith('[')) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- JSON.parse return type is unavoidably any
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) return parsed as string[];
-      } catch {
-        // not a valid JSON array — treat as plain string
-      }
-    }
-    return trimmed || undefined;
-  }
-  return undefined;
-}
-
 async function handleReindex(
-  a: Record<string, unknown>,
+  a: { path?: string; force?: boolean },
   contextLength: number,
   modelName: string,
   embeddingDim: number | null,
 ): Promise<{ indexed: number; skipped: number; errors: unknown[] }> {
   if (a.path) {
-    const fullPath = join(config.vaultPath, a.path as string);
+    const fullPath = join(config.vaultPath, a.path);
     const status = await indexFile(fullPath, contextLength, Boolean(a.force));
     if (status === 'indexed') return { indexed: 1, skipped: 0, errors: [] };
     if (status === 'skipped') return { indexed: 0, skipped: 1, errors: [] };
@@ -188,7 +176,7 @@ async function handleReindex(
       skipped: 0,
       errors: [
         {
-          path: a.path as string,
+          path: a.path,
           error: typeof status === 'object' ? status.error : 'indexing failed',
         },
       ],
@@ -215,6 +203,146 @@ function resetDbForForceReindex(modelName: string, embeddingDim: number | null):
   if (embeddingDim !== null) {
     initVecTable(embeddingDim);
   }
+}
+
+function textResult(text: string): McpToolResult {
+  return {
+    content: [{ type: 'text', text }],
+  };
+}
+
+function validationErrorResult(text: string): McpToolResult {
+  return {
+    content: [{ type: 'text', text }],
+    isError: true,
+  };
+}
+
+async function callSearchTool(a: Record<string, unknown>): Promise<McpToolResult> {
+  const parsed = SearchToolArgumentsSchema.safeParse(a);
+  if (!parsed.success) {
+    return validationErrorResult(formatValidationError('search arguments', parsed.error));
+  }
+  const searchArgs = parsed.data;
+  let scope: StringArrayParam;
+  let tag: StringArrayParam;
+  let frontmatter: StringArrayParam;
+  try {
+    scope = parseStringArrayParam('scope', searchArgs.scope);
+    tag = parseStringArrayParam('tag', searchArgs.tag);
+    frontmatter = parseStringArrayParam('frontmatter', searchArgs.frontmatter);
+  } catch (err) {
+    return validationErrorResult(
+      `Invalid search arguments: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const notePath = searchArgs.path;
+  const singleQuery = searchArgs.query ?? '';
+  const extraQueries = searchArgs.queries ?? [];
+  // Combine query + queries into a unified list; filter empty strings
+  const allQueries = [singleQuery, ...extraQueries].filter(Boolean);
+  const inputStr = notePath ?? allQueries[0] ?? '';
+  const results = await search(inputStr, {
+    mode: searchArgs.mode,
+    scope,
+    limit: searchArgs.limit,
+    threshold: searchArgs.threshold,
+    tag,
+    frontmatter,
+    related: searchArgs.related,
+    depth: searchArgs.depth,
+    direction: searchArgs.direction,
+    snippetLength: searchArgs.snippet_length,
+    rerank: searchArgs.rerank,
+    anchors: searchArgs.anchors,
+    notePath,
+    queries: allQueries.length > 1 ? allQueries : undefined,
+  });
+  return textResult(JSON.stringify({ results }, null, 2));
+}
+
+async function callReindexTool(
+  a: Record<string, unknown>,
+  runtime: McpRuntime,
+): Promise<McpToolResult> {
+  const parsed = ReindexToolArgumentsSchema.safeParse(a);
+  if (!parsed.success) {
+    return validationErrorResult(formatValidationError('reindex arguments', parsed.error));
+  }
+  const result = await handleReindex(
+    parsed.data,
+    runtime.contextLength,
+    runtime.modelName,
+    runtime.embeddingDim,
+  );
+  return textResult(JSON.stringify(result, null, 2));
+}
+
+function callStatusTool(a: Record<string, unknown>, runtime: McpRuntime): McpToolResult {
+  const parsed = StatusToolArgumentsSchema.safeParse(a);
+  if (!parsed.success) {
+    return validationErrorResult(formatValidationError('status arguments', parsed.error));
+  }
+  const statusArgs = parsed.data;
+  const stats = getStats();
+  const indexingStatus = getIndexingStatus();
+  const currentUpdateStatus = runtime.getUpdateStatus();
+  const output: Record<string, unknown> = {
+    total: stats.total,
+    indexed: stats.indexed,
+    pending: indexingStatus.queued,
+    chunks: stats.chunks,
+    links: stats.links,
+    last_indexed: stats.lastIndexed,
+    db_size_mb:
+      stats.dbSizeBytes !== null ? Math.round((stats.dbSizeBytes / 1024 / 1024) * 10) / 10 : null,
+    api_base_url: config.apiBaseUrl,
+    model: stats.embeddingModel,
+    embedding_dim: stats.embeddingDim,
+    context_length: runtime.contextLength,
+    version: runtime.version,
+    ...(currentUpdateStatus.state === 'update_available'
+      ? {
+          latest_version: currentUpdateStatus.latestVersion,
+          update_command: 'npm install -g obsidian-hybrid-search',
+        }
+      : currentUpdateStatus.state === 'offline'
+        ? { version_check: 'offline' }
+        : {}),
+    ignore_patterns: config.ignorePatterns,
+  };
+  if (statusArgs.include_activity) {
+    output.recent_activity = stats.recentActivity;
+  }
+  const statusText =
+    JSON.stringify(output, null, 2) +
+    (stats.failedChunks > 0
+      ? `\n⚠️  ${stats.failedChunks} chunk(s) have no embeddings (text search still works)`
+      : '');
+  return textResult(statusText);
+}
+
+function callReadTool(a: Record<string, unknown>): McpToolResult {
+  const parsed = ReadToolArgumentsSchema.safeParse(a);
+  if (!parsed.success) {
+    return validationErrorResult(formatValidationError('read arguments', parsed.error));
+  }
+  const readArgs = parsed.data;
+  let rawPaths: StringArrayParam;
+  try {
+    rawPaths = parseStringArrayParam('paths', readArgs.paths);
+  } catch (err) {
+    return validationErrorResult(
+      `Invalid read arguments: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const pathsArray: string[] = Array.isArray(rawPaths) ? rawPaths : rawPaths ? [rawPaths] : [];
+  const results = readNotes(pathsArray, {
+    snippetLength: readArgs.snippet_length,
+    related: readArgs.related !== false,
+  });
+  return textResult(JSON.stringify({ results }, null, 2));
 }
 
 export function createMcpServer(runtime: McpRuntime): Server {
@@ -421,126 +549,24 @@ export function createMcpServer(runtime: McpRuntime): Server {
 
     try {
       if (isTool(name, 'search')) {
-        const notePath = a.path as string | undefined;
-        const singleQuery = (a.query as string | undefined) ?? '';
-        const extraQueriesRaw = a.queries;
-        const extraQueries: string[] = Array.isArray(extraQueriesRaw)
-          ? (extraQueriesRaw as string[])
-          : [];
-        // Combine query + queries into a unified list; filter empty strings
-        const allQueries = [singleQuery, ...extraQueries].filter(Boolean);
-        const inputStr = notePath ?? allQueries[0] ?? '';
-        const results = await search(inputStr, {
-          mode: a.mode as 'hybrid' | 'semantic' | 'fulltext' | 'title' | undefined,
-          scope: parseArrayParam(a.scope),
-          limit: a.limit as number | undefined,
-          threshold: a.threshold as number | undefined,
-          tag: parseArrayParam(a.tag),
-          frontmatter: parseArrayParam(a.frontmatter),
-          related: a.related as boolean | undefined,
-          depth: a.depth as number | undefined,
-          direction: a.direction as 'outgoing' | 'backlinks' | 'both' | undefined,
-          snippetLength: a.snippet_length as number | undefined,
-          rerank: a.rerank as boolean | undefined,
-          anchors: a.anchors as boolean | undefined,
-          notePath,
-          queries: allQueries.length > 1 ? allQueries : undefined,
-        });
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ results }, null, 2) }],
-        };
+        return callSearchTool(a);
       }
 
       if (isTool(name, 'reindex')) {
-        const result = await handleReindex(
-          a,
-          runtime.contextLength,
-          runtime.modelName,
-          runtime.embeddingDim,
-        );
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        };
+        return callReindexTool(a, runtime);
       }
 
       if (isTool(name, 'status')) {
-        const stats = getStats();
-        const indexingStatus = getIndexingStatus();
-        const currentUpdateStatus = runtime.getUpdateStatus();
-        const output: Record<string, unknown> = {
-          total: stats.total,
-          indexed: stats.indexed,
-          pending: indexingStatus.queued,
-          chunks: stats.chunks,
-          links: stats.links,
-          last_indexed: stats.lastIndexed,
-          db_size_mb:
-            stats.dbSizeBytes !== null
-              ? Math.round((stats.dbSizeBytes / 1024 / 1024) * 10) / 10
-              : null,
-          api_base_url: config.apiBaseUrl,
-          model: stats.embeddingModel,
-          embedding_dim: stats.embeddingDim,
-          context_length: runtime.contextLength,
-          version: runtime.version,
-          ...(currentUpdateStatus.state === 'update_available'
-            ? {
-                latest_version: currentUpdateStatus.latestVersion,
-                update_command: 'npm install -g obsidian-hybrid-search',
-              }
-            : currentUpdateStatus.state === 'offline'
-              ? { version_check: 'offline' }
-              : {}),
-          ignore_patterns: config.ignorePatterns,
-        };
-        if (a.include_activity) {
-          output.recent_activity = stats.recentActivity;
-        }
-        const statusText =
-          JSON.stringify(output, null, 2) +
-          (stats.failedChunks > 0
-            ? `\n⚠️  ${stats.failedChunks} chunk(s) have no embeddings (text search still works)`
-            : '');
-        return {
-          content: [
-            {
-              type: 'text',
-              text: statusText,
-            },
-          ],
-        };
+        return callStatusTool(a, runtime);
       }
 
       if (isTool(name, 'read')) {
-        const rawPaths = parseArrayParam(a.paths);
-        const pathsArray: string[] = Array.isArray(rawPaths)
-          ? rawPaths
-          : rawPaths
-            ? [rawPaths]
-            : [];
-        const results = readNotes(pathsArray, {
-          snippetLength: a.snippet_length as number | undefined,
-          related: a.related !== false,
-        });
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ results }, null, 2) }],
-        };
+        return callReadTool(a);
       }
 
-      return {
-        content: [{ type: 'text', text: `Unknown tool: ${name}` }],
-        isError: true,
-      };
+      return validationErrorResult(`Unknown tool: ${name}`);
     } catch (err) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Error: ${err instanceof Error ? err.message : String(err)}`,
-          },
-        ],
-        isError: true,
-      };
+      return validationErrorResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
     }
   });
 

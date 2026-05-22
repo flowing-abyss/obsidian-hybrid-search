@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,7 +35,11 @@ function runCli(args: string[]): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, cliArgs(args), {
       cwd: ROOT,
-      env: { ...process.env, OBSIDIAN_VAULT_PATH: vaultDir },
+      env: {
+        ...process.env,
+        OBSIDIAN_VAULT_PATH: vaultDir,
+        XDG_CACHE_HOME: path.join(cliRoot, 'cache'),
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -79,6 +83,16 @@ function runCli(args: string[]): Promise<CliResult> {
   });
 }
 
+function assertNoVaultDbFiles(): void {
+  for (const filename of [
+    '.obsidian-hybrid-search.db',
+    '.obsidian-hybrid-search.db-wal',
+    '.obsidian-hybrid-search.db-shm',
+  ]) {
+    assert.equal(existsSync(path.join(vaultDir, filename)), false, `${filename} should not exist`);
+  }
+}
+
 beforeEach(() => {
   vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-serve-cli-test-'));
   writeFileSync(path.join(vaultDir, 'alpha.md'), '# Alpha\n\nSmoke test note.\n');
@@ -97,6 +111,22 @@ afterEach(() => {
 });
 
 describe('serve CLI smoke tests', () => {
+  it('rejects a non-numeric search limit', async () => {
+    const result = await runCli(['alpha', '--limit', 'abc']);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /Invalid --limit/i);
+    assertNoVaultDbFiles();
+  });
+
+  it('rejects a non-numeric read snippet length', async () => {
+    const result = await runCli(['read', 'alpha.md', '--snippet-length', 'abc']);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /Invalid --snippet-length/i);
+    assertNoVaultDbFiles();
+  });
+
   it('rejects a non-numeric HTTP port', async () => {
     const result = await runCli(['serve', '--port', 'not-a-number']);
 

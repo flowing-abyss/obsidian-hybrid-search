@@ -96,6 +96,37 @@ describe('handleStdioLine — protocol', () => {
     assert.ok(resp.error.includes('query'), 'error must mention query');
   });
 
+  it('non-string query returns readable validation error with correct id', async () => {
+    const resp = parseResponse(await processLine('{"id":"bad-query","query":123}'));
+    assert.strictEqual(resp.id, 'bad-query');
+    assert.strictEqual(resp.results, undefined);
+    assert.ok(typeof resp.error === 'string', 'error must be a string');
+    assert.ok(resp.error.includes('Invalid stdio request'), 'error must mention invalid request');
+    assert.ok(resp.error.includes('query'), 'error must mention query');
+  });
+
+  it('invalid option type returns readable validation error with correct id', async () => {
+    const resp = parseResponse(
+      await processLine('{"id":"bad-limit","query":"alpha","options":{"limit":"1"}}'),
+    );
+    assert.strictEqual(resp.id, 'bad-limit');
+    assert.strictEqual(resp.results, undefined);
+    assert.ok(typeof resp.error === 'string', 'error must be a string');
+    assert.ok(resp.error.includes('Invalid stdio request'), 'error must mention invalid request');
+    assert.ok(resp.error.includes('limit'), 'error must mention limit');
+  });
+
+  it('invalid option domain returns readable validation error with correct id', async () => {
+    const resp = parseResponse(
+      await processLine('{"id":"bad-threshold","query":"alpha","options":{"threshold":2}}'),
+    );
+    assert.strictEqual(resp.id, 'bad-threshold');
+    assert.strictEqual(resp.results, undefined);
+    assert.ok(typeof resp.error === 'string', 'error must be a string');
+    assert.ok(resp.error.includes('Invalid stdio request'), 'error must mention invalid request');
+    assert.ok(resp.error.includes('threshold'), 'error must mention threshold');
+  });
+
   it('request without id uses id=unknown in response', async () => {
     const resp = parseResponse(
       await processLine('{"query":"alpha","options":{"mode":"fulltext","limit":1}}'),

@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import pc from 'picocolors';
+import { parseCliIntegerOption, parseCliNumberOption } from './boundary-validation.js';
 import {
   formatSnippetForTable,
   getSearchTableLayout,
@@ -45,6 +46,11 @@ const execAsync = promisify(exec);
 const { version } = JSON.parse(
   readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf-8'),
 ) as { version: string };
+
+function failCliValidation(err: unknown): never {
+  console.error('Error:', err instanceof Error ? err.message : String(err));
+  process.exit(1);
+}
 
 /** Truncate text at a word boundary, appending '...' if cut */
 function truncateAtWord(text: string, maxLen: number): string {
@@ -472,22 +478,42 @@ program
       return;
     }
 
-    await init();
-
     const isFilterOnlyMode = !effectiveInput && !opts.path;
     // No explicit --limit in filter-only mode → 0 (return all). Otherwise use the specified value or default 10.
-    const parsedLimit = opts.limit !== undefined ? parseInt(opts.limit) : isFilterOnlyMode ? 0 : 10;
+    let parsedLimit: number;
+    let threshold: number;
+    let depth: number;
+    let snippetLength: number | undefined;
+    try {
+      parsedLimit =
+        opts.limit !== undefined
+          ? parseCliIntegerOption('--limit', opts.limit, { min: 0 })
+          : isFilterOnlyMode
+            ? 0
+            : 10;
+      threshold = parseCliNumberOption('--threshold', opts.threshold, { min: 0, max: 1 });
+      depth = parseCliIntegerOption('--depth', opts.depth, { min: 0 });
+      snippetLength =
+        opts.snippetLength !== undefined
+          ? parseCliIntegerOption('--snippet-length', opts.snippetLength, { min: 0 })
+          : undefined;
+    } catch (err) {
+      failCliValidation(err);
+    }
+
+    await init();
+
     const results = await search(effectiveInput ?? '', {
       mode: opts.mode,
       scope: scopeFilters.length > 0 ? scopeFilters : undefined,
       limit: parsedLimit,
-      threshold: parseFloat(opts.threshold),
+      threshold,
       tag: opts.tag.length > 0 ? opts.tag : undefined,
       frontmatter: frontmatterFilters.length > 0 ? frontmatterFilters : undefined,
       related: opts.related ?? false,
-      depth: parseInt(opts.depth),
+      depth,
       direction: opts.direction,
-      snippetLength: opts.snippetLength ? parseInt(opts.snippetLength, 10) : undefined,
+      snippetLength,
       notePath: opts.path,
       rerank: opts.rerank ?? false,
       anchors: opts.anchors ?? false,
@@ -667,9 +693,20 @@ program
         return;
       }
 
+      let snippetLength: number | undefined;
+      try {
+        snippetLength =
+          opts.snippetLength !== undefined
+            ? parseCliIntegerOption('--snippet-length', opts.snippetLength, { min: 0 })
+            : undefined;
+      } catch (err) {
+        failCliValidation(err);
+      }
+
       await init();
+
       const results = readNotes(paths, {
-        snippetLength: opts.snippetLength ? parseInt(opts.snippetLength, 10) : undefined,
+        snippetLength,
         related: opts.related,
       });
 
@@ -753,10 +790,11 @@ const serveCommand = program
       return;
     }
 
-    const port = Number.parseInt(opts.port, 10);
-    if (!Number.isInteger(port) || String(port) !== opts.port || port < 1 || port > 65535) {
-      console.error('Error: --port must be an integer between 1 and 65535');
-      process.exit(1);
+    let port: number;
+    try {
+      port = parseCliIntegerOption('--port', opts.port, { min: 1, max: 65535 });
+    } catch {
+      failCliValidation(new Error('--port must be an integer between 1 and 65535'));
     }
 
     try {
