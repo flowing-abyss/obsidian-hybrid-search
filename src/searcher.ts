@@ -14,6 +14,7 @@ import {
   getOutgoingLinks,
   getOutgoingLinksForPaths,
   hasVecTable,
+  resolveNotePath,
 } from './db.js';
 import { embed } from './embedder.js';
 import { reranker, type RerankCandidate } from './reranker.js';
@@ -36,6 +37,20 @@ export interface NoteReadMiss {
 }
 
 export type ReadResult = NoteReadResult | NoteReadMiss;
+
+export class AmbiguousNotePathError extends Error {
+  constructor(
+    public readonly input: string,
+    public readonly candidates: string[],
+  ) {
+    super(`Ambiguous note path "${input}"`);
+    this.name = 'AmbiguousNotePathError';
+  }
+}
+
+export function isAmbiguousNotePathError(err: unknown): err is AmbiguousNotePathError {
+  return err instanceof AmbiguousNotePathError;
+}
 
 export interface MatchAnchor {
   kind: 'bm25' | 'semantic';
@@ -998,7 +1013,16 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   const isPathLookup =
     options.notePath !== undefined ||
     (options.related === true && (input.includes('/') || input.endsWith('.md')));
-  const resolvedPath = options.notePath ?? input;
+  let resolvedPath = options.notePath ?? input;
+  if (isPathLookup) {
+    const resolution = resolveNotePath(resolvedPath);
+    if (resolution?.type === 'ambiguous') {
+      throw new AmbiguousNotePathError(resolvedPath, resolution.candidates);
+    }
+    if (resolution?.type === 'resolved') {
+      resolvedPath = resolution.path;
+    }
+  }
 
   // Related mode: graph traversal, skip the normal search pipeline
   if (isPathLookup && options.related) {

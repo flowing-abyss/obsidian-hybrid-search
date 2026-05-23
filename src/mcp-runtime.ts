@@ -32,7 +32,7 @@ import {
   startBackgroundIndexing,
   startWatcher,
 } from './indexer.js';
-import { readNotes, search } from './searcher.js';
+import { isAmbiguousNotePathError, readNotes, search } from './searcher.js';
 
 const _dir = dirname(fileURLToPath(import.meta.url));
 
@@ -243,22 +243,30 @@ async function callSearchTool(a: Record<string, unknown>): Promise<McpToolResult
   // Combine query + queries into a unified list; filter empty strings
   const allQueries = [singleQuery, ...extraQueries].filter(Boolean);
   const inputStr = notePath ?? allQueries[0] ?? '';
-  const results = await search(inputStr, {
-    mode: searchArgs.mode,
-    scope,
-    limit: searchArgs.limit,
-    threshold: searchArgs.threshold,
-    tag,
-    frontmatter,
-    related: searchArgs.related,
-    depth: searchArgs.depth,
-    direction: searchArgs.direction,
-    snippetLength: searchArgs.snippet_length,
-    rerank: searchArgs.rerank,
-    anchors: searchArgs.anchors,
-    notePath,
-    queries: allQueries.length > 1 ? allQueries : undefined,
-  });
+  let results;
+  try {
+    results = await search(inputStr, {
+      mode: searchArgs.mode,
+      scope,
+      limit: searchArgs.limit,
+      threshold: searchArgs.threshold,
+      tag,
+      frontmatter,
+      related: searchArgs.related,
+      depth: searchArgs.depth,
+      direction: searchArgs.direction,
+      snippetLength: searchArgs.snippet_length,
+      rerank: searchArgs.rerank,
+      anchors: searchArgs.anchors,
+      notePath,
+      queries: allQueries.length > 1 ? allQueries : undefined,
+    });
+  } catch (err) {
+    if (isAmbiguousNotePathError(err)) {
+      return textResult(JSON.stringify({ type: 'ambiguous', candidates: err.candidates }, null, 2));
+    }
+    throw err;
+  }
   return textResult(JSON.stringify({ results }, null, 2));
 }
 

@@ -38,7 +38,7 @@ import {
 } from './indexer.js';
 import { runHttpMcpServerCli } from './mcp-http-server.js';
 import { ensureMcpServer, formatMcpInfo, getMcpStatus, stopMcpServer } from './mcp-supervisor.js';
-import { readNotes, search } from './searcher.js';
+import { isAmbiguousNotePathError, readNotes, search } from './searcher.js';
 import { handleStdioLine } from './stdio-server.js';
 
 const execAsync = promisify(exec);
@@ -49,6 +49,16 @@ const { version } = JSON.parse(
 
 function failCliValidation(err: unknown): never {
   console.error('Error:', err instanceof Error ? err.message : String(err));
+  process.exit(1);
+}
+
+function failAmbiguousPath(err: unknown): boolean {
+  if (!isAmbiguousNotePathError(err)) return false;
+  console.error(`Found ${err.candidates.length} matches:`);
+  err.candidates.forEach((candidate, index) => {
+    console.error(`  ${index + 1}. ${candidate}`);
+  });
+  console.error('Use full path to disambiguate');
   process.exit(1);
 }
 
@@ -503,22 +513,28 @@ program
 
     await init();
 
-    const results = await search(effectiveInput ?? '', {
-      mode: opts.mode,
-      scope: scopeFilters.length > 0 ? scopeFilters : undefined,
-      limit: parsedLimit,
-      threshold,
-      tag: opts.tag.length > 0 ? opts.tag : undefined,
-      frontmatter: frontmatterFilters.length > 0 ? frontmatterFilters : undefined,
-      related: opts.related ?? false,
-      depth,
-      direction: opts.direction,
-      snippetLength,
-      notePath: opts.path,
-      rerank: opts.rerank ?? false,
-      anchors: opts.anchors ?? false,
-      queries: !opts.path && queries.length > 1 ? queries : undefined,
-    });
+    let results;
+    try {
+      results = await search(effectiveInput ?? '', {
+        mode: opts.mode,
+        scope: scopeFilters.length > 0 ? scopeFilters : undefined,
+        limit: parsedLimit,
+        threshold,
+        tag: opts.tag.length > 0 ? opts.tag : undefined,
+        frontmatter: frontmatterFilters.length > 0 ? frontmatterFilters : undefined,
+        related: opts.related ?? false,
+        depth,
+        direction: opts.direction,
+        snippetLength,
+        notePath: opts.path,
+        rerank: opts.rerank ?? false,
+        anchors: opts.anchors ?? false,
+        queries: !opts.path && queries.length > 1 ? queries : undefined,
+      });
+    } catch (err) {
+      failAmbiguousPath(err);
+      throw err;
+    }
 
     if (opts.json) {
       console.log(JSON.stringify(results, null, 2));

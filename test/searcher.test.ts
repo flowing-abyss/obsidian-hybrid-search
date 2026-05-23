@@ -187,6 +187,24 @@ beforeAll(() => {
       },
     ],
   });
+  upsertNote({
+    path: 'notes/a/duplicate-name.md',
+    title: 'Duplicate Name A',
+    tags: [],
+    content: 'First duplicate path.',
+    mtime: Date.now(),
+    hash: 'hash-duplicate-name-a',
+    chunks: [{ text: 'First duplicate path.', embedding: fakeEmbedding }],
+  });
+  upsertNote({
+    path: 'notes/b/duplicate-name.md',
+    title: 'Duplicate Name B',
+    tags: [],
+    content: 'Second duplicate path.',
+    mtime: Date.now(),
+    hash: 'hash-duplicate-name-b',
+    chunks: [{ text: 'Second duplicate path.', embedding: fakeEmbedding }],
+  });
 
   // BFS graph: note-a → note-b → note-c → note-a (cycle)
   upsertLinks('note-a.md', ['note-b.md']);
@@ -674,6 +692,15 @@ describe('snippetLength cap', () => {
 // ─── Path-based similarity is always semantic ────────────────────────────────
 
 describe('path similarity search is always semantic', () => {
+  it('resolves notePath without the .md extension', async () => {
+    const results = await search('note-a', { notePath: 'note-a', limit: 10 });
+    assert.ok(results.length > 0, 'should resolve note-a to note-a.md');
+    assert.ok(
+      !results.some((r) => r.path === 'note-a.md'),
+      'source note must still be excluded after path resolution',
+    );
+  }, 15000);
+
   it('uses stored chunk embeddings and returns results without API key', async () => {
     // Unit tests have no API key → embedQuery returns null.
     // Old implementation: called embedQuery, got null, returned [].
@@ -692,6 +719,22 @@ describe('path similarity search is always semantic', () => {
       assert.ok(r.scores.semantic != null, '--path result must have a semantic score');
     }
   }, 15000);
+
+  it('resolves a unique basename in related mode', async () => {
+    const results = await search('zettelkasten', {
+      notePath: 'zettelkasten',
+      related: true,
+      depth: 0,
+    });
+    assert.equal(results[0]?.path, 'notes/pkm/zettelkasten.md');
+  });
+
+  it('rejects an ambiguous basename in related mode', async () => {
+    await assert.rejects(
+      () => search('duplicate-name', { notePath: 'duplicate-name', related: true }),
+      /Ambiguous note path "duplicate-name"/,
+    );
+  });
 
   it('excludes notes already linked from the source note', async () => {
     // note-a.md has an outgoing link to note-b.md (set up in beforeAll).

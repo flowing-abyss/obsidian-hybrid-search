@@ -601,6 +601,10 @@ interface NoteRow {
   hash: string;
 }
 
+export type NotePathResolution =
+  | { type: 'resolved'; path: string }
+  | { type: 'ambiguous'; candidates: string[] };
+
 export function getNoteMeta(path: string): NoteMeta | undefined {
   const db = getDb();
   return db.prepare('SELECT mtime, hash FROM notes WHERE path = ?').get(path) as
@@ -611,6 +615,31 @@ export function getNoteMeta(path: string): NoteMeta | undefined {
 export function getNoteByPath(path: string): NoteRow | undefined {
   const db = getDb();
   return db.prepare('SELECT * FROM notes WHERE path = ?').get(path) as NoteRow | undefined;
+}
+
+export function resolveNotePath(input: string): NotePathResolution | undefined {
+  const db = getDb();
+  const normalized = input.normalize('NFD');
+  const exact = getNoteByPath(normalized);
+  if (exact) return { type: 'resolved', path: exact.path };
+
+  if (!normalized.endsWith('.md')) {
+    const withExtension = `${normalized}.md`;
+    const withExtensionNote = getNoteByPath(withExtension);
+    if (withExtensionNote) return { type: 'resolved', path: withExtensionNote.path };
+  }
+
+  const inputFileName = normalized.split('/').pop() ?? normalized;
+  const basename = inputFileName.endsWith('.md') ? inputFileName.slice(0, -3) : inputFileName;
+  if (!basename) return undefined;
+
+  const rows = db
+    .prepare('SELECT path FROM notes WHERE path = ? OR path LIKE ? ORDER BY path')
+    .all(`${basename}.md`, `%/${basename}.md`) as { path: string }[];
+
+  if (rows.length === 0) return undefined;
+  if (rows.length === 1) return { type: 'resolved', path: rows[0]!.path };
+  return { type: 'ambiguous', candidates: rows.map((row) => row.path) };
 }
 
 export function upsertNote(note: {
