@@ -105,7 +105,8 @@ export class CrossEncoderReranker {
       (AutoTokenizer as any).from_pretrained(this.modelName) as Promise<unknown>,
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-type-assertion -- no types
       (AutoModelForSequenceClassification as any).from_pretrained(this.modelName, {
-        // dtype:'int8' loads model_int8.onnx (~32MB vs ~571MB fp32/fp16).
+        // dtype:'int8' loads the quantized ONNX weights; the full tokenizer/model
+        // cache for bge-reranker-v2-m3 is still roughly ~570MB on disk.
         // device:'cpu' is required — CoreML/CUDA (device:'auto') do not support
         // q8 ONNX dtype and silently fall back to fp32, causing ~36GB memory usage.
         // onnxruntime-node (native C++) on CPU is still leak-free unlike WASM.

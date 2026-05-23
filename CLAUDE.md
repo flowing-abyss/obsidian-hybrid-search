@@ -138,7 +138,7 @@ All note paths stored in DB are **NFD-normalized** (`path.normalize('NFD')`). ma
 
 ### Tag/Scope Filtering
 
-`-` prefix means **exclude**: `tag="-category/cs"` removes notes with that tag. Arrays are OR for includes, AND for excludes. Scope filters match against path prefix.
+`-` prefix means **exclude**: `tag="-category/cs"` removes notes with that tag. Tag arrays are AND for includes and AND for excludes. Scope filters match against path prefix; multiple include scopes are OR.
 
 ### Snippet Logic
 

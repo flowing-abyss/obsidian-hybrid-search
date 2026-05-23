@@ -420,7 +420,7 @@ program
   )
   .option(
     '--path <path>',
-    'Note path for semantic similarity search — always semantic, ignores --mode',
+    'Note path for semantic similarity search; with --related, traverses links/backlinks',
   )
   .option(
     '--scope <scope>',
@@ -434,8 +434,8 @@ program
     (v: string, a: string[]) => [...a, v],
     [] as string[],
   )
-  .option('--limit <n>', 'Maximum results')
-  .option('--threshold <n>', 'Minimum score threshold 0..1', '0')
+  .option('--limit <n>', 'Maximum results for search/filter modes; --related uses --depth')
+  .option('--threshold <n>', 'Minimum score threshold 0..1 for search/path modes', '0')
   .option(
     '--tag <tag>',
     'Filter by tag. Repeatable; prefix with "-" to exclude',
@@ -471,7 +471,7 @@ program
   .option('--extended', 'Show tags and aliases column in output table')
   .option(
     '--rerank',
-    'Enable cross-encoder re-ranking (downloads ~32MB model on first use, hybrid mode only)',
+    'Enable cross-encoder re-ranking (downloads ~570MB model on first use, hybrid mode only)',
   )
   .option(
     '--anchors',

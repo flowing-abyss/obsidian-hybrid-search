@@ -35,7 +35,7 @@ OHS uses `Xenova/multilingual-e5-small`. [How to reproduce →](eval/COMPARISON.
 - **Four search modes**
   - `hybrid`, `semantic`, `fulltext`, `title` (for text queries)
 - **Similar note lookup**
-  - pass `--path` to find semantically related notes (always semantic, uses title + content)
+  - pass `--path` to find semantically related notes using stored chunk embeddings, with a title + content fallback
 - **Graph traversal**
   - `--path --related` shows linked notes at configurable depth; filter by `--direction outgoing|backlinks|both`
 - **Links & backlinks**
@@ -136,10 +136,10 @@ export OPENAI_API_KEY="sk-..."
 | Scenario        | How                                                                 | Modes                                               |
 | --------------- | ------------------------------------------------------------------- | --------------------------------------------------- |
 | Text query      | `obsidian-hybrid-search "some topic"`                               | `hybrid` (default), `semantic`, `fulltext`, `title` |
-| Similar notes   | `obsidian-hybrid-search --path notes/pkm/zettelkasten.md`           | Always semantic (title + content)                   |
+| Similar notes   | `obsidian-hybrid-search --path notes/pkm/zettelkasten.md`           | Semantic similarity from stored chunk embeddings    |
 | Graph traversal | `obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related` | Links & backlinks via BFS                           |
 
-`--mode` only affects text queries. When `--path` is given, the search is always semantic regardless of `--mode`.
+`--mode` only affects text queries. When `--path` is given without `--related`, search uses semantic similarity regardless of `--mode`; `--path --related` traverses links/backlinks instead.
 
 ```bash
 # Hybrid search (default)

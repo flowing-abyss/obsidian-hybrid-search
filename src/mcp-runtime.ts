@@ -372,19 +372,20 @@ export function createMcpServer(runtime: McpRuntime): Server {
           "Search the user's personal Obsidian knowledge base — their notes, ideas, and research. " +
           'Use this tool whenever the user asks about something they may have written about, wants to find related notes, or wants to explore their knowledge graph. ' +
           "Use 'query' for text search across all notes (default mode 'hybrid' combines BM25 keyword matching, fuzzy title, and semantic embeddings — best for almost all queries; ranks by how thoroughly notes cover the topic). " +
-          "Use 'path' to find semantically similar notes to a given note path. " +
+          "Use 'queries' for 2-4 reformulations when recall matters. " +
+          "Use 'path' to find semantically similar notes to a given note path, excluding the source note and its outgoing links. " +
           "Use 'path' + 'related: true' to traverse the knowledge graph (outgoing links and backlinks). " +
           "Each result includes a 'rank' field (1 = best match). " +
-          'Score guide: 0.8–1.0 = highly relevant, 0.5–0.8 = moderately relevant, 0.2–0.5 = somewhat relevant, below 0.2 = low relevance. ' +
-          'Tip: when enriching a specific note with related content, that note itself often appears as rank 1 — skip it. ' +
-          'Returns: path, title, tags[], snippet, score (0-1), matchedBy[], links[], backlinks[], scores{semantic?, bm25?, fuzzy_title?}. null means no match for that type.',
+          'Score guide for ranked text/path results: 0.8–1.0 = highly relevant, 0.5–0.8 = moderately relevant, 0.2–0.5 = somewhat relevant, below 0.2 = low relevance. ' +
+          'In related mode, the source note is included at depth 0; skip it when you need only neighbors. ' +
+          'Returns: path, title, tags[], snippet, score (0-1), matchedBy[], links[], backlinks[], scores{semantic,bm25,fuzzy_title,hybrid}. Score fields are numbers or null.',
         inputSchema: {
           type: 'object',
           properties: {
             query: {
               type: 'string',
               description:
-                'Text search query. For multi-query fan-out (better recall), use queries[] instead or alongside this field.',
+                'Text search query. For multi-query fan-out and better recall, use queries[] instead or alongside this field.',
             },
             queries: {
               type: 'array',
@@ -399,75 +400,78 @@ export function createMcpServer(runtime: McpRuntime): Server {
             path: {
               type: 'string',
               description:
-                'Note path for semantic similarity search, e.g. "notes/pkm/zettelkasten.md". Always uses semantic embedding (title + content). Combine with related: true for graph traversal.',
+                'Note path for semantic similarity search, e.g. "notes/pkm/zettelkasten.md"; when provided, it is used instead of query/queries. Uses stored chunk embeddings when available, falling back to embedding title + content; excludes the source note and its outgoing links. Combine with related: true for graph traversal.',
             },
             mode: {
               type: 'string',
               enum: ['hybrid', 'semantic', 'fulltext', 'title'],
               description:
-                'Search mode for text queries (default: hybrid). Ignored when using path. ' +
-                'hybrid: combines BM25 + semantic + fuzzy title; ranks by content depth — how thoroughly a note discusses the topic. Use for almost all queries. A note whose alias matches the query is NOT automatically ranked first; content coverage determines rank. ' +
-                'title: fuzzy title and exact alias match — use only when navigating to a specific named note (e.g. the definition page for a concept), not for topic exploration. ' +
-                'semantic: pure vector similarity — use when exact wording is unpredictable. ' +
-                'fulltext: BM25 keyword matching only — use for exact term lookup.',
+                'Text search mode; ignored when path is provided. ' +
+                'hybrid (default): BM25 + semantic + fuzzy title via RRF; use for most topic/concept searches. It ranks by content coverage, so exact title/alias matches are not guaranteed rank 1. ' +
+                'title: fuzzy title + exact alias matching; use only to navigate to a specific named note. ' +
+                'fulltext: BM25 keyword/prefix matching; use for exact terms or distinctive words. semantic: pure vector similarity; use when wording is uncertain.',
             },
             scope: {
               description:
-                'Limit search to subfolder(s). String or array. Prefix with "-" to exclude, e.g. ["-notes/dev/"]',
+                'Path-prefix filter for folders. Use when the user explicitly limits search to an area of the vault, e.g. "projects/". ' +
+                'This does not change ranking semantics or infer topic scope; it only includes/excludes paths. String or array; prefix with "-" to exclude.',
               oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
             },
             limit: {
               type: 'number',
               description:
-                'Maximum results to return (default: 10). Keep at 10 or below for best signal-to-noise; results past position 10 frequently score below 0.35.',
+                'Maximum text/path/filter-only results to return; related traversal uses depth instead. 0 means no limit in filter-only searches. Default 10. ' +
+                'Keep at 10 or below for best signal-to-noise unless the user asks for broad enumeration; results past position 10 frequently score below 0.35.',
             },
             threshold: {
               type: 'number',
               description:
-                'Minimum score threshold 0..1 (default: 0). Use 0.2 to filter out low relevance results.',
+                'Minimum score 0..1 after text/path ranking. Use ~0.2 to hide weak matches when precision matters. ' +
+                'Ignored by related and filter-only searches; keep 0 for exploration or when recall matters because high thresholds can drop useful results.',
             },
             tag: {
               description:
-                'Filter by tag(s). String or array. Prefix with "-" to exclude. ' +
-                'Include array = OR logic (note matches any of the tags). ' +
-                'Exclude array = AND logic (note must not have any of them). ' +
+                'Tag filter. Use when the user specifies tags/categories, not as a substitute for semantic topic search. String or array; prefix with "-" to exclude. ' +
+                'Multiple include tags are ANDed; excluded tags remove notes with any excluded tag. ' +
                 'E.g. ["note/basic/primary", "-category/cs"] returns primary notes outside cs.',
               oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
             },
             frontmatter: {
               description:
-                'Filter by frontmatter field(s). String or array. Format: "field:value". Prefix with "-" to exclude. ' +
-                'Include array = AND logic (note must have all specified fields with matching values). ' +
-                'Exclude array = AND logic (note must not have any of the excluded field values). ' +
-                'E.g. ["status:todo", "priority:high"] returns notes with status=todo AND priority=high. ' +
-                'Omit query to list all notes matching frontmatter filters (sorted by title).',
+                'Frontmatter field filter in "field:value" format. Use for structured metadata such as status, priority, project, milestone, or type. ' +
+                'Omit query to list matching notes sorted by title. String or array; prefix with "-" to exclude; include filters are ANDed. ' +
+                'E.g. ["status:todo", "priority:high"] returns notes with status=todo AND priority=high.',
               oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
             },
             related: {
               type: 'boolean',
               description:
-                'Graph traversal mode: find notes linked to/from the given path. Results include depth field (negative = backlink, positive = outgoing, 0 = source).',
+                'Graph traversal from a note path instead of text search. Use with path when the user asks for linked notes, backlinks, neighborhoods, or context around a specific note. ' +
+                'Follows explicit wikilinks only; it does not do semantic similarity unless path is used without related. Results include depth: negative = backlink, positive = outgoing, 0 = source.',
             },
             depth: {
               type: 'number',
-              description: 'Max traversal depth for related mode (default: 1)',
+              description:
+                'Maximum graph traversal depth for related mode; default 1. Use 1 for immediate links/backlinks, 2+ only when the user asks for a broader neighborhood. Larger depths can return noisy or loosely related notes.',
             },
             direction: {
               type: 'string',
               enum: ['outgoing', 'backlinks', 'both'],
               description:
-                'Direction for related mode (default: both). "outgoing" = notes this note links to; "backlinks" = notes that link to this note.',
+                'Traversal direction for related mode; default both. outgoing returns notes the source links to, backlinks returns notes that link to the source, both returns both. ' +
+                'Use a specific direction only when the user asks for it or the workflow implies it.',
             },
             snippet_length: {
               type: 'number',
               description:
-                'Max snippet length in characters (default: 300). ' +
-                'Increase to 600-1000 for aggregator/index notes where more surrounding context is needed.',
+                'Maximum snippet length in characters; default 300. Increase when notes need more surrounding context. ' +
+                'Use 600-1000 for aggregator/index notes. This affects returned context only, not retrieval, ranking, or matching.',
             },
             rerank: {
               type: 'boolean',
               description:
-                'Enable cross-encoder re-ranking for higher precision. Downloads ~32MB model on first use (cached). Recommended when result order matters. Only applies to hybrid mode (default). Default: false.',
+                'Enable cross-encoder reranking after hybrid retrieval for better ordering when result precision matters. Adds latency and downloads/caches a ~570MB model on first use. ' +
+                'Only applies to hybrid mode; do not use for exact title, alias, or keyword lookups. Default: false.',
             },
             anchors: {
               type: 'boolean',
@@ -484,7 +488,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
       {
         name: toolName('reindex'),
         description:
-          'Reindex a specific file or the entire vault (incremental — only changed files)',
+          'Reindex a specific file or the vault. Use only when the index is stale/missing or the user asks. Incremental by default; force:true with no path recreates the database.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -494,7 +498,8 @@ export function createMcpServer(runtime: McpRuntime): Server {
             },
             force: {
               type: 'boolean',
-              description: 'Force reindex even if files are unchanged',
+              description:
+                'Force reindex even if files are unchanged. With no path, recreates the database before indexing.',
             },
           },
         },
@@ -516,7 +521,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
         name: toolName('read'),
         description:
           'Fetch one or more Obsidian notes by vault-relative path and return their full content with metadata. ' +
-          'Use after search or related traversal to read the actual content of notes you found. ' +
+          'Use directly when the user provides vault-relative path(s), or after search/related traversal to read notes you found. ' +
           'Returns title, aliases, tags, content (full text), links (outgoing wikilinks), and backlinks. ' +
           'On path miss: returns found:false with top-3 fuzzy title suggestions — does not throw. ' +
           'Accepts a single path string or an array of paths for batch reading. ' +
