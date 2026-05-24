@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { FLOOR_NO_RERANK, FLOOR_RERANK } from '../../eval/quality.js';
 
 const repoRoot = resolve(fileURLToPath(import.meta.url), '../../..');
 
@@ -41,27 +42,6 @@ function loadResult(filename: string): EvalResult {
   const p = resolve(repoRoot, 'eval/results', filename);
   return JSON.parse(readFileSync(p, 'utf-8')) as EvalResult;
 }
-
-// ─── No-rerank thresholds ─────────────────────────────────────────────────────
-// Set slightly below the measured baseline to tolerate minor float variation.
-// Only raise these — never lower them.
-const FLOOR_NO_RERANK = {
-  ndcg_5: 0.725, // measured: 0.733
-  mrr: 0.775, // measured: 0.788
-  hit_1: 0.7, // measured: 0.724
-  hit_3: 0.82, // measured: 0.828
-  hit_5: 0.855, // measured: 0.862
-};
-
-// ─── Rerank thresholds ────────────────────────────────────────────────────────
-// Only raise these — never lower them.
-const FLOOR_RERANK = {
-  ndcg_5: 0.73, // measured: 0.736
-  mrr: 0.77, // measured: 0.780
-  hit_1: 0.66, // measured: 0.672
-  hit_3: 0.855, // measured: 0.862
-  hit_5: 0.905, // measured: 0.914
-};
 
 describe('eval ranking quality floors (local model, no rerank)', () => {
   const result = loadResult('baseline-no-rerank.json');

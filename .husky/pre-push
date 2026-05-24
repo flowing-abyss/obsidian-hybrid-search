@@ -1,2 +1,5 @@
+set -e
+
 npm test
 npm run knip
+npm run eval:quality

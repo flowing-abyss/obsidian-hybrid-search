@@ -26,6 +26,7 @@ opencode.json
 .zed/
 .worktrees/
 eval/golden-sets/personal.json
+eval/results/.tmp-pre-push-quality.json
 eval/results/*.json
 eval/results/other/
 eval/results/*.md
