@@ -406,6 +406,8 @@ obsidian-hybrid-search serve --http --foreground
 
 HTTP mode uses MCP Streamable HTTP. If port 3939 is already in use, the command exits with an error instead of choosing another port automatically. Use `--port` for separate vaults.
 
+When binding beyond localhost, add the client-facing Host header with `--allowed-host <host[:port]>` or `OBSIDIAN_MCP_ALLOWED_HOSTS`; `--allow-any-host` disables Host-header protection for trusted networks.
+
 The server exposes four tools:
 
 | Tool      | Description                                                                                                                                                                                                                                                                                                                                               |

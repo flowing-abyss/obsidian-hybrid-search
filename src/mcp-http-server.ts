@@ -13,6 +13,8 @@ import { registerProcessHandlers } from './process-resilience.js';
 export interface HttpMcpServerOptions {
   host: string;
   port: number;
+  allowedHosts?: string[];
+  allowAnyHost?: boolean;
   startBackgroundServices?: boolean;
 }
 
@@ -44,6 +46,10 @@ export async function runHttpMcpServer(
 
   async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const hostHeader = req.headers.host ?? `${options.host}:${actualPort}`;
+    if (!isAllowedHostHeader(hostHeader, options.host, actualPort, options)) {
+      writeJson(res, 403, { error: 'Invalid Host header' });
+      return;
+    }
     const url = new URL(req.url ?? '/', `http://${hostHeader}`);
 
     if (req.method === 'GET' && url.pathname === '/health') {
@@ -92,8 +98,8 @@ export async function runHttpMcpServer(
       onsessionclosed: (closedSessionId) => {
         sessions.delete(closedSessionId);
       },
-      enableDnsRebindingProtection: true,
-      allowedHosts: allowedHosts(options.host, actualPort),
+      enableDnsRebindingProtection: options.allowAnyHost !== true,
+      allowedHosts: allowedHosts(options.host, actualPort, options.allowedHosts),
     });
     const mcpServer = createMcpServer(runtime);
     await mcpServer.connect(transport);
@@ -125,9 +131,14 @@ export async function runHttpMcpServer(
   };
 }
 
-export async function runHttpMcpServerCli(host: string, port: number): Promise<void> {
+export async function runHttpMcpServerCli(options: {
+  host: string;
+  port: number;
+  allowedHosts?: string[];
+  allowAnyHost?: boolean;
+}): Promise<void> {
   registerProcessHandlers();
-  const handle = await runHttpMcpServer({ host, port, startBackgroundServices: true });
+  const handle = await runHttpMcpServer({ ...options, startBackgroundServices: true });
   console.log(`[mcp-http] listening on ${handle.url}`);
 
   const shutdown = () => {
@@ -169,8 +180,49 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-function allowedHosts(host: string, port: number): string[] {
-  return [host, `${host}:${port}`, `localhost:${port}`, `127.0.0.1:${port}`];
+function isAllowedHostHeader(
+  hostHeader: string,
+  host: string,
+  port: number,
+  options: Pick<HttpMcpServerOptions, 'allowedHosts' | 'allowAnyHost'>,
+): boolean {
+  if (options.allowAnyHost === true) return true;
+  return allowedHosts(host, port, options.allowedHosts).includes(hostHeader.trim());
+}
+
+export function normalizeAllowedHosts(hosts: readonly string[] | undefined): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const host of hosts ?? []) {
+    const value = host.trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
+
+function allowedHosts(
+  host: string,
+  port: number,
+  extraHosts: readonly string[] | undefined,
+): string[] {
+  return normalizeAllowedHosts(
+    [host, 'localhost', '127.0.0.1', ...normalizeAllowedHosts(extraHosts)].flatMap((allowedHost) =>
+      expandAllowedHostForPort(allowedHost, port),
+    ),
+  );
+}
+
+function expandAllowedHostForPort(host: string, port: number): string[] {
+  if (hasExplicitPort(host)) return [host];
+  return [host, `${host}:${port}`];
+}
+
+function hasExplicitPort(host: string): boolean {
+  if (host.startsWith('[')) return /\]:\d+$/.test(host);
+  const colonMatches = host.match(/:/g);
+  return colonMatches?.length === 1 && /:\d+$/.test(host);
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {

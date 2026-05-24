@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, it } from 'vitest';
@@ -71,6 +72,71 @@ describe('runHttpMcpServer', () => {
     assert.match(toolsBody, /status/);
   });
 
+  it('allows MCP initialize requests for extra allowed Host headers', async () => {
+    vaultDir = createTempVault();
+    server = await runHttpMcpServer({
+      host: '127.0.0.1',
+      port: 0,
+      allowedHosts: ['example.tailnet.ts.net:3939'],
+    });
+
+    const { status, sessionId } = await initializeMcpSessionWithHost(
+      server.url,
+      'example.tailnet.ts.net:3939',
+    );
+
+    assert.equal(status, 200);
+    assert.ok(sessionId);
+  });
+
+  it('expands host-only allowed Host entries to the bound port', async () => {
+    vaultDir = createTempVault();
+    server = await runHttpMcpServer({
+      host: '127.0.0.1',
+      port: 0,
+      allowedHosts: ['example.tailnet.ts.net'],
+    });
+
+    const { status, sessionId } = await initializeMcpSessionWithHost(
+      server.url,
+      `example.tailnet.ts.net:${server.port}`,
+    );
+
+    assert.equal(status, 200);
+    assert.ok(sessionId);
+  });
+
+  it('rejects MCP initialize requests for unlisted Host headers', async () => {
+    vaultDir = createTempVault();
+    server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
+
+    const initRes = await initializeMcpSessionWithHost(server.url, 'example.tailnet.ts.net:3939');
+
+    assert.equal(initRes.status, 403);
+  });
+
+  it('rejects health requests for unlisted Host headers', async () => {
+    vaultDir = createTempVault();
+    server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
+
+    const status = await requestHealthWithHost(server.healthUrl, 'example.tailnet.ts.net:3939');
+
+    assert.equal(status, 403);
+  });
+
+  it('allows any Host header when explicitly configured', async () => {
+    vaultDir = createTempVault();
+    server = await runHttpMcpServer({ host: '127.0.0.1', port: 0, allowAnyHost: true });
+
+    const { status, sessionId } = await initializeMcpSessionWithHost(
+      server.url,
+      'example.tailnet.ts.net:3939',
+    );
+
+    assert.equal(status, 200);
+    assert.ok(sessionId);
+  });
+
   it('returns a readable MCP error for invalid search arguments', async () => {
     vaultDir = createTempVault();
     server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
@@ -105,10 +171,13 @@ function mcpHeaders(): Record<string, string> {
   };
 }
 
-async function initializeMcpSession(url: string): Promise<string> {
+async function initializeMcpSession(
+  url: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<string> {
   const initRes = await fetch(url, {
     method: 'POST',
-    headers: mcpHeaders(),
+    headers: { ...mcpHeaders(), ...extraHeaders },
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: 1,
@@ -126,6 +195,71 @@ async function initializeMcpSession(url: string): Promise<string> {
   assert.ok(sessionId, 'initialize should return an MCP session id');
 
   return sessionId;
+}
+
+function initializeMcpSessionWithHost(
+  url: string,
+  hostHeader: string,
+): Promise<{ status: number; sessionId: string | null }> {
+  const parsed = new URL(url);
+  const body = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2025-06-18',
+      capabilities: {},
+      clientInfo: { name: 'vitest', version: '1.0.0' },
+    },
+  });
+
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        method: 'POST',
+        hostname: parsed.hostname,
+        port: parsed.port,
+        path: parsed.pathname,
+        headers: {
+          ...mcpHeaders(),
+          host: hostHeader,
+          'content-length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        res.resume();
+        res.on('end', () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            sessionId: res.headers['mcp-session-id']?.toString() ?? null,
+          });
+        });
+      },
+    );
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+function requestHealthWithHost(url: string, hostHeader: string): Promise<number> {
+  const parsed = new URL(url);
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        method: 'GET',
+        hostname: parsed.hostname,
+        port: parsed.port,
+        path: parsed.pathname,
+        headers: { host: hostHeader },
+      },
+      (res) => {
+        res.resume();
+        res.on('end', () => resolve(res.statusCode ?? 0));
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
 }
 
 async function callTool(

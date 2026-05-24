@@ -64,6 +64,29 @@ function failAmbiguousPath(err: unknown): boolean {
   process.exit(1);
 }
 
+function collectOption(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+function parseAllowedHostsEnv(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((host) => host.trim())
+    .filter((host) => host.length > 0);
+}
+
+function normalizeCliAllowedHosts(hosts: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const host of hosts) {
+    const value = host.trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
+
 /** Truncate text at a word boundary, appending '...' if cut */
 function truncateAtWord(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
@@ -128,6 +151,8 @@ interface ServeOpts {
   http?: boolean;
   host: string;
   port: string;
+  allowedHost?: string[];
+  allowAnyHost?: boolean;
   foreground?: boolean;
 }
 
@@ -763,14 +788,31 @@ const serveCommand = program
   .option('--http', 'Use MCP Streamable HTTP transport (default)')
   .option('--host <host>', 'Host for HTTP MCP server', '127.0.0.1')
   .option('--port <port>', 'Port for HTTP MCP server', '3939')
+  .option(
+    '--allowed-host <host>',
+    'Additional allowed HTTP Host header for MCP clients; repeat for multiple hosts',
+    collectOption,
+    [],
+  )
+  .option('--allow-any-host', 'Allow any HTTP Host header by disabling DNS rebinding protection')
   .option('--foreground', 'Run HTTP MCP server in the foreground')
   .action(async (opts: ServeOpts) => {
     const explicitHttp = serveCommand.getOptionValueSource('http') === 'cli';
     const explicitHost = serveCommand.getOptionValueSource('host') === 'cli';
     const explicitPort = serveCommand.getOptionValueSource('port') === 'cli';
-    if (opts.stdio && (explicitHttp || opts.foreground || explicitHost || explicitPort)) {
+    const explicitAllowedHost = serveCommand.getOptionValueSource('allowedHost') === 'cli';
+    const explicitAllowAnyHost = serveCommand.getOptionValueSource('allowAnyHost') === 'cli';
+    if (
+      opts.stdio &&
+      (explicitHttp ||
+        opts.foreground ||
+        explicitHost ||
+        explicitPort ||
+        explicitAllowedHost ||
+        explicitAllowAnyHost)
+    ) {
       console.error(
-        'Error: --stdio is mutually exclusive with --http, --foreground, --host, and --port',
+        'Error: --stdio is mutually exclusive with --http, --foreground, --host, --port, --allowed-host, and --allow-any-host',
       );
       process.exit(1);
     }
@@ -816,12 +858,26 @@ const serveCommand = program
     }
 
     try {
+      const allowedHosts = normalizeCliAllowedHosts([
+        ...parseAllowedHostsEnv(process.env.OBSIDIAN_MCP_ALLOWED_HOSTS),
+        ...(opts.allowedHost ?? []),
+      ]);
       if (opts.foreground) {
-        await runHttpMcpServerCli(opts.host, port);
+        await runHttpMcpServerCli({
+          host: opts.host,
+          port,
+          allowedHosts,
+          allowAnyHost: opts.allowAnyHost === true,
+        });
         return;
       }
 
-      const result = await ensureMcpServer({ host: opts.host, port });
+      const result = await ensureMcpServer({
+        host: opts.host,
+        port,
+        allowedHosts,
+        allowAnyHost: opts.allowAnyHost === true,
+      });
       console.log(formatMcpInfo(result.state, result.started));
     } catch (err) {
       console.error('Error:', err instanceof Error ? err.message : String(err));
@@ -835,9 +891,19 @@ function validateServeManagementOptions(commandName: 'status' | 'stop'): void {
   const explicitHost = serveCommand.getOptionValueSource('host') === 'cli';
   const explicitPort = serveCommand.getOptionValueSource('port') === 'cli';
   const explicitForeground = serveCommand.getOptionValueSource('foreground') === 'cli';
-  if (explicitStdio || explicitHttp || explicitForeground || explicitHost || explicitPort) {
+  const explicitAllowedHost = serveCommand.getOptionValueSource('allowedHost') === 'cli';
+  const explicitAllowAnyHost = serveCommand.getOptionValueSource('allowAnyHost') === 'cli';
+  if (
+    explicitStdio ||
+    explicitHttp ||
+    explicitForeground ||
+    explicitHost ||
+    explicitPort ||
+    explicitAllowedHost ||
+    explicitAllowAnyHost
+  ) {
     console.error(
-      `Error: serve ${commandName} cannot be combined with --stdio, --http, --foreground, --host, or --port`,
+      `Error: serve ${commandName} cannot be combined with --stdio, --http, --foreground, --host, --port, --allowed-host, or --allow-any-host`,
     );
     process.exit(1);
   }

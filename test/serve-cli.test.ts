@@ -31,7 +31,7 @@ function cliArgs(args: string[]): string[] {
   ];
 }
 
-function runCli(args: string[]): Promise<CliResult> {
+function runCli(args: string[], env: Record<string, string> = {}): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, cliArgs(args), {
       cwd: ROOT,
@@ -39,6 +39,7 @@ function runCli(args: string[]): Promise<CliResult> {
         ...process.env,
         OBSIDIAN_VAULT_PATH: vaultDir,
         XDG_CACHE_HOME: path.join(cliRoot, 'cache'),
+        ...env,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -134,8 +135,47 @@ describe('serve CLI smoke tests', () => {
     assert.match(result.stderr, /invalid port|--port must be an integer/i);
   });
 
+  it('accepts repeated allowed-host options before validating the HTTP port', async () => {
+    const result = await runCli([
+      'serve',
+      '--allowed-host',
+      '100.81.189.83:3939',
+      '--allowed-host',
+      'laptop.tailnet.ts.net:3939',
+      '--foreground',
+      '--port',
+      'not-a-number',
+    ]);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /invalid port|--port must be an integer/i);
+  });
+
+  it('accepts OBSIDIAN_MCP_ALLOWED_HOSTS before validating the HTTP port', async () => {
+    const result = await runCli(['serve', '--port', 'not-a-number'], {
+      OBSIDIAN_MCP_ALLOWED_HOSTS: '100.81.189.83:3939, laptop.tailnet.ts.net:3939',
+    });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /invalid port|--port must be an integer/i);
+  });
+
   it('rejects stdio and HTTP mode together', async () => {
     const result = await runCli(['serve', '--stdio', '--http']);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /--stdio cannot be combined|--stdio is mutually exclusive/i);
+  });
+
+  it('rejects stdio combined with allowed-host', async () => {
+    const result = await runCli(['serve', '--stdio', '--allowed-host', '100.81.189.83:3939']);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /--stdio cannot be combined|--stdio is mutually exclusive/i);
+  });
+
+  it('rejects stdio combined with allow-any-host', async () => {
+    const result = await runCli(['serve', '--stdio', '--allow-any-host']);
 
     assert.equal(result.code, 1);
     assert.match(result.stderr, /--stdio cannot be combined|--stdio is mutually exclusive/i);
@@ -153,5 +193,33 @@ describe('serve CLI smoke tests', () => {
 
     assert.equal(result.code, 1);
     assert.match(result.stderr, /serve status cannot be combined|cannot be combined/i);
+  });
+
+  it('rejects management commands combined with allowed-host', async () => {
+    const result = await runCli(['serve', '--allowed-host', '100.81.189.83:3939', 'status']);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /serve status cannot be combined|cannot be combined/i);
+  });
+
+  it('rejects management commands combined with allow-any-host', async () => {
+    const result = await runCli(['serve', '--allow-any-host', 'status']);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /serve status cannot be combined|cannot be combined/i);
+  });
+
+  it('rejects stop combined with allowed-host', async () => {
+    const result = await runCli(['serve', '--allowed-host', '100.81.189.83:3939', 'stop']);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /serve stop cannot be combined|cannot be combined/i);
+  });
+
+  it('rejects stop combined with allow-any-host', async () => {
+    const result = await runCli(['serve', '--allow-any-host', 'stop']);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /serve stop cannot be combined|cannot be combined/i);
   });
 });

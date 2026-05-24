@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, it } from 'vitest';
 import {
+  buildMcpServeArgs,
   buildMcpUrls,
   ensureMcpServer,
   formatPortConflictError,
@@ -13,6 +14,7 @@ import {
   getMcpStatus,
   isPidAlive,
   isPortAvailable,
+  matchesRequestedState,
   readMcpState,
   stopMcpServer,
   writeMcpState,
@@ -90,12 +92,120 @@ describe('mcp supervisor utilities', () => {
       healthUrl: 'http://127.0.0.1:3939/health',
       logPath: path.join(tempDir, 'obsidian-hybrid-search', 'mcp.log'),
       vaultPath: '/tmp/test-vault',
+      allowedHosts: ['100.81.189.83:3939'],
+      allowAnyHost: false,
       startedAt: '2026-05-19T00:00:00.000Z',
     };
 
     writeMcpState(state);
 
     assert.deepEqual(readMcpState(), state);
+  });
+
+  it('matches requested state only when Host-header policy matches', () => {
+    const state: McpState = {
+      pid: process.pid,
+      host: '127.0.0.1',
+      port: 3939,
+      url: 'http://127.0.0.1:3939/mcp',
+      healthUrl: 'http://127.0.0.1:3939/health',
+      logPath: '/tmp/mcp.log',
+      vaultPath: '/tmp/test-vault',
+      allowedHosts: ['100.81.189.83:3939'],
+      allowAnyHost: false,
+      startedAt: '2026-05-19T00:00:00.000Z',
+    };
+
+    assert.equal(
+      matchesRequestedState(
+        state,
+        {
+          host: '127.0.0.1',
+          port: 3939,
+          allowedHosts: ['100.81.189.83:3939'],
+          allowAnyHost: false,
+        },
+        '/tmp/test-vault',
+      ),
+      true,
+    );
+    assert.equal(
+      matchesRequestedState(
+        state,
+        {
+          host: '127.0.0.1',
+          port: 3939,
+          allowedHosts: ['laptop.tailnet.ts.net:3939'],
+          allowAnyHost: false,
+        },
+        '/tmp/test-vault',
+      ),
+      false,
+    );
+    assert.equal(
+      matchesRequestedState(
+        state,
+        {
+          host: '127.0.0.1',
+          port: 3939,
+          allowedHosts: ['100.81.189.83:3939'],
+          allowAnyHost: true,
+        },
+        '/tmp/test-vault',
+      ),
+      false,
+    );
+    assert.equal(
+      matchesRequestedState(
+        { ...state, allowedHosts: ['100.81.189.83:3939', 'laptop.tailnet.ts.net:3939'] },
+        {
+          host: '127.0.0.1',
+          port: 3939,
+          allowedHosts: ['laptop.tailnet.ts.net:3939', '100.81.189.83:3939'],
+          allowAnyHost: false,
+        },
+        '/tmp/test-vault',
+      ),
+      true,
+    );
+    assert.equal(
+      matchesRequestedState(
+        { ...state, allowAnyHost: true, allowedHosts: ['100.81.189.83:3939'] },
+        {
+          host: '127.0.0.1',
+          port: 3939,
+          allowedHosts: [],
+          allowAnyHost: true,
+        },
+        '/tmp/test-vault',
+      ),
+      true,
+    );
+  });
+
+  it('builds foreground serve args with allowed Host options', () => {
+    assert.deepEqual(
+      buildMcpServeArgs({
+        host: '0.0.0.0',
+        port: 3939,
+        allowedHosts: ['100.81.189.83:3939', 'laptop.tailnet.ts.net:3939'],
+        allowAnyHost: true,
+      }),
+      [
+        'serve',
+        '--http',
+        '--foreground',
+        '--host',
+        '0.0.0.0',
+        '--port',
+        '3939',
+        '--allowed-host',
+        '100.81.189.83:3939',
+        '--allowed-host',
+        'laptop.tailnet.ts.net:3939',
+        '--allow-any-host',
+      ],
+    );
   });
 
   it('checks whether a pid is alive', () => {

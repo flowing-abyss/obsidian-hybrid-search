@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
+import { normalizeAllowedHosts } from './mcp-http-server.js';
 
 export interface McpState {
   pid: number;
@@ -22,6 +23,8 @@ export interface McpState {
   healthUrl: string;
   logPath: string;
   vaultPath: string;
+  allowedHosts?: string[];
+  allowAnyHost?: boolean;
   startedAt: string;
 }
 
@@ -34,6 +37,8 @@ export interface McpPaths {
 export interface EnsureMcpOptions {
   host: string;
   port: number;
+  allowedHosts?: string[];
+  allowAnyHost?: boolean;
   healthTimeoutMs?: number;
 }
 
@@ -149,9 +154,23 @@ export function matchesRequestedState(
   options: EnsureMcpOptions,
   vaultPath: string,
 ): boolean {
+  const stateAllowAnyHost = state.allowAnyHost === true;
+  const requestedAllowAnyHost = options.allowAnyHost === true;
+  const requestedAllowedHosts = normalizeAllowedHosts(options.allowedHosts);
+  const stateAllowedHosts = normalizeAllowedHosts(state.allowedHosts);
   return (
-    state.host === options.host && state.port === options.port && state.vaultPath === vaultPath
+    state.host === options.host &&
+    state.port === options.port &&
+    state.vaultPath === vaultPath &&
+    stateAllowAnyHost === requestedAllowAnyHost &&
+    (stateAllowAnyHost || sameStringSet(stateAllowedHosts, requestedAllowedHosts))
   );
+}
+
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((value) => rightSet.has(value));
 }
 
 export function healthMatchesState(state: McpState, healthInfo: McpHealthInfo | null): boolean {
@@ -220,6 +239,8 @@ async function waitForStateHealth(state: McpState, timeoutMs = 10_000): Promise<
 
 export async function ensureMcpServer(options: EnsureMcpOptions): Promise<EnsureMcpResult> {
   const vaultPath = config.vaultPath;
+  const allowedHosts = normalizeAllowedHosts(options.allowedHosts);
+  const allowAnyHost = options.allowAnyHost === true;
   const existing = readMcpState();
   if (
     existing &&
@@ -258,6 +279,8 @@ export async function ensureMcpServer(options: EnsureMcpOptions): Promise<Ensure
     healthUrl: urls.healthUrl,
     logPath: paths.logPath,
     vaultPath,
+    allowedHosts,
+    allowAnyHost,
     startedAt: new Date().toISOString(),
   };
   writeMcpState(state);
@@ -273,26 +296,32 @@ export async function ensureMcpServer(options: EnsureMcpOptions): Promise<Ensure
   return { state, started: true };
 }
 
+export function buildMcpServeArgs(options: EnsureMcpOptions): string[] {
+  const args = [
+    'serve',
+    '--http',
+    '--foreground',
+    '--host',
+    options.host,
+    '--port',
+    String(options.port),
+  ];
+  for (const host of normalizeAllowedHosts(options.allowedHosts)) {
+    args.push('--allowed-host', host);
+  }
+  if (options.allowAnyHost === true) {
+    args.push('--allow-any-host');
+  }
+  return args;
+}
+
 function spawnChildWithLogFd(cliPath: string, options: EnsureMcpOptions, logFd: number) {
   try {
-    return spawn(
-      process.execPath,
-      [
-        cliPath,
-        'serve',
-        '--http',
-        '--foreground',
-        '--host',
-        options.host,
-        '--port',
-        String(options.port),
-      ],
-      {
-        detached: true,
-        stdio: ['ignore', logFd, logFd],
-        env: { ...process.env, OBSIDIAN_VAULT_PATH: config.vaultPath },
-      },
-    );
+    return spawn(process.execPath, [cliPath, ...buildMcpServeArgs(options)], {
+      detached: true,
+      stdio: ['ignore', logFd, logFd],
+      env: { ...process.env, OBSIDIAN_VAULT_PATH: config.vaultPath },
+    });
   } catch (err) {
     closeSync(logFd);
     throw err;
