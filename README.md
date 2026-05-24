@@ -242,6 +242,12 @@ obsidian-hybrid-search reindex notes/pkm/zettelkasten.md
 # Show indexing status
 obsidian-hybrid-search status
 
+# Show recent indexing activity
+obsidian-hybrid-search status --recent
+
+# Show chunks that failed to embed
+obsidian-hybrid-search status --errors
+
 # Read a note by path (outputs body content without frontmatter)
 obsidian-hybrid-search read notes/pkm/zettelkasten.md
 
@@ -282,6 +288,8 @@ ohsf "permanent notes"                    # fulltext BM25
 ohsr "notes/pkm/zettelkasten.md"          # read note by path
 ohsi                                      # reindex vault
 ohsst                                     # show status
+ohsst --recent                            # show recent indexing activity
+ohsst --errors                            # show chunks that failed to embed
 ```
 
 ### Output example
