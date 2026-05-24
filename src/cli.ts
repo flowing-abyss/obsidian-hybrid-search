@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// organize-imports-ignore
+import './preflight.js';
 import Database from 'better-sqlite3';
 import Table from 'cli-table3';
 import { Command } from 'commander';

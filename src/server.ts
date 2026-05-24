@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// organize-imports-ignore
+import './preflight.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createMcpRuntime, createMcpServer, startMcpBackgroundServices } from './mcp-runtime.js';
 import { registerProcessHandlers } from './process-resilience.js';
