@@ -416,7 +416,9 @@ HTTP mode uses MCP Streamable HTTP. If port 3939 is already in use, the command 
 
 When binding beyond localhost, add the client-facing Host header with `--allowed-host <host[:port]>` or `OBSIDIAN_MCP_ALLOWED_HOSTS`; `--allow-any-host` disables Host-header protection for trusted networks.
 
-The server exposes four tools:
+### Available MCP tools
+
+The MCP server exposes four tools:
 
 | Tool      | Description                                                                                                                                                                                                                                                                                                                                               |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
