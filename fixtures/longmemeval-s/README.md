@@ -107,6 +107,191 @@ finding problems that simple keyword search can hide. Then inspect
 `per_query[].missed_paths` and `per_query[].top_paths` to see which generated
 conversation notes were missed or outranked.
 
+## Read The Results
+
+Each result file has this shape:
+
+```text
+eval/results/longmemeval-s*.json
+  meta                 # run configuration: model, vault, k, note/chunk count
+  summary              # aggregate metrics across all queries
+  by_category          # same metrics grouped by LongMemEval question_type
+  per_query[]          # one diagnostic row per query
+```
+
+Start with `summary`, then `by_category`, then the worst `per_query` rows.
+
+Useful `per_query` fields:
+
+- `id` — LongMemEval question id and generated note directory name.
+- `query` — the natural-language question sent to search.
+- `category` — LongMemEval `question_type`; use this to find which class of
+  memory retrieval is weak.
+- `scope` — directory prefix used during search, usually `<id>/`. This keeps the
+  query inside its own generated mini-vault.
+- `relevant_paths` — answer-bearing markdown notes that should be retrieved.
+- `top_paths` — actual top-k notes returned by OHS, in rank order.
+- `missed_paths` — relevant notes missing from `top_paths`; these are the first
+  files to inspect when Recall or AllRel is low.
+- `evidence_coverage_k` / `recall_k` — fraction of `relevant_paths` present in
+  `top_paths`.
+- `all_relevant_k` — `true` only when every answer-bearing note was retrieved.
+- `notes` — compact ground-truth metadata from the source JSON. It includes
+  `answer`, `answer_positions`, `question_date`, `session_count`, and
+  `has_answer_role`.
+
+The markdown notes are located under `fixtures/longmemeval-s/dataset/<id>/`.
+For example, if a failed row has:
+
+```json
+{
+  "id": "e47becba",
+  "relevant_paths": ["e47becba/0052.md"],
+  "top_paths": ["e47becba/0012.md", "e47becba/0048.md"],
+  "missed_paths": ["e47becba/0052.md"]
+}
+```
+
+then inspect:
+
+```bash
+sed -n '1,220p' fixtures/longmemeval-s/dataset/e47becba/0052.md
+sed -n '1,220p' fixtures/longmemeval-s/dataset/e47becba/0012.md
+sed -n '1,220p' fixtures/longmemeval-s/dataset/e47becba/0048.md
+```
+
+This shows the expected answer note and the notes that outranked it.
+
+## Diagnostic Commands
+
+Print the aggregate metrics:
+
+```bash
+jq '.summary' eval/results/longmemeval-s-openrouter-bge-m3.json
+```
+
+Rank categories from weakest to strongest by `nDCG@5`:
+
+```bash
+jq '.by_category | to_entries | sort_by(.value.ndcg_5)[] |
+  {category: .key, ndcg_5: .value.ndcg_5, mrr: .value.mrr,
+   recall_k: .value.recall_k, all_relevant_k: .value.all_relevant_k}' \
+  eval/results/longmemeval-s-openrouter-bge-m3.json
+```
+
+Show the worst queries by ranking quality:
+
+```bash
+jq '.per_query | sort_by(.ndcg_5)[:25][] |
+  {id, category, query, ndcg_5, mrr, evidence_coverage_k,
+   relevant_paths, top_paths, missed_paths, notes}' \
+  eval/results/longmemeval-s-openrouter-bge-m3.json
+```
+
+Show queries where OHS retrieved at least one relevant note but ranked it too
+low. These are ranking problems more than retrieval problems:
+
+```bash
+jq '.per_query[] |
+  select(.hit_5 == false and .evidence_coverage_k > 0) |
+  {id, category, query, ndcg_5, mrr, relevant_paths, top_paths, notes}' \
+  eval/results/longmemeval-s-openrouter-bge-m3.json
+```
+
+Show queries where no answer-bearing note appears in top-k. These are the
+highest-priority retrieval failures:
+
+```bash
+jq '.per_query[] |
+  select(.evidence_coverage_k == 0) |
+  {id, category, query, relevant_paths, top_paths, notes}' \
+  eval/results/longmemeval-s-openrouter-bge-m3.json
+```
+
+Show multi-evidence queries where only some answer-bearing sessions were found:
+
+```bash
+jq '.per_query[] |
+  select(.all_relevant_k == false and (.relevant_paths | length) > 1 and .evidence_coverage_k > 0) |
+  {id, category, query, evidence_coverage_k, relevant_paths, missed_paths, top_paths, notes}' \
+  eval/results/longmemeval-s-openrouter-bge-m3.json
+```
+
+Extract the first failed query into shell variables for manual inspection:
+
+```bash
+RESULT=eval/results/longmemeval-s-openrouter-bge-m3.json
+ID=$(jq -r '.per_query | sort_by(.ndcg_5)[0].id' "$RESULT")
+jq --arg id "$ID" '.per_query[] | select(.id == $id)' "$RESULT"
+find "fixtures/longmemeval-s/dataset/$ID" -maxdepth 1 -type f | sort | head
+```
+
+## How To Interpret Failures
+
+Use these patterns when deciding what to improve:
+
+- Low `Hit@1` but high `Hit@5`/`Recall@k` — the answer is retrieved but ranked
+  below distractors. Investigate scoring fusion, reranking, snippets, and exact
+  entity/date boosts.
+- Low `Recall@k` and many `missed_paths` — the answer note is not being
+  retrieved. Investigate chunking, embedding model quality, query expansion, and
+  whether important metadata such as dates should be indexed more explicitly.
+- Weak `single-session-user` or `single-session-assistant` — basic exact
+  evidence retrieval is failing; inspect whether short factual turns are being
+  diluted by full-session chunks.
+- Weak `single-session-preference` — stable preference statements may need
+  better treatment than ordinary conversational text.
+- Weak `multi-session` — search finds one supporting note but misses others;
+  multi-hop expansion or answer aggregation may matter.
+- Weak `temporal-reasoning` — date/order information is not strong enough in the
+  indexed representation or ranking function.
+- Weak `knowledge-update` — stale sessions outrank newer corrective sessions;
+  recency, contradiction, or update-aware ranking may be needed.
+
+## Cost And Re-Indexing Guardrails
+
+The full LongMemEval-S vault is large. Indexing it with a cloud embedding model
+can take a long time and can spend real API budget. Do not rerun the full eval
+just to inspect results.
+
+Default workflow:
+
+1. Run the full eval once and keep the output JSON.
+2. Analyze `summary`, `by_category`, and `per_query` from that existing result.
+3. Inspect the referenced markdown files locally with `sed`, `jq`, `find`, or an
+   editor.
+4. Rerun the full eval only after an intentional model or retrieval-code change.
+
+The SQLite DB lives inside the generated vault. Reusing the same vault, model,
+and DB lets incremental indexing skip unchanged notes. Changing the embedding
+model or deleting the vault DB forces re-embedding.
+
+Avoid these unless you intentionally want to pay for a fresh run:
+
+- deleting `fixtures/longmemeval-s/dataset/.obsidian-hybrid-search.db*`
+- deleting and regenerating `fixtures/longmemeval-s/dataset`
+- changing `OPENAI_EMBEDDING_MODEL`
+- switching between local, OpenAI, OpenRouter, or Ollama embedding backends
+- running `npm run eval:prepare-longmemeval-s` after manual edits inside
+  `dataset/`
+
+Before any agent reruns the full LongMemEval-S eval, it should first check
+whether a usable result already exists:
+
+```bash
+ls -lh eval/results/longmemeval-s*.json
+jq '.meta, .summary' eval/results/longmemeval-s-openrouter-bge-m3.json
+```
+
+Only compare two runs when both result files already exist, or when you have
+explicitly decided that a new full run is worth the indexing cost:
+
+```bash
+npm run eval:compare -- \
+  eval/results/longmemeval-s-before.json \
+  eval/results/longmemeval-s-after.json
+```
+
 ## Generate A Reproducible Smoke Fixture
 
 The smoke fixture takes the first five non-abstention questions of each
