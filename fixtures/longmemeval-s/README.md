@@ -107,6 +107,70 @@ finding problems that simple keyword search can hide. Then inspect
 `per_query[].missed_paths` and `per_query[].top_paths` to see which generated
 conversation notes were missed or outranked.
 
+## Measured Baseline
+
+Committed result:
+`eval/results/longmemeval-s-no-rerank.json`.
+
+This run uses the generated LongMemEval-S vault as a scoped session-retrieval
+benchmark. Each query searches only inside its own generated mini-vault via
+`scope: "<question_id>/"`, then checks whether OHS ranks the answer-bearing
+conversation notes in the top 10.
+
+Configuration:
+
+- model: `baai/bge-m3`
+- provider: OpenRouter-compatible embeddings
+- rerank: `false`
+- vault: `fixtures/longmemeval-s/dataset`
+- golden set: `fixtures/longmemeval-s/golden-set.json`
+- notes: `22,419`
+- queries: `470`
+- `k`: `10`
+
+Summary:
+
+| Metric    | Value     | Meaning                                                  |
+| --------- | --------- | -------------------------------------------------------- |
+| nDCG@5    | **0.895** | Relevant sessions are usually ranked near the top.       |
+| nDCG@10   | 0.909     | Top-10 ordering remains strong.                          |
+| MRR       | 0.920     | The first relevant session is usually rank 1.            |
+| Hit@1     | 0.889     | 89% of queries put a relevant session first.             |
+| Hit@5     | 0.968     | 97% of queries find a relevant session in the top 5.     |
+| Recall@10 | 0.950     | 95% of answer-bearing sessions are recovered by top 10.  |
+| AllRel@10 | 0.904     | 90% of queries recover every required evidence session.  |
+
+Category highlights:
+
+| Category                    | nDCG@5 | Recall@10 | AllRel@10 | Interpretation                                 |
+| --------------------------- | -----: | --------: | --------: | ---------------------------------------------- |
+| `single-session-assistant`  |  0.993 |     1.000 |     1.000 | Assistant-authored memories are easy to find.  |
+| `knowledge-update`          |  0.988 |     0.993 |     0.986 | Updated facts are usually retrieved correctly. |
+| `single-session-user`       |  0.971 |     1.000 |     1.000 | Direct user facts are strongly retrievable.    |
+| `multi-session`             |  0.854 |     0.922 |     0.818 | Some multi-evidence sessions are missed.       |
+| `temporal-reasoning`        |  0.849 |     0.908 |     0.843 | Relative-date queries remain harder.           |
+| `single-session-preference` |  0.694 |     0.933 |     0.933 | Preferences are often found but ranked lower.  |
+
+What this result supports:
+
+- OHS can retrieve relevant conversation notes from a large generated memory
+  vault when the task provides a LongMemEval-style haystack scope.
+- The benchmark gives useful diagnostics for ranking, temporal retrieval,
+  preference retrieval, and multi-session evidence coverage.
+- The committed result is a baseline for future analysis without paying to
+  re-index the full cloud-embedding run.
+
+What this result does not claim:
+
+- It is not a global unscoped search benchmark across all 22k notes.
+- It does not measure answer generation or whether an LLM can synthesize the
+  final answer from the retrieved notes.
+- It does not test abstention/no-answer behavior; abstention questions are
+  skipped by default.
+- Scope is applied by the eval/search pipeline to model the LongMemEval
+  per-question haystack. Treat the result as scoped retrieval quality, not as a
+  claim about every possible Obsidian vault workflow.
+
 ## Read The Results
 
 Each result file has this shape:

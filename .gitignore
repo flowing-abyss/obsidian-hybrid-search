@@ -1,5 +1,6 @@
 node_modules/
 data/
+dataset*
 dist/
 docs/
 .superpowers/
@@ -33,5 +34,4 @@ eval/results/other/
 eval/results/*.md
 !eval/results/baseline-no-rerank.json
 !eval/results/baseline-rerank.json
-
-dataset*
+!eval/results/longmemeval-s-no-rerank.json
