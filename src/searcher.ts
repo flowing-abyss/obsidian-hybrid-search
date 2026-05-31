@@ -18,6 +18,7 @@ import {
 } from './db.js';
 import { embed } from './embedder.js';
 import { reranker, type RerankCandidate } from './reranker.js';
+import { measureSearchStage, measureSearchStageSync } from './search-profile.js';
 
 export interface NoteReadResult {
   path: string;
@@ -447,10 +448,12 @@ export function searchFuzzyTitle(query: string, limit: number): RawResult[] {
  * Embed a search query. Returns null if embedding failed (already retried internally).
  */
 async function embedQuery(text: string): Promise<Float32Array | null> {
-  const [emb] = await embed([text], 'query');
-  if (emb) return emb;
-  // null = embedding failed (already retried internally)
-  return null;
+  return measureSearchStage('embedQuery', async () => {
+    const [emb] = await embed([text], 'query');
+    if (emb) return emb;
+    // null = embedding failed (already retried internally)
+    return null;
+  });
 }
 
 /**
@@ -656,16 +659,16 @@ function getHeadingPathFromContent(content: string, key: string): string | null 
   return chain.length > 0 ? chain.join(' > ') : null;
 }
 
-// eslint-disable-next-line @typescript-eslint/require-await
-async function searchVector(queryEmbedding: Float32Array, limit: number): Promise<RawResult[]> {
+function searchVector(queryEmbedding: Float32Array, limit: number): RawResult[] {
   if (!hasVecTable()) return [];
 
-  const db = getDb();
+  return measureSearchStageSync('vectorSearch', () => {
+    const db = getDb();
 
-  try {
-    const rows = db
-      .prepare(
-        `
+    try {
+      const rows = db
+        .prepare(
+          `
       WITH ranked AS (
         SELECT vc.chunk_id, vc.distance,
                c.note_id, c.chunk_index, c.text AS chunk_text, c.heading_path,
@@ -685,46 +688,47 @@ async function searchVector(queryEmbedding: Float32Array, limit: number): Promis
       ORDER BY distance, chunk_index
       LIMIT ?
     `,
-      )
-      .all(queryEmbedding, limit * 5, limit) as Array<{
-      chunk_id: number;
-      distance: number;
-      note_id: number;
-      chunk_index: number;
-      chunk_text: string;
-      heading_path: string | null;
-      char_start: number | null;
-      char_end: number | null;
-      path: string;
-      title: string;
-      tags: string;
-      aliases: string | null;
-    }>;
+        )
+        .all(queryEmbedding, limit * 5, limit) as Array<{
+        chunk_id: number;
+        distance: number;
+        note_id: number;
+        chunk_index: number;
+        chunk_text: string;
+        heading_path: string | null;
+        char_start: number | null;
+        char_end: number | null;
+        path: string;
+        title: string;
+        tags: string;
+        aliases: string | null;
+      }>;
 
-    return rows.map((row) => {
-      // cosine similarity from L2 for unit vectors: cos = 1 - L2² / 2
-      const similarity = Math.max(0, 1 - (row.distance * row.distance) / 2);
-      return {
-        path: row.path,
-        title: row.title ?? '',
-        tags: row.tags ?? '[]',
-        aliases: row.aliases,
-        snippet: formatChunkSnippet(row.heading_path, row.chunk_text, row.chunk_index > 0),
-        chunkText: row.chunk_text,
-        score: similarity,
-        scores: { semantic: similarity },
-        semanticAnchor: {
-          kind: 'semantic' as const,
-          headingPath: row.heading_path ?? null,
-          matchText: buildMatchText(row.chunk_text),
-          charStart: row.char_start ?? null,
-          charEnd: row.char_end ?? null,
-        },
-      };
-    });
-  } catch {
-    return [];
-  }
+      return rows.map((row) => {
+        // cosine similarity from L2 for unit vectors: cos = 1 - L2² / 2
+        const similarity = Math.max(0, 1 - (row.distance * row.distance) / 2);
+        return {
+          path: row.path,
+          title: row.title ?? '',
+          tags: row.tags ?? '[]',
+          aliases: row.aliases,
+          snippet: formatChunkSnippet(row.heading_path, row.chunk_text, row.chunk_index > 0),
+          chunkText: row.chunk_text,
+          score: similarity,
+          scores: { semantic: similarity },
+          semanticAnchor: {
+            kind: 'semantic' as const,
+            headingPath: row.heading_path ?? null,
+            matchText: buildMatchText(row.chunk_text),
+            charStart: row.char_start ?? null,
+            charEnd: row.char_end ?? null,
+          },
+        };
+      });
+    } catch {
+      return [];
+    }
+  });
 }
 
 function rrfFusion(lists: RawResult[][], k = 60, weights?: number[]): RawResult[] {
@@ -1177,7 +1181,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
         searchByQuery(q, mode, candidateLimit, snippetLength, false, options.anchors ?? false),
       ),
     );
-    results = rrfFusion(perQueryResults, 60);
+    results = measureSearchStageSync('rrfFusion', () => rrfFusion(perQueryResults, 60));
     // Populate scores.hybrid on merged results (mirrors single-query hybrid path)
     for (const r of results) {
       r.scores.hybrid = r.score;
@@ -1187,7 +1191,9 @@ export async function search(input: string, options: SearchOptions = {}): Promis
       if (mode !== 'hybrid') {
         process.stderr.write('Reranking is only supported in hybrid mode. Ignoring --rerank.\n');
       } else {
-        results = await applyRerank(results, options.queries[0]!, candidateLimit);
+        results = await measureSearchStage('rerank', () =>
+          applyRerank(results, options.queries![0]!, candidateLimit),
+        );
       }
     }
   } else {
@@ -1201,48 +1207,52 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     );
   }
 
-  results = applyScope(results, options.scope);
-  results = applyThreshold(results, threshold);
-  if (options.tag && (!Array.isArray(options.tag) || options.tag.length > 0)) {
-    results = applyTagFilter(results, options.tag);
-  }
-  if (
-    options.frontmatter &&
-    (!Array.isArray(options.frontmatter) || options.frontmatter.length > 0)
-  ) {
-    results = applyFrontmatterFilter(results, options.frontmatter);
-  }
-  results = results.slice(0, limit);
-
-  const paths = results.map((r) => r.path);
-  const { links, backlinks } = getLinksForPaths(paths);
-  const fallbackSnippets = getSnippetFallbacks(
-    paths.filter((path, index) => {
-      const raw = results[index];
-      return raw ? !raw.snippet || raw.snippet.length < snippetLength : false;
-    }),
-    snippetLength,
-  );
-
-  const final = results.map((r, i) => {
-    const sr = toSearchResult(r);
-    if (!sr.snippet || sr.snippet.length < snippetLength) {
-      const fallback = fallbackSnippets.get(sr.path) ?? '';
-      if (fallback.length > sr.snippet.length) sr.snippet = fallback;
+  const { filteredResults, final } = measureSearchStageSync('filterAndFormat', () => {
+    let filteredResults = applyScope(results, options.scope);
+    filteredResults = applyThreshold(filteredResults, threshold);
+    if (options.tag && (!Array.isArray(options.tag) || options.tag.length > 0)) {
+      filteredResults = applyTagFilter(filteredResults, options.tag);
     }
-    if (sr.snippet.length > snippetLength) sr.snippet = sr.snippet.slice(0, snippetLength);
-    return {
-      ...sr,
-      rank: i + 1,
-      links: links.get(sr.path) ?? [],
-      backlinks: backlinks.get(sr.path) ?? [],
-    };
+    if (
+      options.frontmatter &&
+      (!Array.isArray(options.frontmatter) || options.frontmatter.length > 0)
+    ) {
+      filteredResults = applyFrontmatterFilter(filteredResults, options.frontmatter);
+    }
+    filteredResults = filteredResults.slice(0, limit);
+
+    const paths = filteredResults.map((r) => r.path);
+    const { links, backlinks } = getLinksForPaths(paths);
+    const fallbackSnippets = getSnippetFallbacks(
+      paths.filter((path, index) => {
+        const raw = filteredResults[index];
+        return raw ? !raw.snippet || raw.snippet.length < snippetLength : false;
+      }),
+      snippetLength,
+    );
+
+    const final = filteredResults.map((r, i) => {
+      const sr = toSearchResult(r);
+      if (!sr.snippet || sr.snippet.length < snippetLength) {
+        const fallback = fallbackSnippets.get(sr.path) ?? '';
+        if (fallback.length > sr.snippet.length) sr.snippet = fallback;
+      }
+      if (sr.snippet.length > snippetLength) sr.snippet = sr.snippet.slice(0, snippetLength);
+      return {
+        ...sr,
+        rank: i + 1,
+        links: links.get(sr.path) ?? [],
+        backlinks: backlinks.get(sr.path) ?? [],
+      };
+    });
+
+    return { filteredResults, final };
   });
 
   // Populate previewAnchors when requested (not for related mode — handled above)
   if (options.anchors) {
     for (let i = 0; i < final.length; i++) {
-      const raw = results[i];
+      const raw = filteredResults[i];
       if (!raw) continue;
       const anchors: MatchAnchor[] = [];
       if (raw.semanticAnchor) anchors.push(raw.semanticAnchor);
@@ -1369,7 +1379,9 @@ async function searchByQuery(
   }
 
   if (mode === 'fulltext') {
-    return searchBm25(query, limit, snippetLength, buildAnchors);
+    return measureSearchStageSync('bm25', () =>
+      searchBm25(query, limit, snippetLength, buildAnchors),
+    );
   }
 
   if (mode === 'title') {
@@ -1378,7 +1390,9 @@ async function searchByQuery(
     // BM25 but with high trigram overlap (e.g. exact title match) would be silently
     // dropped before scoring. Only done for title mode — hybrid uses rrfFusion which
     // depends on the original BM25 ordering from searchFuzzyTitle.
-    const candidates = searchFuzzyTitle(query, Math.max(limit * 5, 50));
+    const candidates = measureSearchStageSync('fuzzyTitle', () =>
+      searchFuzzyTitle(query, Math.max(limit * 5, 50)),
+    );
     return candidates.sort((a, b) => b.score - a.score).slice(0, limit);
   }
 
@@ -1401,8 +1415,14 @@ async function searchByQuery(
   const candidateLimit = Math.max(limit, 20);
   const f32 = await embedQuery(query);
   const [bm25Results, fuzzyResults, vectorResults] = await Promise.all([
-    Promise.resolve(searchBm25(query, candidateLimit, snippetLength, buildAnchors)),
-    Promise.resolve(searchFuzzyTitle(query, candidateLimit)),
+    Promise.resolve(
+      measureSearchStageSync('bm25', () =>
+        searchBm25(query, candidateLimit, snippetLength, buildAnchors),
+      ),
+    ),
+    Promise.resolve(
+      measureSearchStageSync('fuzzyTitle', () => searchFuzzyTitle(query, candidateLimit)),
+    ),
     f32 ? searchVector(f32, candidateLimit) : Promise.resolve([]),
   ]);
 
@@ -1410,10 +1430,12 @@ async function searchByQuery(
   // Partial fuzzy matches (trigram overlap < 1.0) remain at low weight to avoid false positives.
   const exactAliasResults = fuzzyResults.filter((r) => r.scores.fuzzy_title === 1.0);
   const partialFuzzyResults = fuzzyResults.filter((r) => r.scores.fuzzy_title !== 1.0);
-  let results = rrfFusion(
-    [vectorResults, bm25Results, exactAliasResults, partialFuzzyResults],
-    60,
-    [1.5, 1.5, 2.0, 0.25],
+  let results = measureSearchStageSync('rrfFusion', () =>
+    rrfFusion(
+      [vectorResults, bm25Results, exactAliasResults, partialFuzzyResults],
+      60,
+      [1.5, 1.5, 2.0, 0.25],
+    ),
   );
 
   // Populate scores.hybrid for hybrid mode — always, regardless of rerank flag
@@ -1422,7 +1444,7 @@ async function searchByQuery(
   }
 
   if (rerank) {
-    results = await applyRerank(results, query, candidateLimit);
+    results = await measureSearchStage('rerank', () => applyRerank(results, query, candidateLimit));
   }
 
   return results;
@@ -1444,7 +1466,7 @@ async function searchSimilar(notePath: string, limit: number): Promise<RawResult
     const f32 = await embedQuery(`${note.title}\n\n${note.content}`);
     if (!f32) return [];
     const excluded = new Set([note.path, ...getOutgoingLinks(normalizedPath)]);
-    return (await searchVector(f32, limit + 1))
+    return searchVector(f32, limit + 1)
       .filter((r) => !excluded.has(r.path))
       .slice(0, limit);
   }
@@ -1453,9 +1475,7 @@ async function searchSimilar(notePath: string, limit: number): Promise<RawResult
   const excluded = new Set([note.path, ...getOutgoingLinks(normalizedPath)]);
 
   // Run vector search per chunk, deduplicate by path keeping the max score
-  const allResults = (
-    await Promise.all(chunkEmbeddings.map((f32) => searchVector(f32, limit + 1)))
-  ).flat();
+  const allResults = chunkEmbeddings.flatMap((f32) => searchVector(f32, limit + 1));
 
   const byPath = new Map<string, RawResult>();
   for (const r of allResults) {

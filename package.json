@@ -22,6 +22,7 @@
     "eval:prepare-longmemeval-s": "tsx eval/prepare-longmemeval.ts",
     "eval:quality": "npm run eval:prepare-obsidian-help -- --vault fixtures/obsidian-help/dataset && env -u OPENAI_API_KEY -u OPENAI_BASE_URL -u OPENAI_EMBEDDING_MODEL -u LOCAL_EMBEDDING_MODEL tsx eval/evaluate.ts --output eval/results/.tmp-pre-push-quality.json && tsx eval/quality.ts eval/results/.tmp-pre-push-quality.json",
     "eval:speed": "tsx eval/benchmark-speed.ts",
+    "eval:speed-profile": "tsx eval/speed-profile.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint src test eval",

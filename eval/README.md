@@ -216,19 +216,12 @@ Weak spot: **conceptual queries** (0.388) — paraphrased queries with no keywor
 
 ## Speed benchmark
 
-`eval/benchmark-speed.ts` measures median CLI query latency across 10 queries × 5 runs for OHS and qmd side-by-side. Models are warmed up before measurement.
+Speed tooling is documented in [SPEED.md](SPEED.md).
 
-```bash
-# OHS only
-npm run eval:benchmark -- --vault fixtures/obsidian-help/dataset
+- `npm run eval:speed` measures end-to-end CLI wall time.
+- `npm run eval:speed-profile` profiles one search pipeline run set by stage using `--vault` and `--golden-set`.
 
-# OHS vs qmd (requires qmd installed and vault indexed as a collection)
-npm run eval:benchmark -- --vault fixtures/obsidian-help/dataset --collection obsidian-help
-```
-
-Without `--collection`, only OHS is measured. With `--collection`, qmd is benchmarked alongside and a speedup ratio is printed.
-
-See [COMPARISON.md](COMPARISON.md) for full reproduction instructions including qmd setup.
+See [COMPARISON.md](COMPARISON.md) for full OHS vs qmd reproduction instructions.
 
 ## File layout
 
@@ -238,8 +231,10 @@ eval/
 ├── evaluate.ts                 # index vault + run golden set → JSON
 ├── evaluate-qmd.ts             # same golden set against qmd CLI
 ├── benchmark-speed.ts          # median query latency: OHS vs qmd
+├── speed-profile.ts            # detailed per-stage search latency profiler
 ├── compare.ts                  # read two JSONs → delta table
 ├── COMPARISON.md               # how to reproduce the OHS vs qmd comparison
+├── SPEED.md                    # speed benchmark and profiler usage
 ├── golden-sets/
 │   └── personal.json           # your own golden set (gitignored)
 └── results/
