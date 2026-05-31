@@ -9,12 +9,12 @@ Runs a golden set of queries against an indexed vault and computes nDCG, MRR, Hi
 npm run eval
 
 # Specify vault only (golden set and output are inferred)
-npm run eval -- --vault fixtures/obsidian-help/en
+npm run eval -- --vault fixtures/obsidian-help/dataset
 
 # Full form — explicit control over every parameter
 npm run eval -- \
-  --vault fixtures/obsidian-help/en \
-  --golden-set eval/golden-sets/obsidian-help.json \
+  --vault fixtures/obsidian-help/dataset \
+  --golden-set fixtures/obsidian-help/golden-set.json \
   --output eval/results/baseline.json \
   --k 10
 
@@ -22,8 +22,18 @@ npm run eval -- \
 npm run eval:compare -- eval/results/baseline.json eval/results/after-change.json
 ```
 
-Defaults: `--vault fixtures/obsidian-help/en`, `--golden-set eval/golden-sets/obsidian-help.json`, `--k 10`.
+Defaults: `--vault fixtures/obsidian-help/dataset`, `--golden-set fixtures/obsidian-help/golden-set.json`, `--k 10`.
 Output filename is auto-generated as `eval/results/<date>_<vault>_<model>.json` when `--output` is omitted.
+
+## Fixture Packages
+
+Dataset-specific acquisition and generation instructions live next to each fixture under `fixtures/<name>/README.md`. The eval system only needs two paths: `--vault` for the markdown vault root and `--golden-set` for the query/relevance JSON.
+
+Each fixture README owns its dataset-specific categories. For example,
+`obsidian-help` uses hand-authored retrieval categories such as `keyword` and
+`conceptual`, while `longmemeval-s` uses LongMemEval question types such as
+`multi-session` and `temporal-reasoning`. The eval runner treats `category` as a
+grouping key and reports the same metrics in `by_category` for every dataset.
 
 ## Configuration
 
@@ -34,7 +44,7 @@ Set them before running `npm run eval`.
 
 ```bash
 unset OPENAI_API_KEY
-npm run eval -- --vault fixtures/obsidian-help/en
+npm run eval -- --vault fixtures/obsidian-help/dataset
 ```
 
 Uses `Xenova/multilingual-e5-small` (~117 MB, cached in `~/.cache/` after first download).
@@ -44,7 +54,7 @@ Uses `Xenova/multilingual-e5-small` (~117 MB, cached in `~/.cache/` after first 
 ```bash
 export OPENAI_API_KEY=sk-...
 export EMBEDDING_MODEL=text-embedding-3-small   # or text-embedding-3-large
-npm run eval -- --vault fixtures/obsidian-help/en
+npm run eval -- --vault fixtures/obsidian-help/dataset
 ```
 
 ### OpenRouter
@@ -53,7 +63,7 @@ npm run eval -- --vault fixtures/obsidian-help/en
 export OPENAI_API_KEY=sk-or-...
 export OPENAI_BASE_URL=https://openrouter.ai/api/v1
 export EMBEDDING_MODEL=openai/text-embedding-3-small
-npm run eval -- --vault fixtures/obsidian-help/en
+npm run eval -- --vault fixtures/obsidian-help/dataset
 ```
 
 ### Ollama (local server)
@@ -62,7 +72,7 @@ npm run eval -- --vault fixtures/obsidian-help/en
 export OPENAI_BASE_URL=http://localhost:11434/v1
 export OPENAI_API_KEY=ollama
 export EMBEDDING_MODEL=nomic-embed-text
-npm run eval -- --vault fixtures/obsidian-help/en
+npm run eval -- --vault fixtures/obsidian-help/dataset
 ```
 
 ### Important: model change wipes the DB
@@ -151,6 +161,16 @@ Useful for diagnosing retrieval vs. ranking problems:
 - High Recall@10 + low nDCG@5 → retrieval works, ranking is the problem
 - Low Recall@10 → the relevant document is not being retrieved at all (indexing or embedding issue)
 
+### Evidence Coverage and AllRel@k
+
+`evidence_coverage_k` is the per-query Recall@k value stored under a more
+diagnostic name. It is useful for datasets where one answer can require multiple
+evidence notes or sessions.
+
+`AllRel@k` is the fraction of queries where every `relevant_paths` entry appears
+within the top k. It is stricter than Hit@k and more useful for multi-evidence
+questions.
+
 ---
 
 ## Metric benchmarks
@@ -165,9 +185,9 @@ Primary metric: **nDCG@5** and **nDCG@10**.
 
 ## Measured baseline
 
-Vault: `fixtures/obsidian-help/en` (171 notes)
+Vault: `fixtures/obsidian-help/dataset` (171 notes)
 Model: `Xenova/multilingual-e5-small` (local, no API)
-Golden set: `eval/golden-sets/obsidian-help.json` (58 queries)
+Golden set: `fixtures/obsidian-help/golden-set.json` (58 queries)
 
 | Metric    | Value     | Interpretation                                                              |
 | --------- | --------- | --------------------------------------------------------------------------- |
@@ -200,10 +220,10 @@ Weak spot: **conceptual queries** (0.388) — paraphrased queries with no keywor
 
 ```bash
 # OHS only
-npm run eval:benchmark -- --vault fixtures/obsidian-help/en
+npm run eval:benchmark -- --vault fixtures/obsidian-help/dataset
 
 # OHS vs qmd (requires qmd installed and vault indexed as a collection)
-npm run eval:benchmark -- --vault fixtures/obsidian-help/en --collection obsidian-help
+npm run eval:benchmark -- --vault fixtures/obsidian-help/dataset --collection obsidian-help
 ```
 
 Without `--collection`, only OHS is measured. With `--collection`, qmd is benchmarked alongside and a speedup ratio is printed.
@@ -221,7 +241,6 @@ eval/
 ├── compare.ts                  # read two JSONs → delta table
 ├── COMPARISON.md               # how to reproduce the OHS vs qmd comparison
 ├── golden-sets/
-│   ├── obsidian-help.json      # 58 queries against fixtures/obsidian-help/en
 │   └── personal.json           # your own golden set (gitignored)
 └── results/
     └── *.json                  # gitignored, created locally

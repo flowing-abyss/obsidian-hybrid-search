@@ -2,8 +2,8 @@
  * eval/evaluate.ts — index vault + run golden set + write JSON results.
  *
  * Usage:
- *   npm run eval -- --vault fixtures/obsidian-help/en \
- *                   --golden-set eval/golden-sets/obsidian-help.json \
+ *   npm run eval -- --vault fixtures/obsidian-help/dataset \
+ *                   --golden-set fixtures/obsidian-help/golden-set.json \
  *                   --output eval/results/baseline-YYYYMMDD.json \
  *                   --k 10
  */
@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../src/config.js';
+import { hitAtK, mrr, ndcg, recallAtK } from './metrics.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -31,8 +32,8 @@ function parseArgs(): {
     return idx !== -1 ? args[idx + 1] : undefined;
   };
 
-  const vaultArg = get('--vault') ?? 'fixtures/obsidian-help/en';
-  const goldenSetArg = get('--golden-set') ?? 'eval/golden-sets/obsidian-help.json';
+  const vaultArg = get('--vault') ?? 'fixtures/obsidian-help/dataset';
+  const goldenSetArg = get('--golden-set') ?? 'fixtures/obsidian-help/golden-set.json';
   const k = parseInt(get('--k') ?? '10', 10);
   const rerank = args.includes('--rerank');
 
@@ -50,7 +51,7 @@ function buildOutputPath(outputArg: string | undefined, vault: string, model: st
   }
   const now = new Date();
   const dateStr = now.toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
-  // e.g. "obsidian-help-en" from "fixtures/obsidian-help/en"
+  // e.g. "obsidian-help-en" from "fixtures/obsidian-help/dataset"
   const vaultSlug = path.relative(repoRoot, vault).replace(/[\\/]/g, '-');
   // shorten model name: strip vendor prefix (Xenova/, openai/) and replace / with -
   const modelSlug = model.replace(/^[^/]+\//, '').replace(/\//g, '-');
@@ -59,13 +60,48 @@ function buildOutputPath(outputArg: string | undefined, vault: string, model: st
 
 // ─── Golden-set types ─────────────────────────────────────────────────────────
 
-interface GoldenQuery {
+export interface GoldenQuery {
   id: string;
   query: string;
   relevant_paths: string[];
   partial_paths: string[];
   category: string;
   notes?: string;
+  scope?: string;
+}
+
+interface SearchResultLike {
+  path: string;
+}
+
+interface SearchOptionsLike {
+  mode?: 'hybrid';
+  limit?: number;
+  rerank?: boolean;
+  scope?: string;
+}
+
+type SearchFunction = (input: string, options: SearchOptionsLike) => Promise<SearchResultLike[]>;
+
+export interface PerQueryResult {
+  id: string;
+  query: string;
+  category: string;
+  scope?: string;
+  notes?: string;
+  relevant_paths: string[];
+  partial_paths: string[];
+  ndcg_5: number;
+  ndcg_k: number;
+  mrr: number;
+  hit_1: boolean;
+  hit_3: boolean;
+  hit_5: boolean;
+  recall_k: number;
+  evidence_coverage_k: number;
+  all_relevant_k: boolean;
+  missed_paths: string[];
+  top_paths: string[];
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -87,7 +123,6 @@ async function main(): Promise<void> {
   const { getEmbeddingDim, getContextLength } = await import('../src/embedder.js');
   const { indexVaultSync } = await import('../src/indexer.js');
   const { search } = await import('../src/searcher.js');
-  const { ndcg, mrr, hitAtK, recallAtK } = await import('./metrics.js');
 
   // 3. Load golden set
   if (!fs.existsSync(goldenSet)) {
@@ -122,51 +157,26 @@ async function main(): Promise<void> {
   const output = buildOutputPath(outputArg, vault, model);
   console.log(`[eval] output:     ${output}`);
 
-  // 6. Run queries
-  interface PerQueryResult {
-    id: string;
-    query: string;
-    category: string;
-    ndcg_5: number;
-    ndcg_k: number;
-    mrr: number;
-    hit_1: boolean;
-    hit_3: boolean;
-    hit_5: boolean;
-    recall_k: number;
-    top_paths: string[];
-  }
+  // 6. Count notes/chunks and run queries
+  const { getDb } = await import('../src/db.js');
+  const db = getDb();
+  const noteCount = (db.prepare('SELECT COUNT(*) as n FROM notes').get() as { n: number }).n;
+  const chunkCount = (db.prepare('SELECT COUNT(*) as n FROM chunks').get() as { n: number }).n;
+  const scopedCandidateLimit = Math.max(noteCount, Math.ceil(chunkCount / 5), k);
 
   const perQuery: PerQueryResult[] = [];
 
   for (const q of queries) {
     process.stdout.write(`[eval] running ${q.id}: "${q.query}"...`);
-    const results = await search(q.query, { mode: 'hybrid', limit: k, rerank });
-    const resultPaths = results.map((r) => r.path);
-
-    const qNdcg5 = ndcg(resultPaths, q.relevant_paths, q.partial_paths, 5);
-    const qNdcgK = ndcg(resultPaths, q.relevant_paths, q.partial_paths, k);
-    const qMrr = mrr(resultPaths, q.relevant_paths);
-    const qHit1 = hitAtK(resultPaths, q.relevant_paths, 1);
-    const qHit3 = hitAtK(resultPaths, q.relevant_paths, 3);
-    const qHit5 = hitAtK(resultPaths, q.relevant_paths, 5);
-    const qRecallK = recallAtK(resultPaths, q.relevant_paths, k);
-
-    perQuery.push({
-      id: q.id,
-      query: q.query,
-      category: q.category,
-      ndcg_5: round(qNdcg5),
-      ndcg_k: round(qNdcgK),
-      mrr: round(qMrr),
-      hit_1: qHit1,
-      hit_3: qHit3,
-      hit_5: qHit5,
-      recall_k: round(qRecallK),
-      top_paths: resultPaths.slice(0, 5),
+    const row = await runGoldenQuery(q, {
+      k,
+      searchLimit: getSearchLimitForQuery(q, k, scopedCandidateLimit),
+      rerank,
+      searchFn: search,
     });
+    perQuery.push(row);
 
-    process.stdout.write(` ndcg@5=${qNdcg5.toFixed(3)} mrr=${qMrr.toFixed(3)}\n`);
+    process.stdout.write(` ndcg@5=${row.ndcg_5.toFixed(3)} mrr=${row.mrr.toFixed(3)}\n`);
   }
 
   // 7. Aggregate metrics
@@ -179,11 +189,6 @@ async function main(): Promise<void> {
     byCategory[cat] = aggregateMetrics(perQuery.filter((q) => q.category === cat));
   }
 
-  // 8. Count notes
-  const { getDb } = await import('../src/db.js');
-  const db = getDb();
-  const noteCount = (db.prepare('SELECT COUNT(*) as n FROM notes').get() as { n: number }).n;
-
   // 9. Build output
   const output_ = {
     meta: {
@@ -194,6 +199,10 @@ async function main(): Promise<void> {
       rerank_model: rerank ? config.rerankerModel : null,
       vault: path.relative(repoRoot, vault),
       note_count: noteCount,
+      chunk_count: chunkCount,
+      scoped_candidate_limit: scopedCandidateLimit,
+      timestamp_in_body:
+        queries.some((q) => q.notes?.includes('timestamp_in_body=true')) || undefined,
       golden_set: path.relative(repoRoot, goldenSet),
       golden_set_size: queries.length,
       k,
@@ -219,6 +228,7 @@ async function main(): Promise<void> {
   console.log(`Hit@3:     ${summary.hit_3.toFixed(3)}`);
   console.log(`Hit@5:     ${summary.hit_5.toFixed(3)}`);
   console.log(`Recall@${k}: ${summary.recall_k.toFixed(3)}`);
+  console.log(`AllRel@${k}: ${summary.all_relevant_k.toFixed(3)}`);
   console.log('─────────────────────────────────────────');
   console.log(`[eval] results written to ${output}`);
 }
@@ -237,6 +247,68 @@ interface AggregatedMetrics {
   hit_3: number;
   hit_5: number;
   recall_k: number;
+  evidence_coverage_k: number;
+  all_relevant_k: number;
+}
+
+export function getSearchLimitForQuery(
+  query: Pick<GoldenQuery, 'scope'>,
+  k: number,
+  scopedCandidateLimit: number,
+): number {
+  return query.scope ? Math.max(scopedCandidateLimit, k) : k;
+}
+
+export async function runGoldenQuery(
+  query: GoldenQuery,
+  options: {
+    k: number;
+    searchLimit: number;
+    rerank: boolean;
+    searchFn: SearchFunction;
+  },
+): Promise<PerQueryResult> {
+  const results = await options.searchFn(query.query, {
+    mode: 'hybrid',
+    limit: options.searchLimit,
+    rerank: options.rerank,
+    scope: query.scope,
+  });
+  return buildPerQueryResult(
+    query,
+    results.map((r) => r.path),
+    options.k,
+  );
+}
+
+export function buildPerQueryResult(
+  query: GoldenQuery,
+  resultPaths: string[],
+  k: number,
+): PerQueryResult {
+  const topPaths = resultPaths.slice(0, k);
+  const qRecallK = recallAtK(topPaths, query.relevant_paths, k);
+  const missedPaths = query.relevant_paths.filter((p) => !topPaths.includes(p));
+  return {
+    id: query.id,
+    query: query.query,
+    category: query.category,
+    scope: query.scope,
+    notes: query.notes,
+    relevant_paths: query.relevant_paths,
+    partial_paths: query.partial_paths,
+    ndcg_5: round(ndcg(topPaths, query.relevant_paths, query.partial_paths, 5)),
+    ndcg_k: round(ndcg(topPaths, query.relevant_paths, query.partial_paths, k)),
+    mrr: round(mrr(topPaths, query.relevant_paths)),
+    hit_1: hitAtK(topPaths, query.relevant_paths, 1),
+    hit_3: hitAtK(topPaths, query.relevant_paths, 3),
+    hit_5: hitAtK(topPaths, query.relevant_paths, 5),
+    recall_k: round(qRecallK),
+    evidence_coverage_k: round(qRecallK),
+    all_relevant_k: missedPaths.length === 0,
+    missed_paths: missedPaths,
+    top_paths: topPaths,
+  };
 }
 
 function aggregateMetrics(
@@ -248,6 +320,8 @@ function aggregateMetrics(
     hit_3: boolean;
     hit_5: boolean;
     recall_k: number;
+    evidence_coverage_k: number;
+    all_relevant_k: boolean;
   }[],
 ): AggregatedMetrics {
   const n = rows.length;
@@ -260,6 +334,8 @@ function aggregateMetrics(
       hit_3: 0,
       hit_5: 0,
       recall_k: 0,
+      evidence_coverage_k: 0,
+      all_relevant_k: 0,
     };
   const avg = (vals: number[]) => round(vals.reduce((a, b) => a + b, 0) / vals.length);
   return {
@@ -270,7 +346,11 @@ function aggregateMetrics(
     hit_3: avg(rows.map((r) => (r.hit_3 ? 1 : 0))),
     hit_5: avg(rows.map((r) => (r.hit_5 ? 1 : 0))),
     recall_k: avg(rows.map((r) => r.recall_k)),
+    evidence_coverage_k: avg(rows.map((r) => r.evidence_coverage_k)),
+    all_relevant_k: avg(rows.map((r) => (r.all_relevant_k ? 1 : 0))),
   };
 }
 
-await main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  await main();
+}

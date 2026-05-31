@@ -1,85 +1,117 @@
-# Obsidian Help
+# Obsidian Help Fixture
 
-This repository contains the source for the [Obsidian Help docs](https://help.obsidian.md/), along with the translations for each supported language.
+This fixture uses the English Obsidian Help vault from the official
+`obsidianmd/obsidian-help` documentation repository.
 
-⚠ Please do not open issues about Obsidian bug reports or feature requests here. Your issue will be closed and you'll be redirected to the forum.
+## Layout
 
-The docs for each language are stand-alone vaults with a corresponding [Obsidian Publish](https://help.obsidian.md/Obsidian+Publish/Introduction+to+Obsidian+Publish) site.
-
-| Language | URL                                     |
-| -------- | --------------------------------------- |
-| `en`     | https://help.obsidian.md/               |
-| `ar`     | https://publish.obsidian.md/help-ar/    |
-| `da`     | https://publish.obsidian.md/help-da/    |
-| `es`     | https://publish.obsidian.md/help-es/    |
-| `it`     | https://publish.obsidian.md/help-it/    |
-| `ja`     | https://publish.obsidian.md/help-ja/    |
-| `ko`     | https://publish.obsidian.md/help-ko/    |
-| `pt-br`  | https://publish.obsidian.md/help-pt-br/ |
-| `ru`     | https://publish.obsidian.md/help-ru/    |
-| `vi`     | https://publish.obsidian.md/help-vi/    |
-| `zh`     | https://publish.obsidian.md/help-zh/    |
-
-## Contribute
-
-To contribute to Obsidian Help docs:
-
-1. Fork the [obsidian-help](https://github.com/obsidianmd/obsidian-help) repository.
-2. In the Obsidian vault switcher, select **Open folder as vault**.
-3. Select the subfolder for the translation you want to contribute to, for example `/en/`. Don't open the root folder as a vault, as this may lead to links being updated incorrectly.
-
-You can contribute in several ways:
-
-- **Fix typos and mistakes**: If you want to fix a typo or other small modifications, you can submit a pull request. For smaller edits, you can use the GitHub web interface instead of cloning the repository.
-- **Add missing or outdated content**: If you want to contribute missing or outdated content, please [submit an issue](https://github.com/obsidianmd/obsidian-help/issues/new) before you start working on it.
-
-Any contributions to the English docs must follow our [Style guide](https://help.obsidian.md/Contributing+to+Obsidian/Style+guide).
-
-## Translations
-
-### Adding a new translation
-
-To add a new translation, copy the entire `en` folder and rename it to the corresponding [ISO 639-1](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes) language code in lowercase.
-
-Each translation should follow the English docs (en) as closely as possible.
-
-### Staying up-to-date
-
-As we add more features and continue to improve the English docs, translations will eventually become out-of-date.
-
-To see all changes to the English docs since the last update to the translation, run the following in your terminal:
-
-```bash
-git diff <COMMIT_SHA> HEAD -- en/
+```text
+fixtures/obsidian-help/
+  README.md
+  dataset/          # generated, ignored
+  golden-set.json
 ```
 
-Replace `<COMMIT_SHA>` with the commit containing the latest changes for the translation.
+## Prepare Dataset
 
-> **Note**: If a translation falls too far behind the English version, we may eventually remove it.
+```bash
+npm run eval:prepare-obsidian-help
+```
 
-## Roadmap
+The command clones the official `obsidianmd/obsidian-help` repository into a
+temporary directory, copies only `en/` into `fixtures/obsidian-help/dataset`,
+and leaves `golden-set.json` unchanged. Use `--force` to recreate an existing
+dataset.
 
-The Obsidian Help docs have grown considerably over the years. We're working on reorganizing some of the content to make things easier to find and understand.
+## Run Eval
 
-The docs under the following folders have been updated to the new organization and style guide. If you're working on a translation, these are safe to work on (except for minor updates).
+```bash
+npm run eval -- \
+  --vault fixtures/obsidian-help/dataset \
+  --golden-set fixtures/obsidian-help/golden-set.json \
+  --k 10
+```
 
-- [x] Contributing to Obsidian
-- [x] Developers
-- [x] Editing and formatting
-- [x] Extending Obsidian
-- [x] Getting started
-- [x] Licenses and payment
-- [x] Obsidian Publish
-- [x] Obsidian Sync
-- [x] Plugins
+The fixture intentionally keeps only the English help vault. Other language
+copies were removed to keep the repository smaller and to make evaluation paths
+consistent with other fixture packages.
 
+## Reproduce Benchmark
 
-## Credits
+`dataset/` is generated from the official Obsidian Help repository and is
+ignored by git. `golden-set.json` is committed to this repository because it is
+the OHS query/relevance set.
 
-To be featured on the [Credits](https://help.obsidian.md/Obsidian/Credits) page, add yourself to the [Credits](https://github.com/obsidianmd/obsidian-help/blob/master/en/Obsidian/Credits.md) file and to the corresponding translation.
+Run the default local-model quality eval:
 
-## Additional resource
+```bash
+npm run eval:prepare-obsidian-help
 
-- [Style guide](https://help.obsidian.md/Contributing+to+Obsidian/Style+guide)
-- [Translations](https://help.obsidian.md/Contributing+to+Obsidian/Translations)
+env -u OPENAI_API_KEY -u OPENAI_BASE_URL -u OPENAI_EMBEDDING_MODEL -u LOCAL_EMBEDDING_MODEL \
+  npm run eval -- \
+  --vault fixtures/obsidian-help/dataset \
+  --golden-set fixtures/obsidian-help/golden-set.json \
+  --output eval/results/obsidian-help-local.json \
+  --k 10
+```
 
+The pre-push quality check also uses this fixture only:
+
+```bash
+npm run eval:quality
+```
+
+That command unsets remote embedding environment variables and runs the local
+model against the default eval paths. It also prepares
+`fixtures/obsidian-help/dataset` first if the dataset is missing.
+
+## Categories
+
+`golden-set.json` uses hand-authored OHS categories:
+
+- `keyword` — the query shares terminology with the target page; failures here
+  usually indicate BM25, tokenization, path, or indexing problems.
+- `conceptual` — the query paraphrases the target page; failures usually point
+  to semantic retrieval or ranking weakness.
+- `multilingual` — the query is not English while the vault is English; failures
+  measure cross-lingual embedding quality.
+- `syntax` — the query targets Obsidian-specific syntax or commands; failures
+  often mean exact terms are present but ranked below broader conceptual hits.
+
+## Metrics
+
+The eval writes aggregate metrics, `by_category`, and `per_query` diagnostics.
+Use the same interpretation for every fixture:
+
+- `nDCG@5` and `nDCG@k` measure ranking quality. A relevant page at rank 1 is
+  worth more than the same page at rank 5 or 10.
+- `MRR` measures the rank of the first relevant page. Low MRR with decent
+  Recall means the answer is present but not high enough.
+- `Hit@1`, `Hit@3`, and `Hit@5` measure whether at least one relevant page was
+  found in the top results.
+- `Recall@k` / `evidence_coverage_k` measure how many relevant pages were
+  retrieved within `k`.
+- `AllRel@k` measures the fraction of queries where every relevant page was
+  retrieved within `k`.
+
+For this fixture, start diagnosis with `by_category`: weak `keyword` usually
+means basic retrieval broke; weak `conceptual` or `multilingual` means semantic
+ranking needs work. Then inspect `per_query[].missed_paths` and
+`per_query[].top_paths` to see the exact failed queries.
+
+## qmd Comparison
+
+The qmd comparison uses the same `dataset/` and `golden-set.json`:
+
+```bash
+qmd collection add fixtures/obsidian-help/dataset --name obsidian-help
+qmd embed
+
+npm run eval:qmd -- \
+  --vault fixtures/obsidian-help/dataset \
+  --golden-set fixtures/obsidian-help/golden-set.json \
+  --collection obsidian-help \
+  --output eval/results/qmd-baseline.json
+```
+
+See `eval/COMPARISON.md` for the full OHS vs qmd reproduction guide.

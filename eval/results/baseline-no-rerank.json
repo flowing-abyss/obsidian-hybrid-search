@@ -5,9 +5,9 @@
     "model": "Xenova/multilingual-e5-small",
     "rerank": false,
     "rerank_model": null,
-    "vault": "fixtures/obsidian-help/en",
+    "vault": "fixtures/obsidian-help/dataset",
     "note_count": 171,
-    "golden_set": "eval/golden-sets/obsidian-help.json",
+    "golden_set": "fixtures/obsidian-help/golden-set.json",
     "golden_set_size": 58,
     "k": 10
   },

@@ -7,9 +7,9 @@
  *   qmd embed
  *
  * Usage:
- *   npm run eval:qmd -- --vault fixtures/obsidian-help/en \
+ *   npm run eval:qmd -- --vault fixtures/obsidian-help/dataset \
  *                       --collection obsidian-help \
- *                       --golden-set eval/golden-sets/obsidian-help.json \
+ *                       --golden-set fixtures/obsidian-help/golden-set.json \
  *                       --output eval/results/qmd-baseline.json \
  *                       --k 10
  */
@@ -54,8 +54,8 @@ function parseArgs(): {
     return idx !== -1 ? args[idx + 1] : undefined;
   };
 
-  const vaultArg = get('--vault') ?? 'fixtures/obsidian-help/en';
-  const goldenSetArg = get('--golden-set') ?? 'eval/golden-sets/obsidian-help.json';
+  const vaultArg = get('--vault') ?? 'fixtures/obsidian-help/dataset';
+  const goldenSetArg = get('--golden-set') ?? 'fixtures/obsidian-help/golden-set.json';
   const k = parseInt(get('--k') ?? '10', 10);
   const collection = get('--collection');
 

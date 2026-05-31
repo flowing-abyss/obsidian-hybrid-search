@@ -2,7 +2,7 @@
  * eval/benchmark-speed.ts — measure average query latency for ohs and qmd.
  *
  * Usage:
- *   npm run eval:benchmark -- --vault fixtures/obsidian-help/en --collection obsidian-help
+ *   npm run eval:benchmark -- --vault fixtures/obsidian-help/dataset --collection obsidian-help
  */
 
 import { spawnSync } from 'node:child_process';
@@ -33,7 +33,7 @@ function parseArgs(): { vault: string; collection: string | undefined } {
     const idx = args.indexOf(flag);
     return idx !== -1 ? args[idx + 1] : undefined;
   };
-  const vaultArg = get('--vault') ?? 'fixtures/obsidian-help/en';
+  const vaultArg = get('--vault') ?? 'fixtures/obsidian-help/dataset';
   const vault = path.isAbsolute(vaultArg) ? vaultArg : path.join(repoRoot, vaultArg);
   return { vault, collection: get('--collection') };
 }

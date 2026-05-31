@@ -5,9 +5,9 @@
     "model": "Xenova/multilingual-e5-small",
     "rerank": true,
     "rerank_model": "onnx-community/bge-reranker-v2-m3-ONNX",
-    "vault": "fixtures/obsidian-help/en",
+    "vault": "fixtures/obsidian-help/dataset",
     "note_count": 171,
-    "golden_set": "eval/golden-sets/obsidian-help.json",
+    "golden_set": "fixtures/obsidian-help/golden-set.json",
     "golden_set_size": 58,
     "k": 10
   },

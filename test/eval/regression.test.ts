@@ -4,7 +4,7 @@
  * working artifacts and may be deleted freely.
  *
  * To update thresholds after a confirmed improvement:
- *   1. Run `npm run eval -- --vault fixtures/obsidian-help/en`
+ *   1. Run `npm run eval -- --vault fixtures/obsidian-help/dataset`
  *   2. Check the printed summary
  *   3. Raise the thresholds below to match (never lower them)
  *

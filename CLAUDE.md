@@ -38,8 +38,8 @@ npm run format && npm run build && npm test && npm run lint && npm run knip
 - If you changed the DB **schema** (new columns, new tables, altered FTS structure): delete the eval
   fixture DB and regenerate the baseline so `test/eval/regression.test.ts` reflects the new state:
   ```bash
-  rm -f fixtures/obsidian-help/en/.obsidian-hybrid-search.db
-  npm run eval -- --vault fixtures/obsidian-help/en --output eval/results/baseline-no-rerank.json
+  rm -f fixtures/obsidian-help/dataset/.obsidian-hybrid-search.db
+  npm run eval -- --vault fixtures/obsidian-help/dataset --output eval/results/baseline-no-rerank.json
   ```
   Then commit the updated `baseline-no-rerank.json`. Do NOT update the thresholds in
   `test/eval/regression.test.ts` unless the new metrics are genuinely better — the thresholds
@@ -71,12 +71,12 @@ Run eval before and after the change, then compare:
 ```bash
 # Before your change — save baseline
 npm run eval -- \
-  --vault fixtures/obsidian-help/en \
+  --vault fixtures/obsidian-help/dataset \
   --output eval/results/before-<feature>.json
 
 # Make your change, then run again
 npm run eval -- \
-  --vault fixtures/obsidian-help/en \
+  --vault fixtures/obsidian-help/dataset \
   --output eval/results/after-<feature>.json
 
 # Compare
