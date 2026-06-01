@@ -28,10 +28,24 @@ OHS uses `Xenova/multilingual-e5-small`. [How to reproduce →](eval/COMPARISON.
 
 ### Large memory benchmark
 
-On [LongMemEval-S](fixtures/longmemeval-s/README.md), OHS retrieves
-answer-bearing conversation notes from a generated `22,419`-note memory vault
-with scoped per-question haystacks: **nDCG@5 0.895**, **MRR 0.920**,
-**Recall@10 0.950** (`baai/bge-m3`, OpenRouter, no rerank).
+To test retrieval on a larger public dataset,
+[LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned)
+was converted into a `22,419`-note Obsidian-style vault with `470` retrieval
+queries. Using `baai/bge-m3` embeddings, OHS ranked the answer-bearing notes
+strongly:
+
+| Metric    | Value     |
+| --------- | --------- |
+| nDCG@5    | **0.895** |
+| MRR       | 0.920     |
+| Hit@1     | 0.889     |
+| Hit@5     | 0.968     |
+| Recall@10 | 0.950     |
+| AllRel@10 | 0.904     |
+
+For this benchmark, each query uses the LongMemEval-provided haystack as its
+search scope. That makes the result reproducible and easy to inspect query by
+query, while still exercising retrieval over a large generated memory vault.
 
 [Result JSON](eval/results/longmemeval-s-no-rerank.json) · [Reproduce and interpret →](fixtures/longmemeval-s/README.md)
 
