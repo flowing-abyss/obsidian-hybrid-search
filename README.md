@@ -28,31 +28,12 @@ OHS uses `Xenova/multilingual-e5-small`. [How to reproduce →](eval/COMPARISON.
 
 ### Large memory benchmark
 
-OHS was also evaluated on a generated [LongMemEval-S](fixtures/longmemeval-s/README.md)
-vault: `22,419` conversation notes and `470` retrieval queries. This is a
-scoped session-retrieval benchmark: each query gets its own LongMemEval
-haystack scope and OHS must rank the answer-bearing conversation notes in the
-top results.
+On [LongMemEval-S](fixtures/longmemeval-s/README.md), OHS retrieves
+answer-bearing conversation notes from a generated `22,419`-note memory vault
+with scoped per-question haystacks: **nDCG@5 0.895**, **MRR 0.920**,
+**Recall@10 0.950** (`baai/bge-m3`, OpenRouter, no rerank).
 
-Run: `baai/bge-m3` embeddings via OpenRouter, hybrid search, no rerank, `k=10`.
-Committed result: [longmemeval-s-no-rerank.json](eval/results/longmemeval-s-no-rerank.json).
-
-| Metric    | Value     |
-| --------- | --------- |
-| nDCG@5    | **0.895** |
-| nDCG@10   | 0.909     |
-| MRR       | 0.920     |
-| Hit@1     | 0.889     |
-| Hit@5     | 0.968     |
-| Recall@10 | 0.950     |
-| AllRel@10 | 0.904     |
-
-This shows that OHS can retrieve relevant notes from a large memory-style vault
-when the task provides a focused scope. The strongest slices are direct
-single-session facts and knowledge updates; the harder slices are preferences,
-temporal reasoning, and multi-session evidence coverage. It is a retrieval
-benchmark, not an answer-generation benchmark or a claim about unscoped search
-across every note at once.
+[Result JSON](eval/results/longmemeval-s-no-rerank.json) · [Reproduce and interpret →](fixtures/longmemeval-s/README.md)
 
 ## Features
 
