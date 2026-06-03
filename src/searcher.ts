@@ -449,10 +449,14 @@ export function searchFuzzyTitle(query: string, limit: number): RawResult[] {
  */
 async function embedQuery(text: string): Promise<Float32Array | null> {
   return measureSearchStage('embedQuery', async () => {
-    const [emb] = await embed([text], 'query');
-    if (emb) return emb;
-    // null = embedding failed (already retried internally)
-    return null;
+    try {
+      const [emb] = await embed([text], 'query');
+      if (emb) return emb;
+      // null = embedding failed (already retried internally)
+      return null;
+    } catch {
+      return null;
+    }
   });
 }
 
