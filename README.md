@@ -26,6 +26,27 @@ Evaluated on the [Obsidian Help vault](eval/README.md) (171 notes, 58 queries, l
 
 OHS uses `Xenova/multilingual-e5-small`. [How to reproduce →](eval/COMPARISON.md) · [Full benchmark →](eval/README.md)
 
+### Real knowledge-vault benchmark
+
+OHS is also evaluated on Andy Matuschak’s public evergreen notes, a real personal knowledge base with `1,357` notes and `5,000+` internal note links. The notes use opaque slug filenames rather than readable paths, so this benchmark tests whether search can actually recover ideas from titles, note bodies, links, and semantic meaning.
+
+The curated golden set includes `78` hand-judged queries across known-item lookup, paraphrases, quote fragments, ambiguous topics, citation lookup, and multi-note evidence.
+
+Using the default local embedding model, OHS performs strongly on this dense note network.
+
+| Metric    | Value     |
+| --------- | --------- |
+| nDCG@5    | **0.719** |
+| MRR       | 0.858     |
+| Hit@1     | 0.756     |
+| Hit@5     | 0.974     |
+| Recall@10 | 0.972     |
+| AllRel@10 | 0.949     |
+
+These results show that OHS can reliably recover relevant notes in a highly connected real-world knowledge vault, including searches that do not simply repeat note titles.
+
+[Result JSON](eval/results/evergreen-notes-no-rerank.json) · [Reproduce and interpret →](fixtures/evergreen-notes/README.md)
+
 ### Large memory benchmark
 
 To test retrieval on a larger public dataset,

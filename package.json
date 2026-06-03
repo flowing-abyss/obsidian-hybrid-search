@@ -18,6 +18,7 @@
     "eval:benchmark": "tsx eval/benchmark-speed.ts",
     "eval:compare": "tsx eval/compare.ts",
     "eval:prepare-obsidian-help": "tsx eval/prepare-obsidian-help.ts",
+    "eval:prepare-evergreen-notes": "tsx eval/prepare-evergreen-notes.ts",
     "eval:prepare-longmem": "tsx eval/prepare-longmemeval.ts",
     "eval:prepare-longmemeval-s": "tsx eval/prepare-longmemeval.ts",
     "eval:quality": "npm run eval:prepare-obsidian-help -- --vault fixtures/obsidian-help/dataset && env -u OPENAI_API_KEY -u OPENAI_BASE_URL -u OPENAI_EMBEDDING_MODEL -u LOCAL_EMBEDDING_MODEL tsx eval/evaluate.ts --output eval/results/.tmp-pre-push-quality.json && tsx eval/quality.ts eval/results/.tmp-pre-push-quality.json",

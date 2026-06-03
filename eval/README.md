@@ -29,11 +29,17 @@ Output filename is auto-generated as `eval/results/<date>_<vault>_<model>.json` 
 
 Dataset-specific acquisition and generation instructions live next to each fixture under `fixtures/<name>/README.md`. The eval system only needs two paths: `--vault` for the markdown vault root and `--golden-set` for the query/relevance JSON.
 
-Each fixture README owns its dataset-specific categories. For example,
-`obsidian-help` uses hand-authored retrieval categories such as `keyword` and
-`conceptual`, while `longmemeval-s` uses LongMemEval question types such as
-`multi-session` and `temporal-reasoning`. The eval runner treats `category` as a
+Each fixture README owns its dataset-specific acquisition steps, categories,
+judgment rules, and interpretation notes. The eval runner treats `category` as a
 grouping key and reports the same metrics in `by_category` for every dataset.
+
+Available fixture packages:
+
+| Fixture           | Purpose                                                                |
+| ----------------- | ---------------------------------------------------------------------- |
+| `obsidian-help`   | Product-documentation search over the official English Obsidian Help   |
+| `evergreen-notes` | Real personal-knowledge-base search over Andy Matuschak's public notes |
+| `longmemeval-s`   | Scoped memory retrieval over a large generated Obsidian-style vault    |
 
 ## Configuration
 

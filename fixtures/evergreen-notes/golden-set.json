@@ -1,0 +1,648 @@
+[
+  {
+    "id": "evg001",
+    "query": "Evergreen notes",
+    "relevant_paths": ["z5E5QawiXCMbtNtupvxeoEX.md"],
+    "partial_paths": ["zR6RRbCfY5rFkiimFnaJZKB.md", "zEZi3ytBhZHHweRYNAosQ1g.md"],
+    "category": "exact-title",
+    "notes": "Canonical hub note. Partials are nearby note-writing overview/fundamental-unit notes, but the exact title is the direct target."
+  },
+  {
+    "id": "evg002",
+    "query": "Mnemonic medium",
+    "relevant_paths": ["zKPv6qkSErdRGqyryvgS2wS.md"],
+    "partial_paths": ["zNVVrcxnkjk7pCabiBvaic1.md", "z2D1qPwddPktBjpNuwYFVva.md"],
+    "category": "exact-title",
+    "notes": "Tests exact retrieval of the main mnemonic-medium hub against closely linked Quantum Country and SRS hubs."
+  },
+  {
+    "id": "evg003",
+    "query": "Spaced repetition memory system",
+    "relevant_paths": ["z2D1qPwddPktBjpNuwYFVva.md"],
+    "partial_paths": ["zKPv6qkSErdRGqyryvgS2wS.md", "z2oUypiCEtPaDqNjbUsawCj.md"],
+    "category": "exact-title",
+    "notes": "Exact concept title with many close neighbors; partials are implementation/special-case notes."
+  },
+  {
+    "id": "evg004",
+    "query": "Enacted experience",
+    "relevant_paths": ["z92TGMiBsnraf5KXxSTNkBJ.md"],
+    "partial_paths": ["zRWEWHx4cQyqQWRh26gp7ad.md", "z984ZZLbG4wREM6HAZAovMB.md"],
+    "category": "exact-title",
+    "notes": "Direct concept title; participatory environment and mass-medium potential are useful but not definitions."
+  },
+  {
+    "id": "evg005",
+    "query": "Enabling environment",
+    "relevant_paths": ["z492hGrHvRvJiEY9UfB4Mby.md"],
+    "partial_paths": ["z2etsLyP1LJUwNDPCwvRdUG.md", "z3PJFWDZ7gar2ttawQTmBek.md"],
+    "category": "exact-title",
+    "notes": "Exact title for the central enabling-environment note; partials are important properties."
+  },
+  {
+    "id": "evg006",
+    "query": "Process over product",
+    "relevant_paths": ["zY4QE4Q6NJpGZZh4Binv2xB.md"],
+    "partial_paths": ["z9TuEpnqEtLdy2TWWVicLsU.md", "z6tpWc9UuqskrUAVvwePuWV.md"],
+    "category": "exact-title",
+    "notes": "Exact-title creative-work note with adjacent pressure/focus notes as partials."
+  },
+  {
+    "id": "evg007",
+    "query": "Augmental",
+    "relevant_paths": ["zQjRoZhSh3GTHgNt8HUf1Eb.md"],
+    "partial_paths": ["zFNrLkCqVyTK22wRfDKDsqy.md", "zD9nfQpyBzc6CkTVSbaAdoJ.md"],
+    "category": "exact-title",
+    "notes": "Specific product/person-visit note; related interface concepts should not outrank it."
+  },
+  {
+    "id": "evg008",
+    "query": "Harberger taxation",
+    "relevant_paths": ["zW3GsmddgTQoGsjwbabRWxC.md"],
+    "partial_paths": [],
+    "category": "exact-title",
+    "notes": "Non-core economics note to avoid evaluating only dominant memory/note-writing clusters."
+  },
+  {
+    "id": "evg009",
+    "query": "Duolingo",
+    "relevant_paths": ["zPKTfTLmK2LQEYQmzgV2JRw.md"],
+    "partial_paths": ["z2D1qPwddPktBjpNuwYFVva.md"],
+    "category": "exact-title",
+    "notes": "Specific app note; SRS is only a related component."
+  },
+  {
+    "id": "evg010",
+    "query": "All desktop EPUB readers are awful",
+    "relevant_paths": ["zX95uZHiGWNiNTDF3wETWtq.md"],
+    "partial_paths": ["zGsRWkonFv1KGAsWwiYA3he.md", "z8DRL5y5vMuXA98uro9KeZ3.md"],
+    "category": "exact-title",
+    "notes": "Exact complaint title in the reading-software cluster."
+  },
+  {
+    "id": "evg011",
+    "query": "notes should be organized around concepts rather than books projects or topics",
+    "relevant_paths": ["z2hQEhqWkdRLL9JUwfawZZx.md"],
+    "partial_paths": ["z5E5QawiXCMbtNtupvxeoEX.md", "zNUaiGAXp21eorsER1Jm9yU.md"],
+    "category": "conceptual",
+    "notes": "Paraphrases concept-oriented evergreen notes without using the exact title phrase."
+  },
+  {
+    "id": "evg012",
+    "query": "one note should cover one reusable idea without fragmenting the link network",
+    "relevant_paths": ["zNUaiGAXp21eorsER1Jm9yU.md"],
+    "partial_paths": ["zF8xCU4BwXwbmSyp7tmff9i.md", "zDh1yhNFQNxDEre12B4zd8k.md"],
+    "category": "conceptual",
+    "notes": "Tests semantic retrieval of atomicity and separation-of-concerns language."
+  },
+  {
+    "id": "evg013",
+    "query": "why collecting highlights and excerpts feels productive but often does not create understanding",
+    "relevant_paths": ["zQm6XAB3XXrXLHzF7gahpJ2.md"],
+    "partial_paths": ["zB74H9CuWrosEuqve7jZyCo.md", "z8ccRLda8BqJafNxjQBpzis.md"],
+    "category": "conceptual",
+    "notes": "Paraphrase of the note about collecting material versus effortful engagement."
+  },
+  {
+    "id": "evg014",
+    "query": "writing about a text makes the reader understand it more deeply",
+    "relevant_paths": ["zB74H9CuWrosEuqve7jZyCo.md"],
+    "partial_paths": ["zRbqwbnhmVdfLtKxMCibMoX.md", "zME6gV6mc1mQ2KDE5acyho8.md"],
+    "category": "conceptual",
+    "notes": "Conceptual phrasing for writing about reading; sharper-understanding is supporting but broader."
+  },
+  {
+    "id": "evg015",
+    "query": "the value of better notes is better thinking not prettier note taking",
+    "relevant_paths": ["zAf4oNSV9qB38ncSvYEZGAb.md"],
+    "partial_paths": ["z5E5QawiXCMbtNtupvxeoEX.md", "zR6RRbCfY5rFkiimFnaJZKB.md"],
+    "category": "conceptual",
+    "notes": "Semantic query for the better-note-taking-misses-the-point claim."
+  },
+  {
+    "id": "evg016",
+    "query": "knowledge work should build up over time instead of starting from scratch",
+    "relevant_paths": ["zTn3g4wTm1hbkNFUvLLjpev.md"],
+    "partial_paths": ["z4EXkuLjdBrBZe7PVAGXc5a.md", "zR6RRbCfY5rFkiimFnaJZKB.md"],
+    "category": "conceptual",
+    "notes": "Paraphrases accretion/accumulation in knowledge work."
+  },
+  {
+    "id": "evg017",
+    "query": "spaced repetition can be more than rote facts and can support conceptual understanding",
+    "relevant_paths": ["z9Vi7YVx7NzxU2wawNgsJbk.md"],
+    "partial_paths": ["z2D1qPwddPktBjpNuwYFVva.md", "z4KxfCZPkVEf2R8nayLJZBG.md"],
+    "category": "conceptual",
+    "notes": "Specific claim inside the SRS cluster; hub is partial, not the direct target."
+  },
+  {
+    "id": "evg018",
+    "query": "authors can embed review questions into prose so readers remember the ideas",
+    "relevant_paths": [
+      "zKPv6qkSErdRGqyryvgS2wS.md",
+      "zTzb8spnoqzxs3mkvPKprmn.md",
+      "zPkuLaEFFPqkcWpLcPzbW6i.md"
+    ],
+    "partial_paths": ["z8e98xn7t5QNHr5cf8oqjbJ.md", "zJSUEFHrJLVspreiCpnAnKJ.md"],
+    "category": "linked-neighborhood",
+    "notes": "Multi-evidence mnemonic-medium query: the hub plus the interleaved-prompt and expert-authored-prompt design notes directly answer it."
+  },
+  {
+    "id": "evg019",
+    "query": "expert-authored prompts remove the burden of writing flashcards",
+    "relevant_paths": ["zPkuLaEFFPqkcWpLcPzbW6i.md"],
+    "partial_paths": ["zKPv6qkSErdRGqyryvgS2wS.md", "zJSUEFHrJLVspreiCpnAnKJ.md"],
+    "category": "conceptual",
+    "notes": "Targets a specific design property of the mnemonic medium."
+  },
+  {
+    "id": "evg020",
+    "query": "practice questions should help readers apply what they learned not just recall it",
+    "relevant_paths": ["zJoWJEpRvrjnm2zL3gdxBjg.md"],
+    "partial_paths": ["zDj8fr7QG4TQP4MPdD6kiq8.md", "z2EgZth9aD42QbGnFAggerw.md"],
+    "category": "conceptual",
+    "notes": "Application-prompt retrieval inside a dense prompt-design cluster."
+  },
+  {
+    "id": "evg021",
+    "query": "memory prompts become hard to communicate because each card stands alone",
+    "relevant_paths": ["zHV9RymMTYzjYv8ioA3xaAs.md", "zCjyEsQTBSY7MJf6KxXKXb9.md"],
+    "partial_paths": ["z8e98xn7t5QNHr5cf8oqjbJ.md", "zKPv6qkSErdRGqyryvgS2wS.md"],
+    "category": "linked-neighborhood",
+    "notes": "Requires finding two related notes about atomized prompts and why the mnemonic medium adds structure."
+  },
+  {
+    "id": "evg022",
+    "query": "forgotten SRS items should not always be reset completely",
+    "relevant_paths": ["zVdX3T4ZCsgeHa3nsd5sKZD.md", "zKmMYFJ7xhbddLaxTfLYgdB.md"],
+    "partial_paths": ["zWCjuY1mFfjVkj5D58Mpte8.md", "zYK41LaWjuWkRmv3ZGnNmoF.md"],
+    "category": "linked-neighborhood",
+    "notes": "Tests retrieval across sibling scheduling/forgotten-item notes."
+  },
+  {
+    "id": "evg023",
+    "query": "a learning environment should expand what people can meaningfully do",
+    "relevant_paths": ["z492hGrHvRvJiEY9UfB4Mby.md"],
+    "partial_paths": ["z7d63BYfJrd81VFE25jkcDd.md", "z2etsLyP1LJUwNDPCwvRdUG.md"],
+    "category": "conceptual",
+    "notes": "Paraphrases enabling-environment definition without exact title words."
+  },
+  {
+    "id": "evg024",
+    "query": "educational games fail when they try to make an enabling environment out of lessons",
+    "relevant_paths": ["zUVBJdPc4kBud5fsLmPFpbw.md"],
+    "partial_paths": ["zB3bu9n53v6UCnqUYKxdAtG.md", "zPf3vk65fBYtn5iTWj3PTEE.md"],
+    "category": "conceptual",
+    "notes": "Targets a specific negative claim in the games/enabling-environment cluster."
+  },
+  {
+    "id": "evg025",
+    "query": "novices may be unable to take advantage of powerful environments without support",
+    "relevant_paths": ["zPrYC99kH227c1otipAefyQ.md"],
+    "partial_paths": ["z7d63BYfJrd81VFE25jkcDd.md", "zWSH2QNUsrTGP4V15JBaaEv.md"],
+    "category": "conceptual",
+    "notes": "Specific challenge note: enabling environments are not automatically usable by beginners."
+  },
+  {
+    "id": "evg026",
+    "query": "participants feel they caused an authored experience through their own actions",
+    "relevant_paths": ["z92TGMiBsnraf5KXxSTNkBJ.md"],
+    "partial_paths": ["zXEtC5KNkZ3kERSyyuJ9sy1.md", "z9QaU2pr6kdeXyLqL3F3Eof.md"],
+    "category": "conceptual",
+    "notes": "Semantic definition of enacted experience."
+  },
+  {
+    "id": "evg027",
+    "query": "Figma document teaches copy and paste by putting the lesson inside Figma itself",
+    "relevant_paths": ["zQp36KQ3k8phqVba6ZMpNEm.md"],
+    "partial_paths": ["z92TGMiBsnraf5KXxSTNkBJ.md", "zF6yhcVZ2yT7xpRQTWBzstB.md"],
+    "category": "conceptual",
+    "notes": "Concrete example of instructional media situated in context of use."
+  },
+  {
+    "id": "evg028",
+    "query": "too much pressure to produce can hurt creative work",
+    "relevant_paths": ["z9TuEpnqEtLdy2TWWVicLsU.md"],
+    "partial_paths": ["zY4QE4Q6NJpGZZh4Binv2xB.md", "z6tpWc9UuqskrUAVvwePuWV.md"],
+    "category": "conceptual",
+    "notes": "Targets the time-pressure note, with process/focus notes as nearby partials."
+  },
+  {
+    "id": "evg029",
+    "query": "fixating on focus can damage exploration in creative work",
+    "relevant_paths": ["z6tpWc9UuqskrUAVvwePuWV.md"],
+    "partial_paths": ["zY4QE4Q6NJpGZZh4Binv2xB.md", "zBsWyd6EMxcvhwNzqeHzADC.md"],
+    "category": "conceptual",
+    "notes": "Paraphrase of the rigid-focus creative-work note."
+  },
+  {
+    "id": "evg030",
+    "query": "foundation model abilities can appear unexpectedly after training",
+    "relevant_paths": ["zRDdSNnfeT4joohJXpQnWkm.md"],
+    "partial_paths": ["zJTdFxHeAbY5qUNcdtAohrJ.md", "zF3g5FjEexJGhAGH1n3Vrxb.md"],
+    "category": "conceptual",
+    "notes": "AI cluster query targeting emergent capabilities rather than generic AI risk."
+  },
+  {
+    "id": "evg031",
+    "query": "AI safety concern that systems could be misused by bad actors",
+    "relevant_paths": ["zNFT9pJgVXDAFinFrynrBv7.md"],
+    "partial_paths": ["zJTdFxHeAbY5qUNcdtAohrJ.md", "zWdH18WY84nxY2YhLVyCyX6.md"],
+    "category": "conceptual",
+    "notes": "Distinguishes misuse from broader alignment/risk notes."
+  },
+  {
+    "id": "evg032",
+    "query": "hands free invisible input device in a dental retainer controlled by tongue",
+    "relevant_paths": ["zQjRoZhSh3GTHgNt8HUf1Eb.md"],
+    "partial_paths": ["zFNrLkCqVyTK22wRfDKDsqy.md", "zD9nfQpyBzc6CkTVSbaAdoJ.md"],
+    "category": "conceptual",
+    "notes": "Paraphrases Augmental details; silent speech and poor-man BCI are related concepts."
+  },
+  {
+    "id": "evg033",
+    "query": "silent voice input by breathing inward while holding a device near the mouth",
+    "relevant_paths": ["zP3rFsKCXqB5FKmnaEDm8Jb.md"],
+    "partial_paths": ["zFNrLkCqVyTK22wRfDKDsqy.md", "zQjRoZhSh3GTHgNt8HUf1Eb.md"],
+    "category": "conceptual",
+    "notes": "Targets the Fukumoto SilentVoice paper, not the general silent-speech hub."
+  },
+  {
+    "id": "evg034",
+    "query": "digital readers should show annotations spatially in the margins beside the document",
+    "relevant_paths": ["zGsRWkonFv1KGAsWwiYA3he.md"],
+    "partial_paths": ["z6b8dLPVoC57KBQWKCY2Dgq.md", "z53bJfaxPoRbHsVeKQMx8kn.md"],
+    "category": "conceptual",
+    "notes": "Reading-interface query for marginal notes and annotation layout."
+  },
+  {
+    "id": "evg035",
+    "query": "reading across many documents horizontally to find relevant information",
+    "relevant_paths": ["zCLKyGcDyU3MR2qt6GrSb1C.md", "z7KmgKeGAQVJ9SGujpZ9f3i.md"],
+    "partial_paths": ["z8DRL5y5vMuXA98uro9KeZ3.md"],
+    "category": "linked-neighborhood",
+    "notes": "Tests retrieval of a cited system plus the syntopic-reading concept it references."
+  },
+  {
+    "id": "evg036",
+    "query": "networked note writing software built on backlinks and links between notes",
+    "relevant_paths": ["zJRmoVPc9vyv8QxSD5voijR.md"],
+    "partial_paths": ["zVJzGg7mUtvY8FH6AnZ2tqG.md", "zXYQBEqc4T4YypNmPWwkn1y.md"],
+    "category": "conceptual",
+    "notes": "Tooling concept query where Obsidian/Roam are examples, not the target concept."
+  },
+  {
+    "id": "evg037",
+    "query": "Evergreen notes should be densely linked",
+    "relevant_paths": ["zF8xCU4BwXwbmSyp7tmff9i.md"],
+    "partial_paths": ["z5E5QawiXCMbtNtupvxeoEX.md", "z2hQEhqWkdRLL9JUwfawZZx.md"],
+    "category": "keyword",
+    "notes": "Exact phrase for a property note, with the hub and concept-oriented note as partials."
+  },
+  {
+    "id": "evg038",
+    "query": "Evergreen note titles are like APIs",
+    "relevant_paths": ["zDh1yhNFQNxDEre12B4zd8k.md"],
+    "partial_paths": ["zLhoRUyjKU665EY16u4XXJy.md", "zNUaiGAXp21eorsER1Jm9yU.md"],
+    "category": "keyword",
+    "notes": "Tests a distinctive exact phrase in the note-title cluster."
+  },
+  {
+    "id": "evg039",
+    "query": "writing inbox for transient and incomplete notes",
+    "relevant_paths": ["zUP4GuzPF33dWkZPiu9N6V5.md"],
+    "partial_paths": ["zDXBGEWk7msyonQ2Ngnrf8h.md", "zTnTob5JrFYF9NpU73Zg5a1.md"],
+    "category": "keyword",
+    "notes": "Operational note-writing workflow query."
+  },
+  {
+    "id": "evg040",
+    "query": "reading inbox to capture possibly useful references",
+    "relevant_paths": ["zDXBGEWk7msyonQ2Ngnrf8h.md"],
+    "partial_paths": ["zUP4GuzPF33dWkZPiu9N6V5.md", "zME6gV6mc1mQ2KDE5acyho8.md"],
+    "category": "keyword",
+    "notes": "Companion workflow query; tests distinction between reading and writing inboxes."
+  },
+  {
+    "id": "evg041",
+    "query": "How to process reading annotations into evergreen notes",
+    "relevant_paths": ["zEr7kCcH6zUUroDJBwDj2n5.md"],
+    "partial_paths": ["zME6gV6mc1mQ2KDE5acyho8.md", "zB74H9CuWrosEuqve7jZyCo.md"],
+    "category": "keyword",
+    "notes": "Direct workflow title with adjacent reading/writing notes as partials."
+  },
+  {
+    "id": "evg042",
+    "query": "Quantum Country",
+    "relevant_paths": ["zNVVrcxnkjk7pCabiBvaic1.md"],
+    "partial_paths": ["zKPv6qkSErdRGqyryvgS2wS.md", "zYPkhkmPG4LowjtyFe27r6W.md"],
+    "category": "keyword",
+    "notes": "Specific project note; many analyses mention the name but should not be full credit."
+  },
+  {
+    "id": "evg043",
+    "query": "Execute Program interactive programming lessons with spaced repetition",
+    "relevant_paths": ["zSsjk5UvNPGrYp8B6DEFCMS.md"],
+    "partial_paths": ["zWeMGj1huQaESSBTmRWSvD5.md", "zUoZHzEPeQFKaUTYctg9fqq.md"],
+    "category": "keyword",
+    "notes": "Product/system note with feature-specific Execute Program notes as partials."
+  },
+  {
+    "id": "evg044",
+    "query": "SpaceInk making space for in context annotations",
+    "relevant_paths": ["z6b8dLPVoC57KBQWKCY2Dgq.md"],
+    "partial_paths": ["zGsRWkonFv1KGAsWwiYA3he.md"],
+    "category": "keyword",
+    "notes": "Paper-title keyword query in the annotation/reading cluster."
+  },
+  {
+    "id": "evg045",
+    "query": "mechanistic interpretability",
+    "relevant_paths": ["zSCSFuVtGdkDNdurgoUHJqc.md"],
+    "partial_paths": ["zF3g5FjEexJGhAGH1n3Vrxb.md", "zJTdFxHeAbY5qUNcdtAohrJ.md"],
+    "category": "keyword",
+    "notes": "Specific AI technique note; Anthropic/AI-risk notes mention it but are broader."
+  },
+  {
+    "id": "evg046",
+    "query": "Transclusion is limited by the data model composability",
+    "relevant_paths": ["zBLUefAuJvhXq4p4HhXJqyK.md"],
+    "partial_paths": ["zVLVGffrkZiYmahXqFPQtP4.md"],
+    "category": "keyword",
+    "notes": "Targets a specific transclusion claim rather than the generic transclusion note."
+  },
+  {
+    "id": "evg047",
+    "query": "Ahrens How to Take Smart Notes",
+    "relevant_paths": ["zH7AVUkqYYK7xmoAn8PTpAV.md"],
+    "partial_paths": ["z5E5QawiXCMbtNtupvxeoEX.md", "zQvwwb95vzcHcpow3GWy5Wi.md"],
+    "category": "author-work",
+    "notes": "Author/work lookup for a long literature note; evergreen/Zettelkasten notes cite it but are not the work note."
+  },
+  {
+    "id": "evg048",
+    "query": "Lave and Wenger Situated Learning",
+    "relevant_paths": ["zMhuu3pPa6FeNGYn3VfGCar.md"],
+    "partial_paths": ["zL7XdosCZ9qeCSSCrhcYfwY.md"],
+    "category": "author-work",
+    "notes": "Book/work note versus the concept note."
+  },
+  {
+    "id": "evg049",
+    "query": "Kirschner Sweller Clark minimal guidance during instruction does not work",
+    "relevant_paths": ["zUiDqjKiS3udc3wcvcFbcpc.md"],
+    "partial_paths": ["zKPm7dRfoX7TPXR9KvBCAeM.md", "zHZJPK2nrvAzRstzA6XdmoG.md"],
+    "category": "author-work",
+    "notes": "Citation lookup with related learning-theory concepts as partials."
+  },
+  {
+    "id": "evg050",
+    "query": "Ericsson and Pool Peak deliberate practice",
+    "relevant_paths": ["zEwJDpZiu1YQoXYznxioznL.md"],
+    "partial_paths": ["zMX9Lfuz8sGfDUivWZcyWT.md", "z7KDoK3pfGze6KfP6DPZd37.md"],
+    "category": "author-work",
+    "notes": "Author/work query in skill-development cluster."
+  },
+  {
+    "id": "evg051",
+    "query": "Bloom three phase model of talent development",
+    "relevant_paths": ["z7KDoK3pfGze6KfP6DPZd37.md"],
+    "partial_paths": ["zFFTdRczpgGBy1P5QgeP635.md", "zEwJDpZiu1YQoXYznxioznL.md"],
+    "category": "author-work",
+    "notes": "Tests named model retrieval distinct from Bloom's taxonomy."
+  },
+  {
+    "id": "evg052",
+    "query": "Fukumoto SilentVoice unnoticeable voice input by ingressive speech",
+    "relevant_paths": ["zP3rFsKCXqB5FKmnaEDm8Jb.md"],
+    "partial_paths": ["zFNrLkCqVyTK22wRfDKDsqy.md", "zQjRoZhSh3GTHgNt8HUf1Eb.md"],
+    "category": "author-work",
+    "notes": "Paper lookup; general silent-speech notes are partial."
+  },
+  {
+    "id": "evg053",
+    "query": "Romat Pietriga Riche Hinckley Appert SpaceInk",
+    "relevant_paths": ["z6b8dLPVoC57KBQWKCY2Dgq.md"],
+    "partial_paths": ["zGsRWkonFv1KGAsWwiYA3he.md"],
+    "category": "author-work",
+    "notes": "Author-list paper lookup."
+  },
+  {
+    "id": "evg054",
+    "query": "Anthropic Core Views on AI Safety",
+    "relevant_paths": ["zF3g5FjEexJGhAGH1n3Vrxb.md"],
+    "partial_paths": ["zJTdFxHeAbY5qUNcdtAohrJ.md", "zSCSFuVtGdkDNdurgoUHJqc.md"],
+    "category": "author-work",
+    "notes": "Specific article/work note; broader AI-risk and technique notes are partial."
+  },
+  {
+    "id": "evg055",
+    "query": "Michael Nielsen building a better memory system",
+    "relevant_paths": ["z2QzqNwnFdhaLHv7XoYz5Ki.md"],
+    "partial_paths": ["z2D1qPwddPktBjpNuwYFVva.md", "zNVVrcxnkjk7pCabiBvaic1.md"],
+    "category": "author-work",
+    "notes": "Specific external essay/work note in memory-system cluster."
+  },
+  {
+    "id": "evg056",
+    "query": "Tom Vega Corten Singer dental retainer upper molars touchpad",
+    "relevant_paths": ["zQjRoZhSh3GTHgNt8HUf1Eb.md"],
+    "partial_paths": ["zFNrLkCqVyTK22wRfDKDsqy.md"],
+    "category": "quote-fragment",
+    "notes": "Fragment-like entity/details query for Augmental's data section."
+  },
+  {
+    "id": "evg057",
+    "query": "Great Creator I will take care of the quantity you take care of the quality",
+    "relevant_paths": ["zY4QE4Q6NJpGZZh4Binv2xB.md"],
+    "partial_paths": [],
+    "category": "quote-fragment",
+    "notes": "Short quoted aphorism embedded in the process-over-product note."
+  },
+  {
+    "id": "evg058",
+    "query": "question is in which context will I want to stumble upon it again",
+    "relevant_paths": ["z2hQEhqWkdRLL9JUwfawZZx.md"],
+    "partial_paths": ["zH7AVUkqYYK7xmoAn8PTpAV.md"],
+    "category": "quote-fragment",
+    "notes": "Ahrens quote fragment appears in the concept-oriented note; the source-work note is partial."
+  },
+  {
+    "id": "evg059",
+    "query": "separation of concerns modules should only be about one thing",
+    "relevant_paths": ["zNUaiGAXp21eorsER1Jm9yU.md"],
+    "partial_paths": ["zDh1yhNFQNxDEre12B4zd8k.md"],
+    "category": "quote-fragment",
+    "notes": "Distinct analogy in atomic evergreen notes."
+  },
+  {
+    "id": "evg060",
+    "query": "If you want to really understand an idea you have to grapple with it",
+    "relevant_paths": ["z8ccRLda8BqJafNxjQBpzis.md"],
+    "partial_paths": ["zRbqwbnhmVdfLtKxMCibMoX.md", "zB74H9CuWrosEuqve7jZyCo.md"],
+    "category": "quote-fragment",
+    "notes": "Short body fragment from the effortful-engagement note; writing/reading notes are supporting applications."
+  },
+  {
+    "id": "evg061",
+    "query": "there is no path only a heading a direction in conversation with the elements",
+    "relevant_paths": ["zY4QE4Q6NJpGZZh4Binv2xB.md"],
+    "partial_paths": [],
+    "category": "quote-fragment",
+    "notes": "David Whyte quote fragment inside Process over product."
+  },
+  {
+    "id": "evg062",
+    "query": "edge marks in the gutter of its sidebar",
+    "relevant_paths": ["zGsRWkonFv1KGAsWwiYA3he.md"],
+    "partial_paths": ["z53bJfaxPoRbHsVeKQMx8kn.md"],
+    "category": "quote-fragment",
+    "notes": "Specific Hypothes.is annotation UI description in marginal-notes note."
+  },
+  {
+    "id": "evg063",
+    "query": "the lessons interleave prose with live programming problems",
+    "relevant_paths": ["zSsjk5UvNPGrYp8B6DEFCMS.md"],
+    "partial_paths": ["zWeMGj1huQaESSBTmRWSvD5.md", "zUoZHzEPeQFKaUTYctg9fqq.md"],
+    "category": "quote-fragment",
+    "notes": "Distinct description of Execute Program."
+  },
+  {
+    "id": "evg064",
+    "query": "writing good spaced repetition memory prompts and their important attributes",
+    "relevant_paths": ["zKy4FsHTcf8LdkgXkMueeGL.md", "z9xavmmNq7xvNqzpnJ3HFXx.md"],
+    "partial_paths": [
+      "zTYDjcneyTby8DhVGMU3zvc.md",
+      "z3whk8UxFRFLgUQX9f7Fr2o.md",
+      "zEm3fU6X2i4YViURG8cd3Zx.md",
+      "z2D1qPwddPktBjpNuwYFVva.md",
+      "zKPv6qkSErdRGqyryvgS2wS.md",
+      "zCjyEsQTBSY7MJf6KxXKXb9.md"
+    ],
+    "category": "ambiguous-topic",
+    "notes": "Prompt-design query: full credit for the hard-to-write and important-attributes notes; partial credit for concrete prompt-quality properties and broader hubs."
+  },
+  {
+    "id": "evg065",
+    "query": "reading annotations",
+    "relevant_paths": ["zME6gV6mc1mQ2KDE5acyho8.md", "zEr7kCcH6zUUroDJBwDj2n5.md"],
+    "partial_paths": ["zGsRWkonFv1KGAsWwiYA3he.md", "zB74H9CuWrosEuqve7jZyCo.md"],
+    "category": "ambiguous-topic",
+    "notes": "Broad workflow phrase; full credit for capture/process notes, partial for adjacent reading-interface/internalization notes."
+  },
+  {
+    "id": "evg066",
+    "query": "AI safety",
+    "relevant_paths": ["zJTdFxHeAbY5qUNcdtAohrJ.md", "zF3g5FjEexJGhAGH1n3Vrxb.md"],
+    "partial_paths": ["zWdH18WY84nxY2YhLVyCyX6.md", "zNFT9pJgVXDAFinFrynrBv7.md", "zSCSFuVtGdkDNdurgoUHJqc.md"],
+    "category": "ambiguous-topic",
+    "notes": "Broad AI query where risk and a specific safety article are direct; alignment/misuse/interpretability are partial facets."
+  },
+  {
+    "id": "evg067",
+    "query": "focus",
+    "relevant_paths": ["z6tpWc9UuqskrUAVvwePuWV.md"],
+    "partial_paths": ["zY4QE4Q6NJpGZZh4Binv2xB.md", "zWTgG8ddRz5h1WbNMYnrnqX.md"],
+    "category": "ambiguous-topic",
+    "notes": "Intentionally short query; should surface the rigid-focus note but allow process/deep-work partials."
+  },
+  {
+    "id": "evg068",
+    "query": "games and learning",
+    "relevant_paths": ["zUVBJdPc4kBud5fsLmPFpbw.md", "z9VDvQzzC4JD4DBWMVaVGjk.md"],
+    "partial_paths": ["zB3bu9n53v6UCnqUYKxdAtG.md", "zGSGS1UHDogPKtvZB5hdT2A.md", "zPf3vk65fBYtn5iTWj3PTEE.md"],
+    "category": "ambiguous-topic",
+    "notes": "Ambiguous cluster query with both positive skill-development and negative educational-game claims."
+  },
+  {
+    "id": "evg069",
+    "query": "note titles",
+    "relevant_paths": ["zDh1yhNFQNxDEre12B4zd8k.md", "zLhoRUyjKU665EY16u4XXJy.md"],
+    "partial_paths": ["z63PA5ATVi8oyhyLgeGvL3p.md", "z5E5QawiXCMbtNtupvxeoEX.md"],
+    "category": "ambiguous-topic",
+    "notes": "Broad note-title query; direct notes concern APIs and complete phrases, positive titles are partial."
+  },
+  {
+    "id": "evg070",
+    "query": "what is an enabling environment",
+    "relevant_paths": ["z492hGrHvRvJiEY9UfB4Mby.md"],
+    "partial_paths": ["z2etsLyP1LJUwNDPCwvRdUG.md", "z3PJFWDZ7gar2ttawQTmBek.md", "z7d63BYfJrd81VFE25jkcDd.md"],
+    "category": "ambiguous-topic",
+    "notes": "Broad exact phrase with many property notes; only the definition hub is full credit."
+  },
+  {
+    "id": "evg071",
+    "query": "tools for thought",
+    "relevant_paths": ["z88M2wwQ8FggV7p8Wu1b8LG.md"],
+    "partial_paths": ["zJRmoVPc9vyv8QxSD5voijR.md", "z492hGrHvRvJiEY9UfB4Mby.md", "zKPv6qkSErdRGqyryvgS2wS.md"],
+    "category": "ambiguous-topic",
+    "notes": "Very broad field term; direct concept note gets full credit, related tool clusters are partial."
+  },
+  {
+    "id": "evg072",
+    "query": "transclusion",
+    "relevant_paths": ["zVLVGffrkZiYmahXqFPQtP4.md"],
+    "partial_paths": ["zBLUefAuJvhXq4p4HhXJqyK.md"],
+    "category": "ambiguous-topic",
+    "notes": "Generic concept query; specific limitation note is useful but narrower."
+  },
+  {
+    "id": "evg073",
+    "query": "testing yourself improves learning more than restudying or concept mapping",
+    "relevant_paths": [
+      "zTpJdbe6ub7uhBFLuHkFsrT.md",
+      "zEK6pjc61VLLZDNYssz7W7M.md",
+      "zFUBZG5yY1aKJ4hpak2jWPA.md"
+    ],
+    "partial_paths": [
+      "zKDWDVyZ7kBQLnq6Fq5KSj6.md",
+      "z2crTaHNqd6APCtmzXk7x6W.md",
+      "zJYiXNUcZgRqNtCCxydJPiW.md",
+      "zXA8c6XtMLgRCGwJFGnZUvw.md",
+      "z9Uq4yzBT1QaBU8twwyvm7P.md",
+      "zRTw8KaPErhSCyC2NYGHyP7.md"
+    ],
+    "category": "disambiguation",
+    "notes": "Distinguishes testing-effect/retrieval-practice evidence from broader retrieval-practice, transfer, and elaborative-encoding notes; the Karpicke/Blunt paper directly addresses concept mapping."
+  },
+  {
+    "id": "evg074",
+    "query": "spreading practice over time improves memory compared with cramming",
+    "relevant_paths": ["z4KScVkQCD2XmVwvSDUbZtn.md"],
+    "partial_paths": ["z2D1qPwddPktBjpNuwYFVva.md", "zTpJdbe6ub7uhBFLuHkFsrT.md"],
+    "category": "disambiguation",
+    "notes": "Targets spacing effect, not testing effect or the generic SRS hub."
+  },
+  {
+    "id": "evg075",
+    "query": "retrieval practice may not transfer well to new kinds of tasks",
+    "relevant_paths": ["zRTw8KaPErhSCyC2NYGHyP7.md"],
+    "partial_paths": ["z7ffiDfqTR9pPcEEUUbCL7C.md", "zTpJdbe6ub7uhBFLuHkFsrT.md"],
+    "category": "disambiguation",
+    "notes": "Disambiguates transfer-learning concern from generic retrieval practice/testing-effect notes."
+  },
+  {
+    "id": "evg076",
+    "query": "Execute Program lessons unlock only after prerequisite reviews and require solid recall",
+    "relevant_paths": ["zHLWyC5LVXZLWE9RmoC1gua.md", "zH26uarYCm9y6tqzuxaGUzt.md"],
+    "partial_paths": ["zSsjk5UvNPGrYp8B6DEFCMS.md", "zHJBriKPXFC2VtF8MVCdj7K.md"],
+    "category": "linked-neighborhood",
+    "notes": "Multi-evidence query requiring two sibling Execute Program design notes."
+  },
+  {
+    "id": "evg077",
+    "query": "Quantum Country users forget in essay questions and show sharp forgetting curves",
+    "relevant_paths": ["z8bEfc2Pw7PwvCADeNHaskE.md", "z9eDrxucV2Yy5irBjgJEp4d.md"],
+    "partial_paths": ["zYPkhkmPG4LowjtyFe27r6W.md", "zNVVrcxnkjk7pCabiBvaic1.md"],
+    "category": "linked-neighborhood",
+    "notes": "Multi-evidence query across Quantum Country analysis notes; project hub is partial."
+  },
+  {
+    "id": "evg078",
+    "query": "text could expand and contract to show different levels of detail",
+    "relevant_paths": ["zPLUdgxrXo5z24ccuyz8YQ4.md"],
+    "partial_paths": ["zDqGVfpruc2PHU1ffPG3epp.md", "zSYx6qqLStC6TVg4uDDNXAf.md"],
+    "category": "conceptual",
+    "notes": "Paraphrases Stretchtext; hypertext/Ted Nelson are supporting context."
+  }
+]
