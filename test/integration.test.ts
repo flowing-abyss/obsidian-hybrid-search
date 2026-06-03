@@ -8,24 +8,19 @@ const FIXTURE_VAULT = path.join(__dirname, 'fixtures/vault');
 
 process.env.OBSIDIAN_VAULT_PATH = FIXTURE_VAULT;
 
-const hasEmbeddingProvider = Boolean(process.env.OPENAI_API_KEY || process.env.OPENAI_BASE_URL);
-const integrationEnabled = !process.env.CI || hasEmbeddingProvider;
-const describeIfIntegrationEnabled = integrationEnabled ? describe : describe.skip;
-
 const { openDb, initVecTable } = await import('../src/db.js');
 const { getEmbeddingDim, getContextLength } = await import('../src/embedder.js');
 const { indexVaultSync } = await import('../src/indexer.js');
 const { search } = await import('../src/searcher.js');
 
 beforeAll(async () => {
-  if (!integrationEnabled) return;
   openDb();
   const [, embeddingDim] = await Promise.all([getContextLength(), getEmbeddingDim()]);
   initVecTable(embeddingDim);
   await indexVaultSync();
 }, 120_000);
 
-describeIfIntegrationEnabled('search', () => {
+describe('search', () => {
   it('exact match ranks first', async () => {
     const results = await search('zettelkasten');
     assert.ok(results.length > 0);
@@ -75,7 +70,7 @@ describeIfIntegrationEnabled('search', () => {
   });
 });
 
-describeIfIntegrationEnabled('snippet fallback', () => {
+describe('snippet fallback', () => {
   it('title mode results have non-empty snippets via fallback', async () => {
     const results = await search('zettelkasten', { mode: 'title', limit: 5 });
     assert.ok(results.length > 0);
@@ -99,7 +94,7 @@ describeIfIntegrationEnabled('snippet fallback', () => {
   });
 });
 
-describeIfIntegrationEnabled('tag filtering', () => {
+describe('tag filtering', () => {
   it('include single tag: only matching notes returned', async () => {
     const results = await search('notes', { tag: 'pkm', limit: 20 });
     assert.ok(results.length > 0);
@@ -121,7 +116,7 @@ describeIfIntegrationEnabled('tag filtering', () => {
   });
 });
 
-describeIfIntegrationEnabled('scope filtering', () => {
+describe('scope filtering', () => {
   it('array scope OR: results from multiple folders', async () => {
     const results = await search('notes', {
       scope: ['notes/pkm/', 'notes/dev/'],
@@ -145,7 +140,7 @@ describeIfIntegrationEnabled('scope filtering', () => {
   });
 });
 
-describeIfIntegrationEnabled('related mode', () => {
+describe('related mode', () => {
   it('source note (depth 0) has score 1.0', async () => {
     const results = await search('notes/pkm/second-brain.md', {
       related: true,
@@ -210,7 +205,7 @@ describeIfIntegrationEnabled('related mode', () => {
   });
 });
 
-describeIfIntegrationEnabled('notePath option', () => {
+describe('notePath option', () => {
   it('notePath forces path-based lookup for non-path input', async () => {
     // 'zettelkasten' alone would be treated as text search, but with notePath it does similarity
     const textResults = await search('zettelkasten', { limit: 5 });
