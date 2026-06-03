@@ -13,12 +13,16 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, it } from 'vitest';
+import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 
 // ─── Vault setup (must precede application module imports) ────────────────────
 
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-disappear-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
+
+vi.mock('../src/embedder.js', () => ({
+  embed: vi.fn((texts: string[]) => Promise.resolve(texts.map(() => null))),
+}));
 
 const { openDb, initVecTable, upsertNote, getDb } = await import('../src/db.js');
 const { search, bumpIndexVersion } = await import('../src/searcher.js');

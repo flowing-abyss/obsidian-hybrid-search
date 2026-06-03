@@ -9,6 +9,10 @@ import { afterAll, afterEach, beforeAll, describe, it, vi } from 'vitest';
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-searcher-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
+vi.mock('../src/embedder.js', () => ({
+  embed: vi.fn((texts: string[]) => Promise.resolve(texts.map(() => null))),
+}));
+
 // ─── Module imports (after env is set) ───────────────────────────────────────
 
 const { openDb, initVecTable, upsertNote, upsertLinks, getDb } = await import('../src/db.js');
