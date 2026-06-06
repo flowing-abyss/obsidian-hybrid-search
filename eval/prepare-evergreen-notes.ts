@@ -7,6 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const defaultRepoRoot = path.resolve(__dirname, '..');
 const BASE_URL = 'https://notes.andymatuschak.org';
 const USER_AGENT = 'obsidian-hybrid-search-evergreen-fixture/1.0';
+const MAX_FILENAME_BYTES = 200;
 
 export const DEFAULT_EVERGREEN_SEEDS = [
   'About_these_notes',
@@ -32,6 +33,11 @@ interface EvergreenNote {
   contentMarkdown: string;
   linkedNoteSlugs: string[];
   mtimeMillis: number | undefined;
+}
+
+interface ImageTarget {
+  sourcePath: string;
+  vaultPath: string;
 }
 
 interface PrepareEvergreenNotesOptions {
@@ -84,8 +90,8 @@ export async function prepareEvergreenNotesFixture(
   const visited = new Set<string>();
   const queued = new Set(seeds);
   const queue = [...seeds];
+  const notes = new Map<string, EvergreenNote>();
   const imagePaths = new Set<string>();
-  let notesWritten = 0;
 
   while (queue.length > 0) {
     const slug = queue.shift()!;
@@ -98,10 +104,7 @@ export async function prepareEvergreenNotesFixture(
 
     const note = extractNoteData(html, slug);
     if (note === null) continue;
-
-    const markdown = renderNoteMarkdown(note);
-    fs.writeFileSync(path.join(vault, `${note.slug}.md`), markdown);
-    notesWritten++;
+    notes.set(note.slug, note);
 
     for (const imagePath of extractImagePaths(note.contentMarkdown)) {
       imagePaths.add(imagePath);
@@ -117,13 +120,25 @@ export async function prepareEvergreenNotesFixture(
     if (politenessDelayMs > 0) await delay(politenessDelayMs);
   }
 
+  const notePathBySlug = buildNotePathMap([...notes.values()]);
+  const imageTargets = buildImageTargets([...imagePaths].sort((a, b) => a.localeCompare(b)));
+  const imagePathBySource = new Map(
+    imageTargets.map((target) => [target.sourcePath, target.vaultPath] as const),
+  );
+  let notesWritten = 0;
+
+  for (const note of notes.values()) {
+    const notePath = notePathBySlug.get(note.slug);
+    if (!notePath) continue;
+    const markdown = renderNoteMarkdown(note, notePathBySlug, imagePathBySource);
+    const localPath = path.join(vault, notePath);
+    fs.mkdirSync(path.dirname(localPath), { recursive: true });
+    fs.writeFileSync(localPath, markdown);
+    notesWritten++;
+  }
+
   const imageResult = downloadImages
-    ? await downloadVaultImages(
-        vault,
-        [...imagePaths].sort((a, b) => a.localeCompare(b)),
-        fetchBinary,
-        politenessDelayMs,
-      )
+    ? await downloadVaultImages(vault, imageTargets, fetchBinary, politenessDelayMs)
     : { imagesDownloaded: 0, imagesSkipped: 0, imagesFailed: 0 };
 
   return {
@@ -149,7 +164,7 @@ function extractNoteData(html: string, requestedSlug: string): EvergreenNote | n
   const data = entry.data ?? {};
   const slug = sanitizeControlCharacters(data.slug ?? fallbackSlug ?? requestedSlug);
   const title = sanitizeControlCharacters(data.title ?? '');
-  const contentMarkdown = convertWikilinks(sanitizeControlCharacters(data.contentMarkdown ?? ''));
+  const contentMarkdown = sanitizeControlCharacters(data.contentMarkdown ?? '');
   return {
     slug,
     title,
@@ -159,21 +174,122 @@ function extractNoteData(html: string, requestedSlug: string): EvergreenNote | n
   };
 }
 
-function renderNoteMarkdown(note: EvergreenNote): string {
+function renderNoteMarkdown(
+  note: EvergreenNote,
+  notePathBySlug: Map<string, string>,
+  imagePathBySource: Map<string, string>,
+): string {
   const frontmatter = [
     '---',
-    `title: ${JSON.stringify(note.title)}`,
-    `slug: ${note.slug}`,
+    `url: ${JSON.stringify(noteUrl(note.slug))}`,
     note.mtimeMillis === undefined ? undefined : `modified: ${mtimeToDate(note.mtimeMillis)}`,
     '---',
     '',
   ].filter((line) => line !== undefined);
+  const content = convertImages(
+    convertWikilinks(note.contentMarkdown, notePathBySlug),
+    imagePathBySource,
+  );
 
-  return `${frontmatter.join('\n')}${note.contentMarkdown.trimEnd()}\n`;
+  return `${frontmatter.join('\n')}\n${content.trimEnd()}\n`;
 }
 
-function convertWikilinks(content: string): string {
-  return content.replace(/\[\[([a-zA-Z0-9_%§-]+):::(.*?)\]\]/g, '[[$1|$2]]');
+function buildNotePathMap(notes: EvergreenNote[]): Map<string, string> {
+  const used = new Set<string>();
+  const result = new Map<string, string>();
+  for (const note of notes) {
+    const fileName = uniqueFileName(noteBaseName(note), '.md', used);
+    result.set(note.slug, path.posix.join('notes', fileName));
+  }
+  return result;
+}
+
+function noteBaseName(note: EvergreenNote): string {
+  return sanitizeFileBaseName(note.title || note.slug);
+}
+
+function sanitizeFileBaseName(value: string): string {
+  const sanitized = sanitizeControlCharacters(value)
+    .replace(/[<>:"/\\|?*]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/g, '');
+  return sanitized || 'Untitled';
+}
+
+function uniqueFileName(baseName: string, extension: string, used: Set<string>): string {
+  const firstBaseName = truncateUtf8(baseName, MAX_FILENAME_BYTES - byteLength(extension));
+  let candidate = `${firstBaseName}${extension}`;
+  let index = 2;
+  while (used.has(candidate)) {
+    const suffix = ` ${String(index)}`;
+    const candidateBaseName = truncateUtf8(
+      baseName,
+      MAX_FILENAME_BYTES - byteLength(suffix) - byteLength(extension),
+    );
+    candidate = `${candidateBaseName}${suffix}${extension}`;
+    index++;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  let result = '';
+  let bytes = 0;
+  for (const char of value) {
+    const charBytes = byteLength(char);
+    if (bytes + charBytes > maxBytes) break;
+    result += char;
+    bytes += charBytes;
+  }
+  return result.trimEnd() || 'Untitled';
+}
+
+function byteLength(value: string): number {
+  return Buffer.byteLength(value, 'utf-8');
+}
+
+function buildImageTargets(imagePaths: string[]): ImageTarget[] {
+  const used = new Set<string>();
+  return imagePaths.map((sourcePath) => {
+    const parsed = path.posix.parse(sourcePath);
+    const baseName = sanitizeFileBaseName(parsed.name || 'image');
+    const extension = sanitizeImageExtension(parsed.ext);
+    return {
+      sourcePath,
+      vaultPath: path.posix.join('files', uniqueFileName(baseName, extension, used)),
+    };
+  });
+}
+
+function sanitizeImageExtension(extension: string): string {
+  const sanitized = extension.replace(/[^a-zA-Z0-9.]/g, '');
+  return sanitized.startsWith('.') ? sanitized : '';
+}
+
+function convertWikilinks(content: string, notePathBySlug: Map<string, string>): string {
+  return content.replace(/\[\[([a-zA-Z0-9_%§-]+):::(.*?)\]\]/g, (_match, slug, title) => {
+    const notePath = notePathBySlug.get(String(slug));
+    const linkText =
+      notePath === undefined
+        ? sanitizeLinkText(String(title)) || String(slug)
+        : notePath.replace(/^notes\//, '').replace(/\.md$/, '');
+    return `[[${linkText}]]`;
+  });
+}
+
+function sanitizeLinkText(value: string): string {
+  return sanitizeControlCharacters(value).replace(/\s+/g, ' ').trim();
+}
+
+function convertImages(content: string, imagePathBySource: Map<string, string>): string {
+  return content.replace(/!\[[^\]]*]\(([^)]+)\)/g, (match, rawPath) => {
+    const sourcePath = normalizeImagePath(String(rawPath));
+    if (!sourcePath) return match;
+    const targetPath = imagePathBySource.get(sourcePath);
+    return targetPath ? `![[${targetPath}]]` : match;
+  });
 }
 
 function extractImagePaths(content: string): string[] {
@@ -198,7 +314,7 @@ function normalizeImagePath(raw: string | undefined): string | undefined {
 
 async function downloadVaultImages(
   vault: string,
-  imagePaths: string[],
+  imageTargets: ImageTarget[],
   fetchBinary: (relativePath: string) => Promise<Buffer>,
   politenessDelayMs: number,
 ): Promise<
@@ -208,8 +324,8 @@ async function downloadVaultImages(
   let imagesSkipped = 0;
   let imagesFailed = 0;
 
-  for (const imagePath of imagePaths) {
-    const localPath = path.join(vault, imagePath);
+  for (const imageTarget of imageTargets) {
+    const localPath = path.join(vault, imageTarget.vaultPath);
     if (fs.existsSync(localPath)) {
       imagesSkipped++;
       continue;
@@ -217,7 +333,7 @@ async function downloadVaultImages(
 
     try {
       fs.mkdirSync(path.dirname(localPath), { recursive: true });
-      fs.writeFileSync(localPath, await fetchBinary(imagePath));
+      fs.writeFileSync(localPath, await fetchBinary(imageTarget.sourcePath));
       imagesDownloaded++;
     } catch {
       imagesFailed++;
@@ -251,6 +367,10 @@ async function fetchImage(relativePath: string): Promise<Buffer> {
     throw new Error(`Failed to fetch image ${relativePath}: HTTP ${String(response.status)}`);
   }
   return Buffer.from(await response.arrayBuffer());
+}
+
+function noteUrl(slug: string): string {
+  return `${BASE_URL}/${encodeURIComponent(slug)}`;
 }
 
 function mtimeToDate(mtimeMillis: number): string {

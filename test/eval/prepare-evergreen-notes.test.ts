@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -88,16 +96,122 @@ describe('prepareEvergreenNotesFixture()', () => {
       vault,
     });
 
-    const about = readFileSync(path.join(vault, 'About_these_notes.md'), 'utf-8');
-    const child = readFileSync(path.join(vault, 'zChild.md'), 'utf-8');
+    const about = readFileSync(path.join(vault, 'notes/About these notes.md'), 'utf-8');
+    const child = readFileSync(path.join(vault, 'notes/Child note.md'), 'utf-8');
 
-    expect(about).toContain('title: "About these notes"');
+    expect(about).toContain('url: "https://notes.andymatuschak.org/About_these_notes"');
+    expect(about).not.toContain('title:');
+    expect(about).not.toContain('slug:');
     expect(about).toContain('modified: 2024-01-02');
-    expect(about).toContain('[[zChild|Child note]]');
-    expect(child).toContain('title: "Child note"');
+    expect(about).toContain('[[Child note]]');
+    expect(about).toContain('![[files/image-one.png]]');
+    expect(child).toContain('url: "https://notes.andymatuschak.org/zChild"');
+    expect(child).not.toContain('title:');
+    expect(child).not.toContain('slug:');
     expect(child).toContain('# Child note');
+    expect(child).toContain('[[About these notes]]');
     expect(downloadedImages).toEqual(['BearImages/image-one.png']);
-    expect(readFileSync(path.join(vault, 'BearImages/image-one.png'), 'utf-8')).toBe('png-bytes');
+    expect(readFileSync(path.join(vault, 'files/image-one.png'), 'utf-8')).toBe('png-bytes');
+  });
+
+  it('disambiguates duplicate note titles with numeric suffixes', async () => {
+    const vault = makeVaultPath();
+    const pages = new Map([
+      [
+        'zFirst',
+        noteHtml({
+          slug: 'zFirst',
+          title: 'Same title',
+          contentMarkdown: '# Same title\n\nSee [[zSecond:::Same title]].\n',
+          linkedNoteSlugs: ['zSecond'],
+        }),
+      ],
+      [
+        'zSecond',
+        noteHtml({
+          slug: 'zSecond',
+          title: 'Same title',
+          contentMarkdown: '# Same title\n\nBack to [[zFirst:::Same title]].\n',
+          linkedNoteSlugs: ['zFirst'],
+        }),
+      ],
+    ]);
+
+    await prepareEvergreenNotesFixture({
+      vault,
+      repoRoot: tempRoot!,
+      seeds: ['zFirst'],
+      politenessDelayMs: 0,
+      fetchPage: (slug) => Promise.resolve(pages.get(slug) ?? null),
+      fetchBinary: () => Promise.reject(new Error('image fetch should not be called')),
+    });
+
+    const first = readFileSync(path.join(vault, 'notes/Same title.md'), 'utf-8');
+    const second = readFileSync(path.join(vault, 'notes/Same title 2.md'), 'utf-8');
+
+    expect(first).toContain('url: "https://notes.andymatuschak.org/zFirst"');
+    expect(first).toContain('[[Same title 2]]');
+    expect(second).toContain('url: "https://notes.andymatuschak.org/zSecond"');
+    expect(second).toContain('[[Same title]]');
+  });
+
+  it('keeps title filenames below filesystem length limits', async () => {
+    const vault = makeVaultPath();
+    const longTitle =
+      'Guo, P. (2021). Ten Million Users and Ten Years Later Python Tutor’s Design Guidelines for Building Scalable and Sustainable Research Software in Academia. In The 34th Annual ACM Symposium on User Interface Software and Technology (pp. 1235–1251). Association for Computing Machinery';
+
+    await prepareEvergreenNotesFixture({
+      vault,
+      repoRoot: tempRoot!,
+      seeds: ['zLong'],
+      politenessDelayMs: 0,
+      fetchPage: () =>
+        Promise.resolve(
+          noteHtml({
+            slug: 'zLong',
+            title: longTitle,
+            contentMarkdown: `# ${longTitle}\n`,
+            linkedNoteSlugs: [],
+          }),
+        ),
+      fetchBinary: () => Promise.reject(new Error('image fetch should not be called')),
+    });
+
+    const files = readdirSync(path.join(vault, 'notes'));
+
+    expect(files).toHaveLength(1);
+    expect(files[0]!.length).toBeLessThanOrEqual(200);
+    expect(files[0]).toMatch(/^Guo, P\. \(2021\)\. Ten Million Users/);
+    expect(readFileSync(path.join(vault, 'notes', files[0]!), 'utf-8')).toContain(
+      'url: "https://notes.andymatuschak.org/zLong"',
+    );
+  });
+
+  it('keeps uncrawled note links human-readable without slugs when titles are available', async () => {
+    const vault = makeVaultPath();
+
+    await prepareEvergreenNotesFixture({
+      vault,
+      repoRoot: tempRoot!,
+      seeds: ['zSource'],
+      politenessDelayMs: 0,
+      fetchPage: () =>
+        Promise.resolve(
+          noteHtml({
+            slug: 'zSource',
+            title: 'Source note',
+            contentMarkdown:
+              '# Source note\n\nA visible missing link: [[zMissing:::Visible missing note]].\n',
+            linkedNoteSlugs: [],
+          }),
+        ),
+      fetchBinary: () => Promise.reject(new Error('image fetch should not be called')),
+    });
+
+    const source = readFileSync(path.join(vault, 'notes/Source note.md'), 'utf-8');
+
+    expect(source).toContain('[[Visible missing note]]');
+    expect(source).not.toContain('zMissing');
   });
 
   it('skips an existing vault unless force is set', async () => {
@@ -133,8 +247,8 @@ describe('prepareEvergreenNotesFixture()', () => {
 
   it('skips existing downloaded images', async () => {
     const vault = makeVaultPath();
-    mkdirSync(path.join(vault, 'BearImages'), { recursive: true });
-    writeFileSync(path.join(vault, 'BearImages/image-one.png'), 'existing');
+    mkdirSync(path.join(vault, 'files'), { recursive: true });
+    writeFileSync(path.join(vault, 'files/image-one.png'), 'existing');
 
     const result = await prepareEvergreenNotesFixture({
       vault,
@@ -157,6 +271,6 @@ describe('prepareEvergreenNotesFixture()', () => {
 
     expect(result.imagesDownloaded).toBe(0);
     expect(result.imagesSkipped).toBe(1);
-    expect(existsSync(path.join(vault, 'BearImages/image-one.png'))).toBe(true);
+    expect(existsSync(path.join(vault, 'files/image-one.png'))).toBe(true);
   });
 });

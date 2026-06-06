@@ -2,11 +2,12 @@
 
 This fixture is a crawled Obsidian-style vault built from Andy Matuschak's public evergreen notes. It is intended to evaluate search quality on a real, dense, personal knowledge base rather than on product documentation or synthetic conversations.
 
-The vault uses opaque slug filenames such as `zKPv6qkSErdRGqyryvgS2wS.md`. That makes this fixture a useful content-retrieval benchmark: a search engine cannot get credit by matching human-readable file paths, and it must use note titles, bodies, links, and embeddings.
+The vault uses human-readable note filenames such as `notes/Mnemonic medium.md`, matching normal Obsidian usage where the file title is an important retrieval and navigation signal. Each note keeps its source page as URL-only frontmatter, for example `url: "https://notes.andymatuschak.org/zKPv6qkSErdRGqyryvgS2wS"`.
 
 ## Files
 
-- `dataset/` - markdown vault root used by the eval runner.
+- `dataset/notes/` - markdown notes with title-based filenames.
+- `dataset/files/` - downloaded local attachments in a flat structure.
 - `golden-set.json` - curated query and relevance judgments.
 
 ## Reproducing The Vault
@@ -17,7 +18,7 @@ The vault can be regenerated from Andy Matuschak's public notes site:
 npm run eval:prepare-evergreen-notes -- --force
 ```
 
-This command crawls `https://notes.andymatuschak.org`, follows note links from a fixed seed list, converts `[[slug:::title]]` links to Obsidian-style `[[slug|title]]` links, downloads referenced local images, and recreates `fixtures/evergreen-notes/dataset`.
+This command crawls `https://notes.andymatuschak.org`, follows note links from a fixed seed list, writes notes under `dataset/notes/` using their page titles as filenames, converts `[[slug:::title]]` links to Obsidian-style title links, downloads referenced local images into `dataset/files/`, rewrites image references as Obsidian embeds such as `![[files/image.png]]`, and recreates `fixtures/evergreen-notes/dataset`.
 
 Useful options:
 
@@ -64,12 +65,12 @@ npm run eval -- \
 
 ## Judgment Rules
 
-- `relevant_paths` are vault-relative filenames under `dataset/`. They are the notes that directly answer the query.
+- `relevant_paths` are vault-relative filenames under `dataset/`, usually `notes/<Title>.md`. They are the notes that directly answer the query.
 - `partial_paths` are useful supporting, sibling, overview, or nearby notes that would be reasonable secondary hits but are not sufficient answers.
 - Required evidence goes in `relevant_paths`, not `partial_paths`.
 - In this eval system, `relevant_paths` score 1.0 and `partial_paths` score 0.5 for nDCG. MRR, Hit@k, Recall@k, evidence coverage, and AllRel@k only use `relevant_paths`.
 - Multi-evidence queries use multiple `relevant_paths` so Recall@k and AllRel@k can measure whether the search retrieved the whole answer set.
-- Opaque filenames are used exactly as stored on disk. Do not replace them with note titles.
+- Paths use the generated title-based filenames exactly as stored on disk. Duplicate note titles are disambiguated with numeric suffixes such as `Title 2.md`.
 
 ## Coverage Intent
 
@@ -95,10 +96,10 @@ Output: `eval/results/evergreen-notes-no-rerank.json`
 
 | Metric    | Value     | Interpretation                                                          |
 | --------- | --------- | ----------------------------------------------------------------------- |
-| nDCG@5    | **0.719** | Strong but non-trivial top-5 ranking on a dense real knowledge vault     |
-| nDCG@10   | 0.748     | Most relevant notes appear by rank 10, with ranking still visible        |
-| MRR       | 0.858     | First fully relevant hit is usually near the top                         |
-| Hit@1     | 0.756     | About three quarters of queries put a full-credit note first             |
+| nDCG@5    | **0.722** | Strong but non-trivial top-5 ranking on a dense real knowledge vault     |
+| nDCG@10   | 0.753     | Most relevant notes appear by rank 10, with ranking still visible        |
+| MRR       | 0.874     | First fully relevant hit is usually near the top                         |
+| Hit@1     | 0.795     | About four fifths of queries put a full-credit note first                |
 | Hit@3     | 0.949     | Most queries have a full-credit note in the top 3                        |
 | Hit@5     | 0.974     | Top-5 retrieval is very high                                             |
 | Recall@10 | 0.972     | The engine generally retrieves the right evidence within 10 results      |
