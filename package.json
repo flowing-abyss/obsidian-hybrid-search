@@ -27,7 +27,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint src test eval",
-    "knip": "knip"
+    "knip": "knip",
+    "preflight": "bash scripts/ci-preflight.sh"
   },
   "keywords": [
     "obsidian",

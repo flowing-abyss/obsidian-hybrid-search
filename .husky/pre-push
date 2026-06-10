@@ -1,5 +1,4 @@
 set -e
 
-npm test
-npm run knip
+npm run preflight
 npm run eval:quality
