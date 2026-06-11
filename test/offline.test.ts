@@ -144,6 +144,7 @@ describe('fulltext and title search work without any embedding API call', () => 
     const top = results[0]!;
     assert.ok(top.scores.bm25 !== null, 'bm25 score must be present for fulltext result');
     assert.equal(top.scores.semantic, null, 'semantic score must be null for fulltext result');
+    assert.equal(top.scores.graph, null, 'graph score must be null for non-hybrid result');
   });
 
   it('title scores object has fuzzy_title set and semantic null', async () => {
@@ -155,5 +156,6 @@ describe('fulltext and title search work without any embedding API call', () => 
       'fuzzy_title score must be present for title result',
     );
     assert.equal(top.scores.semantic, null, 'semantic score must be null for title result');
+    assert.equal(top.scores.graph, null, 'graph score must be null for non-hybrid result');
   });
 });

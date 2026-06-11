@@ -863,11 +863,21 @@ export function getBacklinksForPaths(paths: string[]): Map<string, string[]> {
 
 export function upsertLinks(fromPath: string, toPaths: string[]): void {
   const db = getDb();
+  const existing = db
+    .prepare('SELECT to_path FROM links WHERE from_path = ? ORDER BY to_path')
+    .all(fromPath) as { to_path: string }[];
+  const existingPaths = existing.map((row) => row.to_path);
+  const nextPaths = [...new Set(toPaths)].sort((a, b) => a.localeCompare(b));
+  const changed =
+    existingPaths.length !== nextPaths.length ||
+    existingPaths.some((value, index) => value !== nextPaths[index]);
+
   db.prepare('DELETE FROM links WHERE from_path = ?').run(fromPath);
   const insert = db.prepare('INSERT OR IGNORE INTO links (from_path, to_path) VALUES (?, ?)');
   for (const toPath of toPaths) {
     insert.run(fromPath, toPath);
   }
+  if (changed) bumpDbVersion();
 }
 
 export function getLinksForPaths(paths: string[]): {

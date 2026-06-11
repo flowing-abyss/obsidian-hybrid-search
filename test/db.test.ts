@@ -42,6 +42,7 @@ const {
   getLinksForPaths,
   getNoteByPath,
   getDb,
+  getDbVersion,
   deleteNote,
   checkModelChanged,
   getStats,
@@ -579,6 +580,24 @@ describe('links & backlinks', () => {
     const { links } = getLinksForPaths(['linker.md']);
     const l = links.get('linker.md') ?? [];
     assert.ok(!l.includes('linker.md'), 'should not link to itself');
+  });
+
+  it('upsertLinks bumps db_version when links change', () => {
+    const before = getDbVersion();
+    upsertLinks('linker.md', ['zettelkasten-deep.md']);
+    const after = getDbVersion();
+    assert.ok(
+      after > before,
+      `db_version should increase after link change: ${before} -> ${after}`,
+    );
+  });
+
+  it('upsertLinks does not bump db_version for unchanged deduped links', () => {
+    upsertLinks('linker.md', ['pkm-overview.md', 'zettelkasten-deep.md']);
+    const before = getDbVersion();
+    upsertLinks('linker.md', ['zettelkasten-deep.md', 'pkm-overview.md', 'zettelkasten-deep.md']);
+    const after = getDbVersion();
+    assert.equal(after, before, 'db_version should not change for same deduped link set');
   });
 });
 

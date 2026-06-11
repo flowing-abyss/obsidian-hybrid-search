@@ -71,28 +71,17 @@ describe('SearchResult shape', () => {
     }
   });
 
-  it('scores object has semantic, bm25, fuzzy_title fields (each number | null)', async () => {
+  it('scores object has semantic, bm25, fuzzy_title, graph, hybrid fields (each number | null)', async () => {
     const results = await search('note', { mode: 'fulltext', limit: 5 });
     assert.ok(results.length > 0, 'should return results');
     for (const r of results) {
-      assert.ok(
-        'semantic' in r.scores,
-        'scores.semantic must exist (may be null for non-semantic search)',
-      );
-      assert.ok('bm25' in r.scores, 'scores.bm25 must exist');
-      assert.ok('fuzzy_title' in r.scores, 'scores.fuzzy_title must exist');
-      assert.ok(
-        r.scores.semantic === null || typeof r.scores.semantic === 'number',
-        'scores.semantic must be number or null',
-      );
-      assert.ok(
-        r.scores.bm25 === null || typeof r.scores.bm25 === 'number',
-        'scores.bm25 must be number or null',
-      );
-      assert.ok(
-        r.scores.fuzzy_title === null || typeof r.scores.fuzzy_title === 'number',
-        'scores.fuzzy_title must be number or null',
-      );
+      for (const key of ['semantic', 'bm25', 'fuzzy_title', 'graph', 'hybrid'] as const) {
+        assert.ok(key in r.scores, `scores.${key} must exist`);
+        assert.ok(
+          r.scores[key] === null || typeof r.scores[key] === 'number',
+          `scores.${key} must be number or null`,
+        );
+      }
     }
   });
 
@@ -165,7 +154,7 @@ describe('SearchResult shape', () => {
   it('matchedBy contains only valid signal names', async () => {
     const results = await search('alpha', { mode: 'fulltext', limit: 5 });
     assert.ok(results.length > 0);
-    const validSignals = new Set(['semantic', 'bm25', 'title']);
+    const validSignals = new Set(['semantic', 'bm25', 'title', 'graph']);
     for (const r of results) {
       for (const signal of r.matchedBy) {
         assert.ok(validSignals.has(signal), `unknown matchedBy signal: ${signal}`);

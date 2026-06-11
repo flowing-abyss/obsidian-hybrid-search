@@ -77,6 +77,7 @@ export interface SearchResult {
     semantic: number | null;
     bm25: number | null;
     fuzzy_title: number | null;
+    graph: number | null;
     hybrid: number | null;
   };
   previewAnchors?: MatchAnchor[];
@@ -121,6 +122,7 @@ interface RawResult {
     semantic?: number;
     bm25?: number;
     fuzzy_title?: number;
+    graph?: number;
     hybrid?: number; // RRF score, set when mode='hybrid'
   };
   semanticAnchor?: MatchAnchor;
@@ -179,6 +181,7 @@ function toSearchResult(r: RawResult): SearchResult {
   if (r.scores.semantic != null) matchedBy.push('semantic');
   if (r.scores.bm25 != null) matchedBy.push('bm25');
   if (r.scores.fuzzy_title != null) matchedBy.push('title');
+  if (r.scores.graph != null) matchedBy.push('graph');
   const { chunkText: _chunkText, ...rest } = r;
   return {
     ...rest,
@@ -191,6 +194,7 @@ function toSearchResult(r: RawResult): SearchResult {
       semantic: r.scores.semantic ?? null,
       bm25: r.scores.bm25 ?? null,
       fuzzy_title: r.scores.fuzzy_title ?? null,
+      graph: r.scores.graph ?? null,
       hybrid: r.scores.hybrid ?? null,
     },
   };
@@ -759,6 +763,9 @@ function rrfFusion(lists: RawResult[][], k = 60, weights?: number[]): RawResult[
         if (result.scores.fuzzy_title !== undefined) {
           existing.result.scores.fuzzy_title = result.scores.fuzzy_title;
         }
+        if (result.scores.graph !== undefined) {
+          existing.result.scores.graph = result.scores.graph;
+        }
       } else {
         scores.set(result.path, {
           rrfScore,
@@ -884,7 +891,7 @@ function searchRelated(
       matchedBy: depth === 0 ? ['source'] : depth > 0 ? ['link'] : ['backlink'],
       links: [],
       backlinks: [],
-      scores: { semantic: null, bm25: null, fuzzy_title: null, hybrid: null },
+      scores: { semantic: null, bm25: null, fuzzy_title: null, graph: null, hybrid: null },
     };
   };
 
