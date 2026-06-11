@@ -792,11 +792,15 @@ function getSnippetFallbacks(notePaths: string[], maxChars: number): Map<string,
   const uniquePaths = Array.from(new Set(notePaths));
   const placeholders = uniquePaths.map(() => '?').join(', ');
   const rows = db
-    .prepare(`SELECT path, content FROM notes WHERE path IN (${placeholders})`)
-    .all(...uniquePaths) as Array<{ path: string; content: string | null }>;
+    .prepare(`SELECT path, title, content FROM notes WHERE path IN (${placeholders})`)
+    .all(...uniquePaths) as Array<{ path: string; title: string | null; content: string | null }>;
 
   return new Map(
-    rows.map((row) => [row.path, row.content ? row.content.slice(0, maxChars).trim() : '']),
+    rows.map((row) => {
+      const contentSnippet = row.content ? row.content.slice(0, maxChars).trim() : '';
+      const titleSnippet = row.title ? row.title.slice(0, maxChars).trim() : '';
+      return [row.path, contentSnippet || titleSnippet];
+    }),
   );
 }
 
