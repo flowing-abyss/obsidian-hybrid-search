@@ -139,6 +139,7 @@ interface SearchOpts {
   onlyPaths?: boolean;
   onlyAbsolutePaths?: boolean;
   rerank?: boolean;
+  graph?: boolean;
   anchors?: boolean;
 }
 
@@ -500,6 +501,7 @@ program
     '--rerank',
     'Enable cross-encoder re-ranking (downloads ~570MB model on first use, hybrid mode only)',
   )
+  .option('--no-graph', 'Disable graph link expansion in hybrid mode')
   .option(
     '--anchors',
     'Include previewAnchors (headingPath, matchText, charStart/charEnd) in JSON output',
@@ -555,6 +557,7 @@ program
         snippetLength,
         notePath: opts.path,
         rerank: opts.rerank ?? false,
+        graph: opts.graph,
         anchors: opts.anchors ?? false,
         queries: !opts.path && queries.length > 1 ? queries : undefined,
       });

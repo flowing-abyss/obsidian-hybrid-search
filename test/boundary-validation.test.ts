@@ -93,6 +93,13 @@ describe('parseCliNumberOption', () => {
 });
 
 describe('SearchOptionsBoundarySchema', () => {
+  it('preserves graph boolean option', () => {
+    const result = SearchOptionsBoundarySchema.safeParse({ graph: false });
+
+    assert.equal(result.success, true);
+    if (result.success) assert.equal(result.data.graph, false);
+  });
+
   it('rejects search option numeric values outside CLI domains', () => {
     const invalidOptions = [
       { field: 'limit', options: { limit: -1 } },

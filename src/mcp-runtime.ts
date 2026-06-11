@@ -257,6 +257,7 @@ async function callSearchTool(a: Record<string, unknown>): Promise<McpToolResult
       direction: searchArgs.direction,
       snippetLength: searchArgs.snippet_length,
       rerank: searchArgs.rerank,
+      graph: searchArgs.graph,
       anchors: searchArgs.anchors,
       notePath,
       queries: allQueries.length > 1 ? allQueries : undefined,
@@ -371,14 +372,14 @@ export function createMcpServer(runtime: McpRuntime): Server {
         description:
           "Search the user's personal Obsidian knowledge base — their notes, ideas, and research. " +
           'Use this tool whenever the user asks about something they may have written about, wants to find related notes, or wants to explore their knowledge graph. ' +
-          "Use 'query' for text search across all notes (default mode 'hybrid' combines BM25 keyword matching, fuzzy title, and semantic embeddings — best for almost all queries; ranks by how thoroughly notes cover the topic). " +
+          "Use 'query' for text search across all notes (default mode 'hybrid' combines BM25 keyword matching, fuzzy title, semantic embeddings, and graph link expansion — best for almost all queries; ranks by how thoroughly notes cover the topic). " +
           "Use 'queries' for 2-4 reformulations when recall matters. " +
           "Use 'path' to find semantically similar notes to a given note path, excluding the source note and its outgoing links. " +
           "Use 'path' + 'related: true' to traverse the knowledge graph (outgoing links and backlinks). " +
           "Each result includes a 'rank' field (1 = best match). " +
           'Score guide for ranked text/path results: 0.8–1.0 = highly relevant, 0.5–0.8 = moderately relevant, 0.2–0.5 = somewhat relevant, below 0.2 = low relevance. ' +
           'In related mode, the source note is included at depth 0; skip it when you need only neighbors. ' +
-          'Returns: path, title, tags[], snippet, score (0-1), matchedBy[], links[], backlinks[], scores{semantic,bm25,fuzzy_title,hybrid}. Score fields are numbers or null.',
+          'Returns: path, title, tags[], snippet, score (0-1), matchedBy[], links[], backlinks[], scores{semantic,bm25,fuzzy_title,graph,hybrid}. Score fields are numbers or null.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -472,6 +473,12 @@ export function createMcpServer(runtime: McpRuntime): Server {
               description:
                 'Enable cross-encoder reranking after hybrid retrieval for better ordering when result precision matters. Adds latency and downloads/caches a ~570MB model on first use. ' +
                 'Only applies to hybrid mode; do not use for exact title, alias, or keyword lookups. Default: false.',
+            },
+            graph: {
+              type: 'boolean',
+              description:
+                'Hybrid mode graph expansion toggle. Default true: hybrid uses high-confidence text/semantic/title seeds to add one-hop linked notes as a weak RRF signal. ' +
+                'Set false for A/B comparisons or when link-neighborhood expansion is not desired. Ignored outside hybrid mode.',
             },
             anchors: {
               type: 'boolean',

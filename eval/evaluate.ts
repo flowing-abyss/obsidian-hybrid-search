@@ -25,6 +25,7 @@ function parseArgs(): {
   outputArg: string | undefined;
   k: number;
   rerank: boolean;
+  graph: boolean;
 } {
   const args = process.argv.slice(2);
   const get = (flag: string): string | undefined => {
@@ -36,13 +37,21 @@ function parseArgs(): {
   const goldenSetArg = get('--golden-set') ?? 'fixtures/obsidian-help/golden-set.json';
   const k = parseInt(get('--k') ?? '10', 10);
   const rerank = args.includes('--rerank');
+  const graph = !args.includes('--no-graph');
 
   const vaultPath = path.isAbsolute(vaultArg) ? vaultArg : path.join(repoRoot, vaultArg);
   const goldenSetPath = path.isAbsolute(goldenSetArg)
     ? goldenSetArg
     : path.join(repoRoot, goldenSetArg);
 
-  return { vault: vaultPath, goldenSet: goldenSetPath, outputArg: get('--output'), k, rerank };
+  return {
+    vault: vaultPath,
+    goldenSet: goldenSetPath,
+    outputArg: get('--output'),
+    k,
+    rerank,
+    graph,
+  };
 }
 
 function buildOutputPath(outputArg: string | undefined, vault: string, model: string): string {
@@ -78,6 +87,7 @@ interface SearchOptionsLike {
   mode?: 'hybrid';
   limit?: number;
   rerank?: boolean;
+  graph?: boolean;
   scope?: string;
 }
 
@@ -107,7 +117,7 @@ export interface PerQueryResult {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const { vault, goldenSet, outputArg, k, rerank } = parseArgs();
+  const { vault, goldenSet, outputArg, k, rerank, graph } = parseArgs();
 
   // 1. Set vault path BEFORE importing src modules
   process.env.OBSIDIAN_VAULT_PATH = vault;
@@ -116,6 +126,7 @@ async function main(): Promise<void> {
   console.log(`[eval] golden set: ${goldenSet}`);
   console.log(`[eval] k:          ${k}`);
   console.log(`[eval] rerank:     ${String(rerank)}`);
+  console.log(`[eval] graph:      ${String(graph)}`);
   console.log();
 
   // 2. Dynamic imports (after env is set)
@@ -172,6 +183,7 @@ async function main(): Promise<void> {
       k,
       searchLimit: getSearchLimitForQuery(q, k, scopedCandidateLimit),
       rerank,
+      graph,
       searchFn: search,
     });
     perQuery.push(row);
@@ -196,6 +208,7 @@ async function main(): Promise<void> {
       ohs_version: pkg.version,
       model,
       rerank,
+      graph,
       rerank_model: rerank ? config.rerankerModel : null,
       vault: path.relative(repoRoot, vault),
       note_count: noteCount,
@@ -265,6 +278,7 @@ export async function runGoldenQuery(
     k: number;
     searchLimit: number;
     rerank: boolean;
+    graph: boolean;
     searchFn: SearchFunction;
   },
 ): Promise<PerQueryResult> {
@@ -272,6 +286,7 @@ export async function runGoldenQuery(
     mode: 'hybrid',
     limit: options.searchLimit,
     rerank: options.rerank,
+    graph: options.graph,
     scope: query.scope,
   });
   return buildPerQueryResult(

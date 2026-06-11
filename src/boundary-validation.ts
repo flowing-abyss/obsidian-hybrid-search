@@ -19,6 +19,7 @@ export const SearchOptionsBoundarySchema = z.object({
   snippetLength: NonNegativeIntegerSchema.optional(),
   notePath: z.string().optional(),
   rerank: z.boolean().optional(),
+  graph: z.boolean().optional(),
   queries: z.array(z.string()).optional(),
   anchors: z.boolean().optional(),
 });
@@ -38,6 +39,7 @@ export const SearchToolArgumentsSchema = z.object({
   direction: DirectionSchema.optional(),
   snippet_length: NonNegativeIntegerSchema.optional(),
   rerank: z.boolean().optional(),
+  graph: z.boolean().optional(),
   anchors: z.boolean().optional(),
 });
 

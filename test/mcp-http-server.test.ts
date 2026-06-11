@@ -70,6 +70,20 @@ describe('runHttpMcpServer', () => {
     assert.match(toolsBody, /read/);
     assert.match(toolsBody, /reindex/);
     assert.match(toolsBody, /status/);
+
+    const toolsJson = parseJsonRpcDataEvent<{
+      result: {
+        tools: Array<{
+          name: string;
+          description: string;
+          inputSchema: { properties?: Record<string, unknown> };
+        }>;
+      };
+    }>(toolsBody);
+    const searchTool = toolsJson.result.tools.find((tool) => tool.name === 'search');
+    assert.ok(searchTool, 'search tool should be listed');
+    assert.ok(searchTool.inputSchema.properties?.graph, 'search schema should expose graph option');
+    assert.match(searchTool.description, /scores\{semantic,bm25,fuzzy_title,graph,hybrid\}/);
   });
 
   it('allows MCP initialize requests for extra allowed Host headers', async () => {
@@ -287,13 +301,16 @@ async function callTool(
 }
 
 function parseToolCallResult(body: string): { isError?: boolean } {
-  const dataLine = body.split('\n').find((line) => line.startsWith('data: '));
-  assert.ok(dataLine, 'Streamable HTTP response should include a data event');
-
-  const message = JSON.parse(dataLine.slice('data: '.length)) as {
+  const message = parseJsonRpcDataEvent<{
     result?: { isError?: boolean };
-  };
+  }>(body);
   assert.ok(message.result, 'tools/call response should include a result');
 
   return message.result;
+}
+
+function parseJsonRpcDataEvent<T>(body: string): T {
+  const dataLine = body.split('\n').find((line) => line.startsWith('data: '));
+  assert.ok(dataLine, 'Streamable HTTP response should include a data event');
+  return JSON.parse(dataLine.slice('data: '.length)) as T;
 }

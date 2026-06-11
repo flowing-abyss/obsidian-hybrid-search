@@ -98,6 +98,8 @@ export interface SearchOptions {
   /** Explicit note path for similarity/related lookup — overrides the input heuristic */
   notePath?: string;
   rerank?: boolean;
+  /** Hybrid graph expansion toggle. Defaults to true; ignored outside hybrid mode. */
+  graph?: boolean;
   /**
    * Multi-query fan-out: run parallel searches for each query and merge via RRF.
    * Use when you have 2–4 reformulations of the same question.
@@ -1009,11 +1011,12 @@ function cacheKey(input: string, options: SearchOptions): string {
   const rerankStr = options.rerank ? config.rerankerModel : '';
   const queriesStr = options.queries && options.queries.length > 1 ? options.queries.join('|') : '';
   const anchorsStr = options.anchors ? 'a' : '';
+  const graphStr = options.graph === false ? 'no-graph' : '';
   // Two-component version:
   //   getDbVersion() — shared via SQLite settings; any process that modifies the DB
   //                    bumps it, invalidating caches in all other processes.
   //   localVersion   — in-process counter; bumpIndexVersion() for test-suite isolation.
-  return `v${getDbVersion()}_${localVersion}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${fmStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}\0${rerankStr}\0${queriesStr}\0${anchorsStr}`;
+  return `v${getDbVersion()}_${localVersion}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${fmStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}\0${rerankStr}\0${queriesStr}\0${anchorsStr}\0${graphStr}`;
 }
 
 // eslint-disable-next-line sonarjs/cognitive-complexity -- primary search entry-point; complexity is inherent in the multi-mode, multi-filter pipeline

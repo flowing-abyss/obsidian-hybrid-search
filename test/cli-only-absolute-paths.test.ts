@@ -38,6 +38,7 @@ describe('--only-absolute-paths flag', () => {
       stdout.includes('--only-absolute-paths'),
       `--only-absolute-paths missing from help:\n${stdout}`,
     );
+    assert.ok(stdout.includes('--no-graph'), `--no-graph missing from help:\n${stdout}`);
   });
 
   it('--only-paths still outputs vault-relative paths', { skip: !existsSync(FIXTURE_DB) }, () => {
