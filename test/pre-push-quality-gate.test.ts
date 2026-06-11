@@ -1,12 +1,19 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const repoRoot = resolve(import.meta.dirname, '..');
 const gateScript = resolve(repoRoot, 'scripts/should-run-eval-quality.sh');
+const bashPath =
+  process.platform === 'win32'
+    ? (['C:\\Program Files\\Git\\bin\\bash.exe', 'C:\\Program Files\\Git\\usr\\bin\\bash.exe'].find(
+        existsSync,
+      ) ?? 'C:\\Program Files\\Git\\bin\\bash.exe')
+    : '/bin/bash';
 
 function runGate(changedFiles: string[]) {
-  return spawnSync('/bin/bash', [gateScript], {
+  return spawnSync(bashPath, [gateScript], {
     cwd: repoRoot,
     env: {
       ...process.env,
