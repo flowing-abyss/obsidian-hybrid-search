@@ -477,8 +477,8 @@ export function createMcpServer(runtime: McpRuntime): Server {
             graph: {
               type: 'boolean',
               description:
-                'Hybrid mode graph expansion toggle. Default true: hybrid uses high-confidence text/semantic/title seeds to add one-hop linked notes as a weak RRF signal. ' +
-                'Set false for A/B comparisons or when link-neighborhood expansion is not desired. Ignored outside hybrid mode.',
+                'Whether hybrid search should add query-conditioned graph evidence from wikilinks. Defaults to true. ' +
+                'Use false for a pure BM25/vector/title hybrid baseline. Graph only contributes when linked candidates also have query evidence from link context, title overlap, or direct retrieval; it is ignored outside hybrid mode.',
             },
             anchors: {
               type: 'boolean',

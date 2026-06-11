@@ -501,7 +501,7 @@ program
     '--rerank',
     'Enable cross-encoder re-ranking (downloads ~570MB model on first use, hybrid mode only)',
   )
-  .option('--no-graph', 'Disable graph link expansion in hybrid mode')
+  .option('--no-graph', 'Disable query-conditioned graph evidence in hybrid mode')
   .option(
     '--anchors',
     'Include previewAnchors (headingPath, matchText, charStart/charEnd) in JSON output',

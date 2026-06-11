@@ -17,6 +17,23 @@ import {
   resolveNotePath,
 } from './db.js';
 import { embed } from './embedder.js';
+import {
+  computeGraphStructuralFeatures,
+  scoreLinkContext,
+  titleQueryOverlap,
+} from './graph-features.js';
+import {
+  fuseGraphFeatures,
+  type DirectCandidate,
+  type FusedGraphCandidate,
+  type GraphCandidateFeatures,
+} from './graph-fusion.js';
+import {
+  runPersonalizedPageRank,
+  type GraphAdjacency,
+  type PprScore,
+  type PprSeed,
+} from './graph-ppr.js';
 import { reranker, type RerankCandidate } from './reranker.js';
 import { measureSearchStage, measureSearchStageSync } from './search-profile.js';
 
@@ -130,6 +147,18 @@ interface RawResult {
   semanticAnchor?: MatchAnchor;
   bm25Anchor?: MatchAnchor;
 }
+
+const GRAPH_SEED_LIMIT = 8;
+const GRAPH_FRONTIER_LIMIT = 80;
+const GRAPH_MAX_ITERATIONS = 12;
+const GRAPH_RESTART_PROBABILITY = 0.35;
+const GRAPH_MIN_DELTA = 1e-5;
+const GRAPH_OUTGOING_WEIGHT = 1.0;
+const GRAPH_BACKLINK_WEIGHT = 0.65;
+const GRAPH_DIRECT_BOOST_CAP = 0.08;
+const GRAPH_ONLY_BASE = 0.45;
+const GRAPH_LINK_CONTEXT_GATE = 0.15;
+const GRAPH_TITLE_OVERLAP_GATE = 0.25;
 
 function matchesScopeFilter(notePath: string, scope: string | string[]): boolean {
   const scopes = (Array.isArray(scope) ? scope : [scope]).map((s) => s.normalize('NFD'));
@@ -791,6 +820,280 @@ function rrfFusion(lists: RawResult[][], k = 60, weights?: number[]): RawResult[
     }));
 }
 
+function applyGraphAugmentation(
+  query: string,
+  directResults: RawResult[],
+  candidateLimit: number,
+  options: SearchOptions,
+): RawResult[] {
+  if (options.graph === false || directResults.length === 0) return directResults;
+
+  const seeds = selectGraphSeeds(directResults, options);
+  if (seeds.length === 0) return directResults;
+
+  const adjacency = buildGraphAdjacency(seeds.map((seed) => seed.path));
+  const pprScores = runPersonalizedPageRank({
+    adjacency,
+    seeds: seeds.map((seed): PprSeed => ({ path: seed.path, weight: seed.weight })),
+    options: {
+      restartProbability: GRAPH_RESTART_PROBABILITY,
+      maxIterations: GRAPH_MAX_ITERATIONS,
+      minDelta: GRAPH_MIN_DELTA,
+      frontierLimit: Math.max(candidateLimit, GRAPH_FRONTIER_LIMIT),
+      outgoingWeight: GRAPH_OUTGOING_WEIGHT,
+      backlinkWeight: GRAPH_BACKLINK_WEIGHT,
+    },
+  });
+  if (pprScores.length === 0) return directResults;
+
+  const graphFeatures = buildGraphCandidateFeatures(
+    query,
+    seeds,
+    directResults,
+    pprScores,
+    adjacency,
+  );
+  const fused = fuseGraphFeatures(
+    directResults.map(
+      (result): DirectCandidate => ({
+        path: result.path,
+        score: result.score,
+        hybridScore: result.scores.hybrid ?? result.score,
+      }),
+    ),
+    graphFeatures,
+    {
+      directBoostCap: GRAPH_DIRECT_BOOST_CAP,
+      graphOnlyBase: GRAPH_ONLY_BASE,
+      linkContextGate: GRAPH_LINK_CONTEXT_GATE,
+      titleOverlapGate: GRAPH_TITLE_OVERLAP_GATE,
+    },
+  );
+
+  return materializeFusedGraphResults(directResults, fused);
+}
+
+interface GraphSeedCandidate {
+  path: string;
+  rank: number;
+  weight: number;
+}
+
+function selectGraphSeeds(results: RawResult[], options: SearchOptions): GraphSeedCandidate[] {
+  let candidates = results;
+  if (options.scope) candidates = applyScope(candidates, options.scope);
+  if (options.tag && (!Array.isArray(options.tag) || options.tag.length > 0)) {
+    candidates = applyTagFilter(candidates, options.tag);
+  }
+  if (
+    options.frontmatter &&
+    (!Array.isArray(options.frontmatter) || options.frontmatter.length > 0)
+  ) {
+    candidates = applyFrontmatterFilter(candidates, options.frontmatter);
+  }
+
+  return candidates
+    .map((result, rank) => ({ result, rank, signalCount: directSignalCount(result) }))
+    .filter(
+      ({ result, signalCount }) =>
+        (result.scores.hybrid ?? result.score) >= 0.35 ||
+        signalCount >= 2 ||
+        result.scores.fuzzy_title === 1.0,
+    )
+    .slice(0, GRAPH_SEED_LIMIT)
+    .map(({ result, rank, signalCount }) => ({
+      path: result.path,
+      rank,
+      weight: (result.scores.hybrid ?? result.score) * (1 + signalCount * 0.1),
+    }));
+}
+
+function directSignalCount(result: RawResult): number {
+  let count = 0;
+  if (result.scores.semantic !== undefined) count++;
+  if (result.scores.bm25 !== undefined) count++;
+  if (result.scores.fuzzy_title === 1.0) count++;
+  return count;
+}
+
+function buildGraphAdjacency(seedPaths: string[]): GraphAdjacency {
+  const outgoingSeeds = getOutgoingLinksForPaths(seedPaths);
+  const backlinkSeeds = getBacklinksForPaths(seedPaths);
+  const frontier = new Set<string>(seedPaths);
+  for (const seedPath of seedPaths) {
+    for (const linkedPath of outgoingSeeds.get(seedPath) ?? []) frontier.add(linkedPath);
+    for (const backlinkPath of backlinkSeeds.get(seedPath) ?? []) frontier.add(backlinkPath);
+    if (frontier.size >= GRAPH_FRONTIER_LIMIT) break;
+  }
+
+  const paths = [...frontier].slice(0, GRAPH_FRONTIER_LIMIT);
+  return {
+    outgoing: getOutgoingLinksForPaths(paths),
+    backlinks: getBacklinksForPaths(paths),
+  };
+}
+
+function buildGraphCandidateFeatures(
+  query: string,
+  seeds: GraphSeedCandidate[],
+  directResults: RawResult[],
+  pprScores: PprScore[],
+  adjacency: GraphAdjacency,
+): GraphCandidateFeatures[] {
+  const directByPath = new Map(directResults.map((result) => [result.path, result]));
+  const seedPaths = seeds.map((seed) => seed.path);
+  const notes = getGraphNotes(pprScores.map((score) => score.path));
+  const seedRanks = new Map(seeds.map((seed) => [seed.path, seed.rank]));
+
+  return pprScores.flatMap((pprScore) => {
+    const note = notes.get(pprScore.path);
+    if (!note) return [];
+    const direct = directByPath.get(pprScore.path);
+    const contexts = getGraphLinkContexts(pprScore.path, seedPaths, adjacency, notes);
+    const structural = computeGraphStructuralFeatures({
+      seedPaths,
+      candidatePath: pprScore.path,
+      adjacency,
+    });
+
+    return [
+      {
+        path: pprScore.path,
+        ppr: pprScore.score,
+        directHybrid: direct?.scores.hybrid ?? null,
+        semantic: direct?.scores.semantic ?? null,
+        bm25: direct?.scores.bm25 ?? null,
+        fuzzyTitle: direct?.scores.fuzzy_title ?? null,
+        titleQueryOverlap: titleQueryOverlap(query, note.title),
+        linkContextScore: scoreLinkContext(query, contexts),
+        commonNeighbors: structural.commonNeighbors,
+        jaccard: structural.jaccard,
+        adamicAdar: structural.adamicAdar,
+        resourceAllocation: structural.resourceAllocation,
+        coCitationCount: structural.coCitationCount,
+        degree: structural.degree,
+        lowDegreePrior: structural.lowDegreePrior,
+        minSeedRank:
+          seedRanks.get(pprScore.path) ?? minAdjacentSeedRank(pprScore.path, seeds, adjacency),
+        minDepth: seedRanks.has(pprScore.path) ? 0 : 1,
+      },
+    ];
+  });
+}
+
+interface GraphNote {
+  path: string;
+  title: string;
+  tags: string;
+  aliases: string | null;
+  content: string;
+}
+
+function getGraphNotes(paths: string[]): Map<string, GraphNote> {
+  const uniquePaths = [...new Set(paths)];
+  if (uniquePaths.length === 0) return new Map();
+  const placeholders = uniquePaths.map(() => '?').join(', ');
+  const rows = getDb()
+    .prepare(
+      `SELECT path, title, tags, aliases, content
+       FROM notes
+       WHERE path IN (${placeholders})`,
+    )
+    .all(...uniquePaths) as Array<{
+    path: string;
+    title: string | null;
+    tags: string | null;
+    aliases: string | null;
+    content: string | null;
+  }>;
+
+  return new Map(
+    rows.map((row) => [
+      row.path,
+      {
+        path: row.path,
+        title: row.title ?? '',
+        tags: row.tags ?? '[]',
+        aliases: row.aliases,
+        content: row.content ?? '',
+      },
+    ]),
+  );
+}
+
+function getGraphLinkContexts(
+  candidatePath: string,
+  seedPaths: string[],
+  adjacency: GraphAdjacency,
+  notes: Map<string, GraphNote>,
+): string[] {
+  const contexts: string[] = [];
+  const candidateNote = notes.get(candidatePath);
+  for (const seedPath of seedPaths) {
+    const seedNote = notes.get(seedPath);
+    if (seedNote && (adjacency.outgoing.get(seedPath) ?? []).includes(candidatePath)) {
+      contexts.push(getLinkContext(seedNote.content, candidatePath));
+    }
+    if (candidateNote && (adjacency.backlinks.get(seedPath) ?? []).includes(candidatePath)) {
+      contexts.push(getLinkContext(candidateNote.content, seedPath));
+    }
+  }
+  return contexts.filter((context) => context.length > 0);
+}
+
+function minAdjacentSeedRank(
+  candidatePath: string,
+  seeds: GraphSeedCandidate[],
+  adjacency: GraphAdjacency,
+): number {
+  let minRank = Number.POSITIVE_INFINITY;
+  for (const seed of seeds) {
+    if (
+      (adjacency.outgoing.get(seed.path) ?? []).includes(candidatePath) ||
+      (adjacency.backlinks.get(seed.path) ?? []).includes(candidatePath)
+    ) {
+      minRank = Math.min(minRank, seed.rank);
+    }
+  }
+  return Number.isFinite(minRank) ? minRank : GRAPH_SEED_LIMIT;
+}
+
+function materializeFusedGraphResults(
+  directResults: RawResult[],
+  fused: FusedGraphCandidate[],
+): RawResult[] {
+  const directByPath = new Map(
+    directResults.map((result) => [result.path, { ...result, scores: { ...result.scores } }]),
+  );
+  const graphScoreByPath = new Map(
+    fused.map((candidate) => [candidate.path, candidate.graphScore]),
+  );
+  const notes = getGraphNotes(fused.map((candidate) => candidate.path));
+  return fused.flatMap((candidate) => {
+    const direct = directByPath.get(candidate.path);
+    if (direct) {
+      const graphScore = graphScoreByPath.get(candidate.path) ?? 0;
+      direct.score = candidate.finalScore;
+      if (graphScore > 0) direct.scores.graph = graphScore;
+      return [direct];
+    }
+
+    const note = notes.get(candidate.path);
+    if (!note) return [];
+    return [
+      {
+        path: note.path,
+        title: note.title,
+        tags: note.tags,
+        aliases: note.aliases,
+        snippet: '',
+        score: candidate.finalScore,
+        scores: { graph: candidate.graphScore },
+      },
+    ];
+  });
+}
+
 // ─── Graph traversal ─────────────────────────────────────
 
 /** Get the first maxChars characters of a note's content as a fallback snippet. */
@@ -1204,6 +1507,12 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     for (const r of results) {
       r.scores.hybrid = r.score;
     }
+    if (mode === 'hybrid' && options.graph !== false) {
+      const graphQuery = options.queries.join(' ');
+      results = measureSearchStageSync('graphAugmentation', () =>
+        applyGraphAugmentation(graphQuery, results, candidateLimit, options),
+      );
+    }
     // Rerank after full merge — only in hybrid mode
     if (options.rerank) {
       if (mode !== 'hybrid') {
@@ -1222,6 +1531,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
       snippetLength,
       options.rerank ?? false,
       options.anchors ?? false,
+      options,
     );
   }
 
@@ -1390,6 +1700,7 @@ async function searchByQuery(
   snippetLength: number,
   rerank = false,
   buildAnchors = false,
+  graphOptions?: SearchOptions,
 ): Promise<RawResult[]> {
   if (rerank && mode !== 'hybrid') {
     process.stderr.write('Reranking is only supported in hybrid mode. Ignoring --rerank.\n');
@@ -1459,6 +1770,12 @@ async function searchByQuery(
   // Populate scores.hybrid for hybrid mode — always, regardless of rerank flag
   for (const r of results) {
     r.scores.hybrid = r.score;
+  }
+
+  if (graphOptions && graphOptions.graph !== false) {
+    results = measureSearchStageSync('graphAugmentation', () =>
+      applyGraphAugmentation(query, results, candidateLimit, graphOptions ?? {}),
+    );
   }
 
   if (rerank) {
