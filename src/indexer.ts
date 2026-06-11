@@ -24,6 +24,10 @@ interface IndexResult {
   errors: Array<{ path: string; error: string }>;
 }
 
+function toVaultRelativePath(fullPath: string): string {
+  return path.relative(config.vaultPath, fullPath).split(path.sep).join('/').normalize('NFD');
+}
+
 function* walkDir(dir: string): Generator<string> {
   let entries: { name: string; isDirectory(): boolean; isFile(): boolean }[];
   try {
@@ -37,7 +41,7 @@ function* walkDir(dir: string): Generator<string> {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      const rel = path.relative(config.vaultPath, full);
+      const rel = toVaultRelativePath(full);
       if (!isIgnored(rel + '/')) {
         yield* walkDir(full);
       }
@@ -50,7 +54,7 @@ function* walkDir(dir: string): Generator<string> {
 export function scanVault(): string[] {
   const files: string[] = [];
   for (const fullPath of walkDir(config.vaultPath)) {
-    const rel = path.relative(config.vaultPath, fullPath);
+    const rel = toVaultRelativePath(fullPath);
     if (!isIgnored(rel)) {
       files.push(fullPath);
     }
@@ -67,7 +71,7 @@ export async function indexFile(
     const stat = statSync(fullPath);
     const mtime = stat.mtimeMs;
 
-    const relPath = path.relative(config.vaultPath, fullPath).normalize('NFD');
+    const relPath = toVaultRelativePath(fullPath);
     const existing = force ? undefined : getNoteMeta(relPath);
 
     // Fast skip: mtime unchanged
@@ -255,7 +259,7 @@ export async function indexVaultSync(
   header = 'Indexing vault...',
 ): Promise<IndexResult> {
   const files = scanVault();
-  const fsPaths = new Set(files.map((f) => path.relative(config.vaultPath, f).normalize('NFD')));
+  const fsPaths = new Set(files.map(toVaultRelativePath));
   cleanupStaleNotes(fsPaths);
 
   const contextLength = await getContextLength();
@@ -410,7 +414,7 @@ async function processQueue(contextLength: number): Promise<void> {
 // eslint-disable-next-line @typescript-eslint/require-await
 export async function startBackgroundIndexing(contextLength: number): Promise<void> {
   const files = scanVault();
-  const fsPaths = new Set(files.map((f) => path.relative(config.vaultPath, f).normalize('NFD')));
+  const fsPaths = new Set(files.map(toVaultRelativePath));
   cleanupStaleNotes(fsPaths);
   _totalExpected = files.length;
   _processedCount = 0;
@@ -431,14 +435,14 @@ export function startWatcher(contextLength: number): void {
           const base = path.basename(filePath);
           try {
             if (statSync(filePath).isDirectory()) {
-              const rel = path.relative(config.vaultPath, filePath);
+              const rel = toVaultRelativePath(filePath);
               return isIgnored(rel + '/');
             }
           } catch {
             // File doesn't exist — fall through to extension check below
           }
           if (!base.endsWith('.md')) return true;
-          const rel = path.relative(config.vaultPath, filePath);
+          const rel = toVaultRelativePath(filePath);
           return isIgnored(rel);
         },
         persistent: true,
@@ -475,7 +479,7 @@ export function startWatcher(contextLength: number): void {
         if (pendingUnlinks.has(filePath)) return;
         pendingUnlinks.add(filePath);
         try {
-          const rel = path.relative(config.vaultPath, filePath).normalize('NFD');
+          const rel = toVaultRelativePath(filePath);
           const existing = fileDelays.get(filePath);
           if (existing) {
             clearTimeout(existing);
