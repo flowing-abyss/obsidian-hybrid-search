@@ -24,7 +24,7 @@ vi.mock('../src/embedder.js', () => ({
   embed: vi.fn((texts: string[]) => Promise.resolve(texts.map(() => null))),
 }));
 
-const { openDb, initVecTable, upsertNote, getDb } = await import('../src/db.js');
+const { closeDb, openDb, initVecTable, upsertNote, getDb } = await import('../src/db.js');
 const { search, bumpIndexVersion } = await import('../src/searcher.js');
 
 const DIM = 4;
@@ -53,6 +53,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
 });
 

@@ -24,7 +24,8 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
 // ─── Module imports (after env is set) ───────────────────────────────────────
 
-const { openDb, initVecTable, upsertNote, getStoredEmbeddingDim } = await import('../src/db.js');
+const { closeDb, openDb, initVecTable, upsertNote, getStoredEmbeddingDim } =
+  await import('../src/db.js');
 const { search } = await import('../src/searcher.js');
 
 const EMBED_DIM = 4;
@@ -39,6 +40,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
 });
 

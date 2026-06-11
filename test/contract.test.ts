@@ -17,7 +17,7 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
 // ─── Module imports ───────────────────────────────────────────────────────────
 
-const { openDb, initVecTable, upsertNote } = await import('../src/db.js');
+const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/db.js');
 const { readNotes, search } = await import('../src/searcher.js');
 
 const fakeEmbedding = new Float32Array([0.5, 0.5, 0.5, 0.5]);
@@ -46,6 +46,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
 });
 

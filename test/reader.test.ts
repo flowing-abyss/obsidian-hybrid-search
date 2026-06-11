@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, it } from 'vitest';
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-reader-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-const { openDb, initVecTable, upsertNote, upsertLinks } = await import('../src/db.js');
+const { closeDb, openDb, initVecTable, upsertNote, upsertLinks } = await import('../src/db.js');
 const { readNotes } = await import('../src/searcher.js');
 
 const fakeEmb = new Float32Array([0.1, 0.2, 0.3, 0.4]);
@@ -40,6 +40,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
 });
 

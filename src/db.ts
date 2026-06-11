@@ -474,6 +474,7 @@ function restoreIgnorePatterns(db: DB): void {
 }
 
 export function openDb(): DB {
+  closeDb();
   const db = new Database(config.dbPath);
   sqliteVec.load(db);
   db.pragma('journal_mode = WAL');
@@ -490,16 +491,19 @@ export function getDb(): DB {
   return _db;
 }
 
+export function closeDb(): void {
+  if (!_db) return;
+  _db.close();
+  _db = null;
+}
+
 /**
  * Close the current DB connection (if open) and delete all DB files
  * (.db, .db-shm, .db-wal). Safe to call when no connection is open.
  * After this call _db is null — caller must openDb() before using the DB again.
  */
 export function wipeDatabaseFiles(): void {
-  if (_db) {
-    _db.close();
-    _db = null;
-  }
+  closeDb();
   const dbPath = config.dbPath;
   for (const ext of ['', '-shm', '-wal']) {
     try {

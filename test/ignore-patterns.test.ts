@@ -35,8 +35,15 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 // Use default ignore patterns (same as production default in config.ts)
 delete process.env.OBSIDIAN_IGNORE_PATTERNS;
 
-const { openDb, initVecTable, upsertNote, getDb, getPathsToRemoveForIgnoreChange, deleteNote } =
-  await import('../src/db.js');
+const {
+  closeDb,
+  openDb,
+  initVecTable,
+  upsertNote,
+  getDb,
+  getPathsToRemoveForIgnoreChange,
+  deleteNote,
+} = await import('../src/db.js');
 const { search, bumpIndexVersion } = await import('../src/searcher.js');
 const { isIgnored } = await import('../src/ignore.js');
 
@@ -67,6 +74,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
 });
 

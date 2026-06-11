@@ -17,7 +17,7 @@ import { handleStdioLine } from '../src/stdio-server.js';
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-serve-stdio-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-const { openDb, initVecTable, upsertNote } = await import('../src/db.js');
+const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/db.js');
 const { search, bumpIndexVersion } = await import('../src/searcher.js');
 
 const fakeEmbedding = new Float32Array([0.5, 0.5, 0.5, 0.5]);
@@ -47,6 +47,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
 });
 

@@ -33,8 +33,8 @@ describe('parseSpeedProfileArgs()', () => {
       json: true,
       query: undefined,
     });
-    expect(args.vault).toMatch(/fixtures\/custom-vault$/);
-    expect(args.goldenSet).toMatch(/fixtures\/custom-golden-set\.json$/);
+    expect(args.vault.replaceAll('\\', '/')).toMatch(/fixtures\/custom-vault$/);
+    expect(args.goldenSet.replaceAll('\\', '/')).toMatch(/fixtures\/custom-golden-set\.json$/);
   });
 });
 

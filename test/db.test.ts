@@ -52,6 +52,7 @@ const {
   filterNotePathsByFrontmatter,
   getStoredModel,
   wipeDatabaseFiles,
+  closeDb,
 } = await import('../src/db.js');
 const { searchBm25, searchFuzzyTitle, search } = await import('../src/searcher.js');
 const { isIgnored } = await import('../src/ignore.js');
@@ -105,6 +106,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
 });
 

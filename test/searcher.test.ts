@@ -15,7 +15,8 @@ vi.mock('../src/embedder.js', () => ({
 
 // ─── Module imports (after env is set) ───────────────────────────────────────
 
-const { openDb, initVecTable, upsertNote, upsertLinks, getDb } = await import('../src/db.js');
+const { closeDb, openDb, initVecTable, upsertNote, upsertLinks, getDb } =
+  await import('../src/db.js');
 const { search, bumpIndexVersion, readNotes } = await import('../src/searcher.js');
 const { reranker } = await import('../src/reranker.js');
 
@@ -217,6 +218,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
 });
 

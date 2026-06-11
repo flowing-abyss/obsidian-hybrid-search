@@ -7,6 +7,7 @@ import http, {
   type ServerResponse,
 } from 'node:http';
 import { config } from './config.js';
+import { closeDb } from './db.js';
 import { createMcpRuntime, createMcpServer, startMcpBackgroundServices } from './mcp-runtime.js';
 import { registerProcessHandlers } from './process-resilience.js';
 
@@ -127,6 +128,7 @@ export async function runHttpMcpServer(
       await Promise.allSettled([...sessions.values()].map((session) => session.server.close()));
       sessions.clear();
       await closeNodeServer(nodeServer);
+      closeDb();
     },
   };
 }

@@ -13,7 +13,7 @@ vi.mock('chokidar', () => ({
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-indexer-file-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-const { openDb, wipeDatabaseFiles, getNoteByPath, getDb, initVecTable } =
+const { closeDb, openDb, wipeDatabaseFiles, getNoteByPath, getDb, initVecTable } =
   await import('../src/db.js');
 
 // Spy on embedder *before* importing indexer so live bindings pick up the mocks
@@ -40,6 +40,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
 });
 
@@ -311,6 +312,7 @@ describe('startBackgroundIndexing', () => {
       assert.equal(status.total, 0);
       assert.equal(status.isRunning, false);
     } finally {
+      closeDb();
       process.env.OBSIDIAN_VAULT_PATH = originalVault;
       rmSync(emptyVault, { recursive: true, force: true });
     }
@@ -432,6 +434,7 @@ describe('indexVaultSync', () => {
       assert.equal(result.skipped, 0);
       assert.equal(result.errors.length, 0);
     } finally {
+      closeDb();
       process.env.OBSIDIAN_VAULT_PATH = originalVault;
       rmSync(emptyVault, { recursive: true, force: true });
     }

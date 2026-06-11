@@ -12,7 +12,7 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 // Dynamic imports so config reads the env var we just set
 const { parseAliasField, parseInlineTags, parseWikilinks, resolveWikilinks, getIndexingStatus } =
   await import('../src/indexer.js');
-const { openDb, initVecTable, upsertNote } = await import('../src/db.js');
+const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/db.js');
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -179,6 +179,7 @@ describe('resolveWikilinks', () => {
   });
 
   afterAll(() => {
+    closeDb();
     rmSync(vaultDir, { recursive: true, force: true });
   });
 

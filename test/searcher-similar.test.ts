@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-searcher-similar-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-const { openDb, initVecTable, upsertNote } = await import('../src/db.js');
+const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/db.js');
 
 // Mock embedder before importing searcher so live bindings pick up the mock
 const embedder = await import('../src/embedder.js');
@@ -48,6 +48,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
 });
 
