@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/obsidian-hybrid-search)](https://www.npmjs.com/package/obsidian-hybrid-search)
 [![Tests](https://github.com/flowing-abyss/obsidian-hybrid-search/actions/workflows/ci.yml/badge.svg)](https://github.com/flowing-abyss/obsidian-hybrid-search/actions)
-[![Downloads](https://img.shields.io/npm/dw/obsidian-hybrid-search)](https://www.npmjs.com/package/obsidian-hybrid-search)
+[![Total downloads](https://badgen.net/npm/dt/obsidian-hybrid-search)](https://www.npmjs.com/package/obsidian-hybrid-search)
 
 An [MCP server](https://modelcontextprotocol.io) and CLI tool that makes your Obsidian vault queryable by AI assistants. Indexes notes into SQLite with FTS5 full-text search, trigram fuzzy matching, and `sqlite-vec` vector similarity — results are merged with Reciprocal Rank Fusion (RRF) and scored 0–1.
 

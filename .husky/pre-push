@@ -1,4 +1,7 @@
 set -e
 
 npm run preflight
-npm run eval:quality
+
+if scripts/should-run-eval-quality.sh; then
+  npm run eval:quality
+fi
