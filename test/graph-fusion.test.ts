@@ -55,8 +55,8 @@ describe('fuseGraphFeatures', () => {
 
   it('damps direct boosts so graph cannot flip a strong direct near-tie', () => {
     const direct: DirectCandidate[] = [
-      { path: 'best', score: 0.99, hybridScore: 0.99 },
-      { path: 'second', score: 0.92, hybridScore: 0.92 },
+      { path: 'best', score: 0.8, hybridScore: 0.8 },
+      { path: 'second', score: 0.79, hybridScore: 0.79 },
     ];
 
     const fused = fuseGraphFeatures(

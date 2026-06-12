@@ -45,6 +45,7 @@ const NORMALIZED_FIELDS = [
   'resourceAllocation',
   'coCitationCount',
 ] as const;
+const DIRECT_ORDER_EPSILON = 1e-9;
 
 export function fuseGraphFeatures(
   directCandidates: DirectCandidate[],
@@ -86,7 +87,23 @@ export function fuseGraphFeatures(
     }
   }
 
+  preserveDirectOrder(fused, directCandidates);
   return fused.sort((a, b) => b.finalScore - a.finalScore || a.path.localeCompare(b.path));
+}
+
+function preserveDirectOrder(
+  fused: FusedGraphCandidate[],
+  directCandidates: DirectCandidate[],
+): void {
+  const fusedByPath = new Map(fused.map((candidate) => [candidate.path, candidate]));
+  let previousScore = Number.POSITIVE_INFINITY;
+  for (const directCandidate of directCandidates) {
+    const fusedCandidate = fusedByPath.get(directCandidate.path);
+    if (!fusedCandidate) continue;
+    const maxAllowed = Math.max(0, previousScore - DIRECT_ORDER_EPSILON);
+    fusedCandidate.finalScore = Math.min(fusedCandidate.finalScore, maxAllowed);
+    previousScore = fusedCandidate.finalScore;
+  }
 }
 
 function computeGraphScore(candidate: GraphCandidateFeatures): number {
