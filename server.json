@@ -1,0 +1,71 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.flowing-abyss/obsidian-hybrid-search",
+  "title": "Obsidian Hybrid Search",
+  "description": "Search Obsidian vaults with hybrid full-text, fuzzy, semantic, and graph retrieval.",
+  "websiteUrl": "https://github.com/flowing-abyss/obsidian-hybrid-search#readme",
+  "repository": {
+    "url": "https://github.com/flowing-abyss/obsidian-hybrid-search",
+    "source": "github"
+  },
+  "version": "0.13.8",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "obsidian-hybrid-search",
+      "version": "0.13.8",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "OBSIDIAN_VAULT_PATH",
+          "description": "Absolute path to the Obsidian vault to index and search.",
+          "format": "filepath",
+          "isRequired": true
+        },
+        {
+          "name": "OBSIDIAN_PREFIX",
+          "description": "Optional prefix for MCP tool names when configuring multiple vaults."
+        },
+        {
+          "name": "OBSIDIAN_IGNORE_PATTERNS",
+          "description": "Comma-separated glob patterns to exclude from indexing.",
+          "default": ".obsidian/**,templates/**,*.canvas"
+        },
+        {
+          "name": "OPENAI_API_KEY",
+          "description": "Optional API key for OpenAI-compatible remote embeddings; omit to use local embeddings.",
+          "isSecret": true
+        },
+        {
+          "name": "OPENAI_BASE_URL",
+          "description": "Optional OpenAI-compatible API base URL for OpenRouter, Ollama, LM Studio, or similar providers.",
+          "default": "https://api.openai.com/v1"
+        },
+        {
+          "name": "OPENAI_EMBEDDING_MODEL",
+          "description": "Remote embedding model name when using an OpenAI-compatible API.",
+          "default": "text-embedding-3-small"
+        },
+        {
+          "name": "LOCAL_EMBEDDING_MODEL",
+          "description": "Local embedding model used when no remote embedding API is configured.",
+          "default": "Xenova/multilingual-e5-small"
+        },
+        {
+          "name": "RERANKER_MODEL",
+          "description": "Optional ONNX cross-encoder reranker model used when reranking is requested.",
+          "default": "onnx-community/bge-reranker-v2-m3-ONNX"
+        }
+      ]
+    }
+  ]
+}

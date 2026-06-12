@@ -39,6 +39,7 @@ import {
   startWatcher,
 } from './indexer.js';
 import { runHttpMcpServerCli } from './mcp-http-server.js';
+import { runStdioMcpServer } from './mcp-stdio-server.js';
 import { ensureMcpServer, formatMcpInfo, getMcpStatus, stopMcpServer } from './mcp-supervisor.js';
 import { isAmbiguousNotePathError, readNotes, search } from './searcher.js';
 import { handleStdioLine } from './stdio-server.js';
@@ -436,6 +437,13 @@ program.hook('preAction', async (_thisCommand, actionCommand) => {
   const opts = program.opts<{ db?: string }>();
   discoverConfig(opts.db);
 });
+
+program
+  .command('mcp')
+  .description('Start the MCP server over stdio')
+  .action(async () => {
+    await runStdioMcpServer();
+  });
 
 program
   .command('search [queries...]', { isDefault: true })

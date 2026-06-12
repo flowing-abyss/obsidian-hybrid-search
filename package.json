@@ -1,6 +1,7 @@
 {
   "name": "obsidian-hybrid-search",
-  "version": "0.13.7",
+  "version": "0.13.8",
+  "mcpName": "io.github.flowing-abyss/obsidian-hybrid-search",
   "type": "module",
   "bin": {
     "obsidian-hybrid-search": "./dist/src/cli.js",

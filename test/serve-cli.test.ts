@@ -112,6 +112,14 @@ afterEach(() => {
 });
 
 describe('serve CLI smoke tests', () => {
+  it('exposes a registry-friendly MCP stdio command', async () => {
+    const result = await runCli(['mcp', '--help']);
+
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /Start the MCP server over stdio/);
+    assertNoVaultDbFiles();
+  });
+
   it('rejects a non-numeric search limit', async () => {
     const result = await runCli(['alpha', '--limit', 'abc']);
 
