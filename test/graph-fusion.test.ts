@@ -53,6 +53,38 @@ describe('fuseGraphFeatures', () => {
     assert.equal(fused[0]!.path, 'best');
   });
 
+  it('damps direct boosts so graph cannot flip a strong direct near-tie', () => {
+    const direct: DirectCandidate[] = [
+      { path: 'best', score: 0.99, hybridScore: 0.99 },
+      { path: 'second', score: 0.92, hybridScore: 0.92 },
+    ];
+
+    const fused = fuseGraphFeatures(
+      direct,
+      [
+        graphCandidate({
+          path: 'second',
+          ppr: 1,
+          directHybrid: 0.92,
+          semantic: 1,
+          bm25: 1,
+          fuzzyTitle: 1,
+          titleQueryOverlap: 1,
+          linkContextScore: 1,
+          commonNeighbors: 10,
+          jaccard: 1,
+          adamicAdar: 10,
+          resourceAllocation: 10,
+          coCitationCount: 10,
+          lowDegreePrior: 1,
+        }),
+      ],
+      options,
+    );
+
+    assert.equal(fused[0]!.path, 'best');
+  });
+
   it('blocks graph-only candidates without query-conditioned evidence', () => {
     const fused = fuseGraphFeatures(
       [],

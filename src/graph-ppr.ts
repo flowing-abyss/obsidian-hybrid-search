@@ -1,6 +1,7 @@
 export interface GraphAdjacency {
   outgoing: Map<string, string[]>;
   backlinks: Map<string, string[]>;
+  allowedPaths?: Set<string>;
 }
 
 export interface PprSeed {
@@ -80,9 +81,11 @@ function getTransitions(
 ): Array<{ path: string; weight: number }> {
   const weighted = new Map<string, number>();
   for (const target of adjacency.outgoing.get(path) ?? []) {
+    if (adjacency.allowedPaths && !adjacency.allowedPaths.has(target)) continue;
     weighted.set(target, (weighted.get(target) ?? 0) + options.outgoingWeight);
   }
   for (const source of adjacency.backlinks.get(path) ?? []) {
+    if (adjacency.allowedPaths && !adjacency.allowedPaths.has(source)) continue;
     weighted.set(source, (weighted.get(source) ?? 0) + options.backlinkWeight);
   }
 

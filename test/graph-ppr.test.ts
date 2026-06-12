@@ -104,4 +104,30 @@ describe('runPersonalizedPageRank', () => {
     const total = scores.reduce((sum, score) => sum + score.score, 0);
     assert.ok(total > 0.99 && total < 1.01, `total probability should be preserved, got ${total}`);
   });
+
+  it('does not walk outside an explicit bounded frontier', () => {
+    const scores = runPersonalizedPageRank({
+      adjacency: {
+        ...adjacency({
+          seed: ['hub', 'specific'],
+          hub: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+        }),
+        allowedPaths: new Set(['seed', 'hub', 'specific']),
+      },
+      seeds: [{ path: 'seed', weight: 1 }],
+      options: {
+        restartProbability: 0.35,
+        maxIterations: 12,
+        minDelta: 1e-8,
+        frontierLimit: 10,
+        outgoingWeight: 1,
+        backlinkWeight: 0,
+      },
+    });
+
+    assert.deepEqual(
+      scores.map((score) => score.path).sort((a, b) => a.localeCompare(b)),
+      ['hub', 'seed', 'specific'],
+    );
+  });
 });

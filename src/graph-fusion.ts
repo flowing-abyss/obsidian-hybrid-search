@@ -70,7 +70,11 @@ export function fuseGraphFeatures(
       existing.graphScore = graphScore;
       existing.finalScore = Math.min(
         1,
-        existing.finalScore + Math.min(options.directBoostCap, graphScore * options.directBoostCap),
+        existing.finalScore +
+          Math.min(
+            options.directBoostCap,
+            graphScore * options.directBoostCap * (1 - existing.finalScore),
+          ),
       );
     } else {
       fused.push({

@@ -372,7 +372,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
         description:
           "Search the user's personal Obsidian knowledge base — their notes, ideas, and research. " +
           'Use this tool whenever the user asks about something they may have written about, wants to find related notes, or wants to explore their knowledge graph. ' +
-          "Use 'query' for text search across all notes (default mode 'hybrid' combines BM25 keyword matching, fuzzy title, semantic embeddings, and graph link expansion — best for almost all queries; ranks by how thoroughly notes cover the topic). " +
+          "Use 'query' for text search across all notes (default mode 'hybrid' combines BM25 keyword matching, fuzzy title, semantic embeddings, and query-conditioned graph evidence — best for almost all queries; ranks by how thoroughly notes cover the topic). " +
           "Use 'queries' for 2-4 reformulations when recall matters. " +
           "Use 'path' to find semantically similar notes to a given note path, excluding the source note and its outgoing links. " +
           "Use 'path' + 'related: true' to traverse the knowledge graph (outgoing links and backlinks). " +

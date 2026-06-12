@@ -1252,6 +1252,7 @@ describe('query-conditioned hybrid graph augmentation', () => {
       `graph-context-neighbor.md should appear, got ${JSON.stringify(results.map((r) => r.path))}`,
     );
     assert.ok(neighbor.scores.graph !== null);
+    assert.equal(neighbor.scores.hybrid, neighbor.score);
     assert.ok(neighbor.matchedBy.includes('graph'));
   });
 

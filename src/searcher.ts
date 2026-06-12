@@ -930,6 +930,7 @@ function buildGraphAdjacency(seedPaths: string[]): GraphAdjacency {
   return {
     outgoing: getOutgoingLinksForPaths(paths),
     backlinks: getBacklinksForPaths(paths),
+    allowedPaths: new Set(paths),
   };
 }
 
@@ -964,7 +965,7 @@ function buildGraphCandidateFeatures(
         semantic: direct?.scores.semantic ?? null,
         bm25: direct?.scores.bm25 ?? null,
         fuzzyTitle: direct?.scores.fuzzy_title ?? null,
-        titleQueryOverlap: titleQueryOverlap(query, note.title),
+        titleQueryOverlap: graphTitleEvidence(query, note),
         linkContextScore: scoreLinkContext(query, contexts),
         commonNeighbors: structural.commonNeighbors,
         jaccard: structural.jaccard,
@@ -1041,6 +1042,13 @@ function getGraphLinkContexts(
   return contexts.filter((context) => context.length > 0);
 }
 
+function graphTitleEvidence(query: string, note: GraphNote): number {
+  return Math.max(
+    titleQueryOverlap(query, note.title),
+    ...parseAliases(note.aliases).map((alias) => titleQueryOverlap(query, alias)),
+  );
+}
+
 function minAdjacentSeedRank(
   candidatePath: string,
   seeds: GraphSeedCandidate[],
@@ -1088,7 +1096,7 @@ function materializeFusedGraphResults(
         aliases: note.aliases,
         snippet: '',
         score: candidate.finalScore,
-        scores: { graph: candidate.graphScore },
+        scores: { graph: candidate.graphScore, hybrid: candidate.finalScore },
       },
     ];
   });
