@@ -168,13 +168,13 @@ describe('handleStdioLine — protocol', () => {
     };
 
     await handleStdioLine(
-      '{"id":"1","query":"zettelkasten","options":{"mode":"fulltext","limit":3}}',
+      '{"id":"1","query":"zettelkasten","options":{"mode":"fulltext","limit":3,"graph":false}}',
       captureFn,
       () => {},
     );
 
     assert.strictEqual(capturedQuery, 'zettelkasten');
-    assert.deepEqual(capturedOpts, { mode: 'fulltext', limit: 3 });
+    assert.deepEqual(capturedOpts, { mode: 'fulltext', limit: 3, graph: false });
   });
 
   it('response is a single JSON line with no embedded newlines', async () => {

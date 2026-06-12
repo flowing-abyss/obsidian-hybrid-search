@@ -17,6 +17,7 @@
     "eval:qmd": "tsx eval/evaluate-qmd.ts",
     "eval:benchmark": "tsx eval/benchmark-speed.ts",
     "eval:compare": "tsx eval/compare.ts",
+    "eval:graph-diagnostics": "tsx eval/graph-diagnostics.ts",
     "eval:prepare-obsidian-help": "tsx eval/prepare-obsidian-help.ts",
     "eval:prepare-evergreen-notes": "tsx eval/prepare-evergreen-notes.ts",
     "eval:prepare-longmem": "tsx eval/prepare-longmemeval.ts",

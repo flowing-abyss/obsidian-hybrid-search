@@ -1105,6 +1105,242 @@ describe('weighted RRF: BM25 outweighs fuzzy-title for single-signal notes (S-60
   });
 });
 
+// ─── Query-conditioned hybrid graph augmentation ─────────────────────────────
+
+describe('query-conditioned hybrid graph augmentation', () => {
+  beforeAll(() => {
+    upsertNote({
+      path: 'graph-context-seed.md',
+      title: 'Graph Context Seed',
+      tags: [],
+      content:
+        'GRAPHCONTEXTTERM direct evidence. Related: [[graph-context-neighbor|memory prompts]].',
+      mtime: Date.now(),
+      hash: 'hash-graph-context-seed',
+      chunks: [{ text: 'GRAPHCONTEXTTERM direct evidence.', embedding: fakeEmbedding }],
+    });
+    upsertNote({
+      path: 'graph-context-neighbor.md',
+      title: 'Linked Neighbor',
+      tags: [],
+      content: 'This note is reachable through context but has no direct query term.',
+      mtime: Date.now(),
+      hash: 'hash-graph-context-neighbor',
+      chunks: [
+        {
+          text: 'This note is reachable through context but has no direct query term.',
+          embedding: fakeEmbedding,
+        },
+      ],
+    });
+    upsertLinks('graph-context-seed.md', ['graph-context-neighbor.md']);
+
+    upsertNote({
+      path: 'graph-bare-seed.md',
+      title: 'Graph Bare Seed',
+      tags: [],
+      content:
+        'GRAPHBARETERM direct evidence. ' +
+        'padding '.repeat(90) +
+        'Related: [[graph-bare-neighbor|neutral label]].',
+      mtime: Date.now(),
+      hash: 'hash-graph-bare-seed',
+      chunks: [{ text: 'GRAPHBARETERM direct evidence.', embedding: fakeEmbedding }],
+    });
+    upsertNote({
+      path: 'graph-bare-neighbor.md',
+      title: 'Neutral Node',
+      tags: [],
+      content: 'This linked note has unrelated lexical evidence.',
+      mtime: Date.now(),
+      hash: 'hash-graph-bare-neighbor',
+      chunks: [
+        { text: 'This linked note has no lexical query evidence.', embedding: fakeEmbedding },
+      ],
+    });
+    upsertLinks('graph-bare-seed.md', ['graph-bare-neighbor.md']);
+
+    upsertNote({
+      path: 'outside/graph-scope-seed.md',
+      title: 'Outside Graph Scope Seed',
+      tags: [],
+      content:
+        'SCOPEGRAPHSEED direct evidence. Related: [[projects/graph-scope-neighbor|scopememory]].',
+      mtime: Date.now(),
+      hash: 'hash-graph-scope-seed',
+      chunks: [{ text: 'SCOPEGRAPHSEED direct evidence.', embedding: fakeEmbedding }],
+    });
+    upsertNote({
+      path: 'projects/graph-scope-neighbor.md',
+      title: 'Allowed Folder Note',
+      tags: [],
+      content: 'Reachable only through a filtered source.',
+      mtime: Date.now(),
+      hash: 'hash-graph-scope-neighbor',
+      chunks: [{ text: 'Reachable only through a filtered source.', embedding: fakeEmbedding }],
+    });
+    upsertLinks('outside/graph-scope-seed.md', ['projects/graph-scope-neighbor.md']);
+
+    upsertNote({
+      path: 'graph-tag-seed.md',
+      title: 'Graph Tag Seed',
+      tags: [],
+      content: 'TAGGRAPHSEED direct evidence. Related: [[graph-tag-neighbor|tagcontext]].',
+      mtime: Date.now(),
+      hash: 'hash-graph-tag-seed',
+      chunks: [{ text: 'TAGGRAPHSEED direct evidence.', embedding: fakeEmbedding }],
+    });
+    upsertNote({
+      path: 'graph-tag-neighbor.md',
+      title: 'Allowed Label Note',
+      tags: ['graph-allowed'],
+      content: 'Reachable only through an unlabelled source.',
+      mtime: Date.now(),
+      hash: 'hash-graph-tag-neighbor',
+      chunks: [{ text: 'Reachable only through an unlabelled source.', embedding: fakeEmbedding }],
+    });
+    upsertLinks('graph-tag-seed.md', ['graph-tag-neighbor.md']);
+
+    upsertNote({
+      path: 'graph-frontmatter-seed.md',
+      title: 'Graph Frontmatter Seed',
+      tags: [],
+      content: 'FMGRAPHSEED direct evidence. Related: [[graph-frontmatter-neighbor|fmcontext]].',
+      frontmatter: { status: 'done' },
+      mtime: Date.now(),
+      hash: 'hash-graph-frontmatter-seed',
+      chunks: [{ text: 'FMGRAPHSEED direct evidence.', embedding: fakeEmbedding }],
+    });
+    upsertNote({
+      path: 'graph-frontmatter-neighbor.md',
+      title: 'Frontmatter Allowed Neighbor',
+      tags: [],
+      content: 'Reachable only through a done source.',
+      frontmatter: { status: 'active' },
+      mtime: Date.now(),
+      hash: 'hash-graph-frontmatter-neighbor',
+      chunks: [{ text: 'Reachable only through a done source.', embedding: fakeEmbedding }],
+    });
+    upsertLinks('graph-frontmatter-seed.md', ['graph-frontmatter-neighbor.md']);
+
+    upsertNote({
+      path: 'graph-cache-seed.md',
+      title: 'Graph Cache Seed',
+      tags: [],
+      content: 'GRAPHCACHETERM direct evidence. Related: [[graph-cache-neighbor|transientanchor]].',
+      mtime: Date.now(),
+      hash: 'hash-graph-cache-seed',
+      chunks: [{ text: 'GRAPHCACHETERM direct evidence.', embedding: fakeEmbedding }],
+    });
+    upsertNote({
+      path: 'graph-cache-neighbor.md',
+      title: 'Detached Node',
+      tags: [],
+      content: 'Reachable after link update only.',
+      mtime: Date.now(),
+      hash: 'hash-graph-cache-neighbor',
+      chunks: [{ text: 'Reachable after link update only.', embedding: fakeEmbedding }],
+    });
+    upsertLinks('graph-cache-seed.md', []);
+  });
+
+  it('surfaces graph-only neighbors when link context matches the query', async () => {
+    const results = await search('GRAPHCONTEXTTERM memory prompts', { mode: 'hybrid', limit: 20 });
+    const neighbor = results.find((result) => result.path === 'graph-context-neighbor.md');
+    assert.ok(
+      neighbor,
+      `graph-context-neighbor.md should appear, got ${JSON.stringify(results.map((r) => r.path))}`,
+    );
+    assert.ok(neighbor.scores.graph !== null);
+    assert.equal(neighbor.scores.hybrid, neighbor.score);
+    assert.ok(neighbor.matchedBy.includes('graph'));
+  });
+
+  it('blocks graph-only neighbors without query-conditioned evidence', async () => {
+    const results = await search('GRAPHBARETERM memory prompts', { mode: 'hybrid', limit: 20 });
+    assert.ok(!results.some((result) => result.path === 'graph-bare-neighbor.md'));
+  });
+
+  it('does not add graph-only neighbors when graph is disabled', async () => {
+    const results = await search('GRAPHCONTEXTTERM memory prompts', {
+      mode: 'hybrid',
+      graph: false,
+      limit: 20,
+    });
+    assert.ok(!results.some((result) => result.path === 'graph-context-neighbor.md'));
+  });
+
+  it('keeps direct BM25 hits above graph-only neighbors', async () => {
+    const results = await search('GRAPHCONTEXTTERM memory prompts', { mode: 'hybrid', limit: 20 });
+    assert.ok(
+      results.findIndex((result) => result.path === 'graph-context-seed.md') <
+        results.findIndex((result) => result.path === 'graph-context-neighbor.md'),
+    );
+  });
+
+  it('preserves direct hybrid score separately from final graph score', async () => {
+    const results = await search('GRAPHCONTEXTTERM memory prompts', { mode: 'hybrid', limit: 20 });
+    const seed = results.find((result) => result.path === 'graph-context-seed.md');
+    assert.ok(seed);
+    assert.ok(seed.scores.hybrid !== null);
+    assert.ok(seed.score >= seed.scores.hybrid);
+  });
+
+  it('adds graph after multi-query merge', async () => {
+    const results = await search('unused primary', {
+      mode: 'hybrid',
+      queries: ['GRAPHCONTEXTTERM', 'memory prompts'],
+      limit: 20,
+    });
+    assert.ok(results.some((result) => result.path === 'graph-context-neighbor.md'));
+  });
+
+  it('does not seed graph expansion from out-of-scope direct hits', async () => {
+    const results = await search('SCOPEGRAPHSEED scopememory', {
+      mode: 'hybrid',
+      scope: 'projects',
+      limit: 20,
+    });
+    assert.ok(!results.some((result) => result.path === 'outside/graph-scope-seed.md'));
+    const neighbor = results.find((result) => result.path === 'projects/graph-scope-neighbor.md');
+    assert.ok(!neighbor?.matchedBy.includes('graph'));
+  });
+
+  it('does not seed graph expansion from direct hits excluded by tag filters', async () => {
+    const results = await search('TAGGRAPHSEED tagcontext', {
+      mode: 'hybrid',
+      tag: 'graph-allowed',
+      limit: 20,
+    });
+    assert.ok(!results.some((result) => result.path === 'graph-tag-seed.md'));
+    const neighbor = results.find((result) => result.path === 'graph-tag-neighbor.md');
+    assert.ok(!neighbor?.matchedBy.includes('graph'));
+  });
+
+  it('does not seed graph expansion from direct hits excluded by frontmatter filters', async () => {
+    const results = await search('FMGRAPHSEED fmcontext', {
+      mode: 'hybrid',
+      frontmatter: 'status:active',
+      limit: 20,
+    });
+    assert.ok(!results.some((result) => result.path === 'graph-frontmatter-seed.md'));
+    const neighbor = results.find((result) => result.path === 'graph-frontmatter-neighbor.md');
+    assert.ok(!neighbor?.matchedBy.includes('graph'));
+  });
+
+  it('invalidates cached graph-enabled searches when links change', async () => {
+    const before = await search('GRAPHCACHETERM transientanchor', { mode: 'hybrid', limit: 20 });
+    const beforeNeighbor = before.find((result) => result.path === 'graph-cache-neighbor.md');
+    assert.ok(!beforeNeighbor?.matchedBy.includes('graph'));
+
+    upsertLinks('graph-cache-seed.md', ['graph-cache-neighbor.md']);
+
+    const after = await search('GRAPHCACHETERM transientanchor', { mode: 'hybrid', limit: 20 });
+    const afterNeighbor = after.find((result) => result.path === 'graph-cache-neighbor.md');
+    assert.ok(afterNeighbor?.matchedBy.includes('graph'));
+  });
+});
+
 // ─── Multi-query fan-out (S-48) ───────────────────────────────────────────────
 // When queries[] is provided, each query runs in parallel and results are merged
 // via RRF. A note that ranks well in any one query floats to the top.

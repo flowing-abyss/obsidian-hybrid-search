@@ -84,6 +84,7 @@ describe('runGoldenQuery()', () => {
       k: 1,
       searchLimit: 20,
       rerank: false,
+      graph: true,
       searchFn: (_input, options) => {
         calls.push({ limit: options.limit, scope: options.scope });
         return Promise.resolve([
@@ -98,5 +99,29 @@ describe('runGoldenQuery()', () => {
     expect(result.top_paths).toEqual(['q1/0002.md']);
     expect(result.hit_1).toBe(true);
     expect(result.all_relevant_k).toBe(true);
+  });
+
+  it('passes graph option through eval search options', async () => {
+    const query: GoldenQuery = {
+      id: 'q2',
+      query: 'alpha',
+      relevant_paths: ['alpha.md'],
+      partial_paths: [],
+      category: 'unit',
+    };
+    const calls: unknown[] = [];
+
+    await runGoldenQuery(query, {
+      k: 10,
+      searchLimit: 10,
+      rerank: false,
+      graph: false,
+      searchFn: (_input, options) => {
+        calls.push(options);
+        return Promise.resolve([{ path: 'alpha.md' }]);
+      },
+    });
+
+    expect(calls[0]).toEqual({ mode: 'hybrid', limit: 10, rerank: false, graph: false });
   });
 });
