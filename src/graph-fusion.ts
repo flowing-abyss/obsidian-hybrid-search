@@ -46,6 +46,7 @@ const NORMALIZED_FIELDS = [
   'coCitationCount',
 ] as const;
 const DIRECT_ORDER_EPSILON = 1e-9;
+const DIRECT_ORDER_PROTECTION_THRESHOLD = 0.75;
 
 export function fuseGraphFeatures(
   directCandidates: DirectCandidate[],
@@ -98,6 +99,7 @@ function preserveDirectOrder(
   const fusedByPath = new Map(fused.map((candidate) => [candidate.path, candidate]));
   let previousScore = Number.POSITIVE_INFINITY;
   for (const directCandidate of directCandidates) {
+    if (directCandidate.score < DIRECT_ORDER_PROTECTION_THRESHOLD) continue;
     const fusedCandidate = fusedByPath.get(directCandidate.path);
     if (!fusedCandidate) continue;
     const maxAllowed = Math.max(0, previousScore - DIRECT_ORDER_EPSILON);
