@@ -8,11 +8,13 @@
   <img src="assets/banner.png" alt="Obsidian Hybrid Search explains hybrid retrieval from Obsidian notes" />
 </p>
 
-An [MCP server](https://modelcontextprotocol.io) and CLI tool that makes your Obsidian vault queryable by AI assistants. Indexes notes into SQLite with FTS5 full-text search, trigram fuzzy matching, and `sqlite-vec` vector similarity — results are merged with Reciprocal Rank Fusion (RRF) and scored 0–1.
+Your Obsidian vault already contains your best thinking. Obsidian Hybrid Search makes that thinking easier to find, reuse, and bring into AI-assisted work.
 
-Once connected, any MCP-compatible AI assistant can answer questions grounded in your actual notes: finding knowledge by meaning, exact phrase, or title; traversing the wikilink graph; filtering by tag or folder; always citing the source note. No guessing from training data, no manual copy-paste.
+It gives your vault one retrieval engine and three practical ways to use it. The native [Obsidian plugin][obsidian-plugin] gives you fast search, previews, similar notes, link discovery, and graph views while you write. The MCP server lets AI agents search and read your notes as tool calls. The CLI gives power users the same engine for indexing, filtering, reranking, reading, and scripting.
 
-No external services required. A bundled `@huggingface/transformers` model handles embeddings locally by default. Any OpenAI-compatible API (OpenRouter, Ollama, LM Studio) works as a drop-in replacement.
+The search understands how real vaults are built. It combines semantic search, BM25 full text, fuzzy title and alias matching, tags, folders, frontmatter, wikilinks, backlinks, and similar-note lookup. You can search by idea, phrase, title, relationship, or metadata without remembering the exact words you wrote.
+
+That turns Obsidian into a stronger personal knowledge system and a better starting point for AI work. Agents can begin from your own notes, pull cited context from source files, follow related material, and work with knowledge you already trust. OHS runs locally by default with SQLite, FTS5, `sqlite-vec`, RRF ranking, and optional OpenAI-compatible embedding APIs.
 
 ## Search quality
 
@@ -517,3 +519,5 @@ Tests use fake embeddings (no API key required) and run against a temporary vaul
 ## License
 
 MIT
+
+[obsidian-plugin]: https://community.obsidian.md/plugins/hybrid-search
