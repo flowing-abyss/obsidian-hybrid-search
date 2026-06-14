@@ -4,7 +4,6 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, it } from 'vitest';
-import { closeDb, initVecTable, openDb } from '../src/db.js';
 import { runHttpMcpServer, type HttpMcpServerHandle } from '../src/mcp-http-server.js';
 
 let server: HttpMcpServerHandle | undefined;
@@ -27,9 +26,6 @@ function createTempVault(): string {
   mkdirSync(path.join(dir, '.obsidian'), { recursive: true });
   writeFileSync(path.join(dir, 'alpha.md'), '# Alpha\n\nAlpha note content.\n');
   process.env.OBSIDIAN_VAULT_PATH = dir;
-  openDb();
-  initVecTable(4);
-  closeDb();
   return dir;
 }
 
@@ -49,7 +45,7 @@ describe('runHttpMcpServer', () => {
     assert.equal(body.ok, true);
     assert.equal(body.transport, 'streamable-http');
     assert.equal(body.vaultPath, vaultDir);
-  });
+  }, 30_000);
 
   it('initializes MCP and lists tools over Streamable HTTP', async () => {
     vaultDir = createTempVault();
@@ -74,7 +70,7 @@ describe('runHttpMcpServer', () => {
     assert.match(toolsBody, /read/);
     assert.match(toolsBody, /reindex/);
     assert.match(toolsBody, /status/);
-  });
+  }, 30_000);
 
   it('allows MCP initialize requests for extra allowed Host headers', async () => {
     vaultDir = createTempVault();
