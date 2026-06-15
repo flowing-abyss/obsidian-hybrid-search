@@ -30,7 +30,7 @@
     "lint": "eslint src test eval",
     "knip": "knip",
     "preflight": "bash scripts/ci-preflight.sh",
-    "sync-server-json": "tsx scripts/sync-server-json.ts"
+    "sync-server-json": "bash scripts/sync-server-json.sh"
   },
   "keywords": [
     "obsidian",

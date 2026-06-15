@@ -30,6 +30,17 @@ jobs:
           fi
           echo "Version bumped: $PREV → $CURR ✅"
 
+      - name: Verify server.json is synchronized with package.json
+        run: |
+          PKG_VERSION=$(jq -r .version package.json)
+          SERVER_VERSION=$(jq -r .version server.json)
+          SERVER_PKG_VERSION=$(jq -r '.packages[0].version // empty' server.json)
+          if [ "$SERVER_VERSION" != "$PKG_VERSION" ] || [ "$SERVER_PKG_VERSION" != "$PKG_VERSION" ]; then
+            echo "ERROR: server.json is out of sync with package.json ($SERVER_VERSION / $SERVER_PKG_VERSION vs $PKG_VERSION). Aborting tag creation."
+            exit 1
+          fi
+          echo "server.json is synchronized with package.json ✅"
+
       - name: Read version from package.json
         id: version
         run: echo "version=v$(jq -r .version package.json)" >> $GITHUB_OUTPUT

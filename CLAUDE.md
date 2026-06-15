@@ -207,8 +207,9 @@ To release a new version (triggers CI build and npm publish):
 
 ```bash
 # 1. Update version in package.json (e.g., 0.8.12 → 0.8.13)
+#    npm version patch will also sync server.json via the pre-commit hook.
 # 2. Stage and commit changes
-git add package.json <other-files>
+git add package.json server.json <other-files>
 git commit -m "type: description"
 
 # 3. Create and push tag
@@ -220,5 +221,6 @@ git push origin master && git push origin v0.8.13
 
 - Tag must follow semver format: `v*.*.*` (e.g., `v0.8.13`)
 - Release workflow triggers automatically on tag push
-- Pre-commit hooks run tests automatically
+- Pre-commit hooks run tests automatically and synchronize `server.json` with `package.json`
 - CI creates GitHub Release and publishes to npm
+- `server.json` is always kept in sync with `package.json` by `npm run sync-server-json`
