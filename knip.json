@@ -1,8 +1,7 @@
 {
-  "entry": ["src/**/*.ts", "eval/**/*.ts"],
-  "project": ["src/**/*.ts", "eval/**/*.ts"],
+  "entry": ["src/**/*.ts", "eval/**/*.ts", "scripts/**/*.ts"],
+  "project": ["src/**/*.ts", "eval/**/*.ts", "scripts/**/*.ts"],
   "ignoreDependencies": ["onnxruntime-node", "eslint-plugin-import", "@eslint/js"],
-  "ignoreBinaries": ["qmd"],
   "ignoreIssues": {
     "src/searcher.ts": ["types"]
   }

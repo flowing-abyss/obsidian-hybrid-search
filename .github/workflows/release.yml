@@ -30,6 +30,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Synchronize server.json version
+        run: npm run sync-server-json
+
       - name: Publish to npm
         run: npm publish --provenance --access public
         env:

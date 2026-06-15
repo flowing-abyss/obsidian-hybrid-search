@@ -29,7 +29,8 @@
     "format:check": "prettier --check .",
     "lint": "eslint src test eval",
     "knip": "knip",
-    "preflight": "bash scripts/ci-preflight.sh"
+    "preflight": "bash scripts/ci-preflight.sh",
+    "sync-server-json": "tsx scripts/sync-server-json.ts"
   },
   "keywords": [
     "obsidian",
@@ -97,6 +98,7 @@
   },
   "lint-staged": {
     "package.json": [
+      "npm run sync-server-json",
       "sh -c 'npx vitest run'",
       "sh -c 'npm run knip'"
     ],
