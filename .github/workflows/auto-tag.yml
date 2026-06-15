@@ -47,12 +47,21 @@ jobs:
 
       - name: Create and push tag
         run: |
-          if git rev-parse "${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
-            echo "Tag ${{ steps.version.outputs.version }} already exists, skipping."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git tag "${{ steps.version.outputs.version }}"
-            git push origin "${{ steps.version.outputs.version }}"
-            echo "Pushed tag ${{ steps.version.outputs.version }} ✅"
+          TAG="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAG_COMMIT=$(git rev-parse "$TAG")
+            HEAD_COMMIT=$(git rev-parse HEAD)
+            if [ "$TAG_COMMIT" = "$HEAD_COMMIT" ]; then
+              echo "Tag $TAG already points to HEAD, skipping."
+              exit 0
+            fi
+            echo "Tag $TAG exists on $TAG_COMMIT but HEAD is $HEAD_COMMIT. Moving tag to HEAD."
+            git push origin ":refs/tags/$TAG"
           fi
+
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "Pushed tag $TAG ✅"
