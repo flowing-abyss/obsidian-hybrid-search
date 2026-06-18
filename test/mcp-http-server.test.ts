@@ -4,7 +4,10 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, it } from 'vitest';
-import { runHttpMcpServer, type HttpMcpServerHandle } from '../src/mcp-http-server.js';
+import type { HttpMcpServerHandle } from '../src/mcp-http-server.js';
+
+const { closeDb, initVecTable, openDb } = await import('../src/db.js');
+const { runHttpMcpServer } = await import('../src/mcp-http-server.js');
 
 let server: HttpMcpServerHandle | undefined;
 let vaultDir: string | undefined;
@@ -26,6 +29,9 @@ function createTempVault(): string {
   mkdirSync(path.join(dir, '.obsidian'), { recursive: true });
   writeFileSync(path.join(dir, 'alpha.md'), '# Alpha\n\nAlpha note content.\n');
   process.env.OBSIDIAN_VAULT_PATH = dir;
+  openDb();
+  initVecTable(4);
+  closeDb();
   return dir;
 }
 
