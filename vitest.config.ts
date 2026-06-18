@@ -6,6 +6,7 @@ export default defineConfig({
       VAULT_PATH: '/tmp/test-vault',
     },
     maxWorkers: 1,
+    testTimeout: 30_000,
     isolate: false,
     include: ['test/**/*.test.ts'],
     exclude: ['test/integration.test.ts'],

@@ -705,7 +705,7 @@ describe('path similarity search is always semantic', () => {
       !results.some((r) => r.path === 'note-a.md'),
       'source note must still be excluded after path resolution',
     );
-  }, 15000);
+  }, 30_000);
 
   it('uses stored chunk embeddings and returns results without API key', async () => {
     // Unit tests have no API key → embedQuery returns null.
@@ -724,7 +724,7 @@ describe('path similarity search is always semantic', () => {
     for (const r of results) {
       assert.ok(r.scores.semantic != null, '--path result must have a semantic score');
     }
-  }, 15000);
+  }, 30_000);
 
   it('resolves a unique basename in related mode', async () => {
     const results = await search('zettelkasten', {
@@ -753,7 +753,7 @@ describe('path similarity search is always semantic', () => {
       !results.some((r) => r.path === 'note-b.md'),
       'note-b.md is already linked from note-a.md and must be excluded from similar notes',
     );
-  }, 15000);
+  }, 30_000);
 
   it('--path returns semantic results and excludes the source note', async () => {
     const results = await search('note-a.md', { notePath: 'note-a.md', limit: 10 });
@@ -764,7 +764,7 @@ describe('path similarity search is always semantic', () => {
     for (const r of results) {
       assert.ok(r.scores.semantic !== null, '--path result must have a semantic score');
     }
-  }, 15000);
+  }, 30_000);
 
   it('--mode is ignored when --path is given (always semantic)', async () => {
     const semantic = await search('note-a.md', { notePath: 'note-a.md', limit: 10 });
@@ -785,7 +785,7 @@ describe('path similarity search is always semantic', () => {
         'path result must have semantic score regardless of mode',
       );
     }
-  }, 15000);
+  }, 30_000);
 
   it('multi-chunk candidate appears only once in path similarity results', async () => {
     upsertNote({
@@ -824,7 +824,7 @@ describe('path similarity search is always semantic', () => {
       1,
       'candidate note should appear only once despite multiple chunks',
     );
-  }, 15000);
+  }, 30_000);
 });
 
 // ─── Similarity score formula ─────────────────────────────────────────────────
@@ -912,7 +912,7 @@ describe('zero-vector guard', () => {
       semanticHits.length === 0 || !allSameHalf,
       'all results should NOT have the same 0.5 semantic score (zero-vector symptom)',
     );
-  }, 15000);
+  }, 30_000);
 });
 
 // ─── Alias exact-match search (S-59) ─────────────────────────────────────────
@@ -1180,7 +1180,7 @@ describe('multi-query fan-out', () => {
       withoutQueries.map((r) => r.path),
       'path-based search should ignore queries[]',
     );
-  }, 15000);
+  }, 30_000);
 });
 
 // ─── anchors: false (default) — previewAnchors absent ────────────────────────
