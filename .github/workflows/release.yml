@@ -10,11 +10,43 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
+      actions: read # needed to verify CI status before publishing
       contents: write # needed to create GitHub Release
       id-token: write # needed for OIDC npm publish
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify CI passed for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_json="$(gh run list \
+            --workflow CI \
+            --commit "$GITHUB_SHA" \
+            --limit 1 \
+            --json databaseId,status,conclusion,url)"
+
+          run_count="$(jq 'length' <<<"$run_json")"
+          if [ "$run_count" -eq 0 ]; then
+            echo "No CI run found for commit $GITHUB_SHA. Push the commit to master and wait for CI before creating the release tag."
+            exit 1
+          fi
+
+          status="$(jq -r '.[0].status' <<<"$run_json")"
+          conclusion="$(jq -r '.[0].conclusion' <<<"$run_json")"
+          url="$(jq -r '.[0].url' <<<"$run_json")"
+
+          if [ "$status" != "completed" ] || [ "$conclusion" != "success" ]; then
+            echo "CI has not passed for commit $GITHUB_SHA."
+            echo "Status: $status"
+            echo "Conclusion: $conclusion"
+            echo "Run: $url"
+            echo "Wait for CI to pass, then re-run this release."
+            exit 1
+          fi
+
+          echo "Verified CI success for commit $GITHUB_SHA: $url"
 
       - uses: actions/setup-node@v4
         with:
