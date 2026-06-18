@@ -1,6 +1,6 @@
 {
   "name": "obsidian-hybrid-search",
-  "version": "0.13.11",
+  "version": "0.13.12",
   "mcpName": "io.github.flowing-abyss/obsidian-hybrid-search",
   "type": "module",
   "bin": {

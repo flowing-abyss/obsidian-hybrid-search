@@ -68,5 +68,6 @@ describe('watcher error resilience', () => {
 
     warnSpy.mockRestore();
     vi.doUnmock('../src/db.js');
+    vi.resetModules();
   });
 });

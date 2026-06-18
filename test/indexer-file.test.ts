@@ -23,6 +23,7 @@ vi.spyOn(embedder, 'getContextLength').mockResolvedValue(512);
 
 const {
   indexFile,
+  indexFileWithRecovery,
   scanVault,
   populateMissingLinks,
   cleanupStaleNotes,
@@ -167,6 +168,36 @@ describe('indexFile', () => {
   it('returns error for a non-existent file', async () => {
     const result = await indexFile(path.join(vaultDir, 'no-such-file.md'), 512);
     assert.ok(typeof result === 'object' && 'error' in result);
+  });
+
+  it('auto-recovers and indexes a single file after database sidecar corruption', async () => {
+    const filePath = path.join(vaultDir, 'single-file-corrupt-recovery.md');
+    writeFileSync(filePath, '# Single File Corrupt Recovery\n\nRecovered marker.');
+
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+
+    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    embedSpy.mockRejectedValueOnce(new Error('database disk image is malformed'));
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let recoveries = 0;
+
+    const result = await indexFileWithRecovery(filePath, 512, false, () => {
+      recoveries++;
+      openDb();
+      initVecTable(4);
+    });
+
+    assert.equal(result, 'indexed');
+    assert.equal(recoveries, 1);
+    assert.ok(getNoteByPath('single-file-corrupt-recovery.md'));
+    assert.ok(
+      stderrSpy.mock.calls.some((c) => c[0]?.toString().includes('[auto-heal]')),
+      'expected single-file indexing to run auto-heal',
+    );
+
+    stderrSpy.mockRestore();
   });
 
   it('indexes frontmatter tags and aliases', async () => {
@@ -348,6 +379,46 @@ describe('startBackgroundIndexing', () => {
     stderrSpy.mockRestore();
     resetIndexingState();
   });
+
+  it('auto-recovers database sidecar corruption during background indexing', async () => {
+    writeFileSync(path.join(vaultDir, 'bg-corrupt-recovery.md'), '# BG Corrupt Recovery');
+
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+    resetIndexingState();
+
+    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    embedSpy.mockRejectedValueOnce(new Error('database disk image is malformed'));
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await startBackgroundIndexing(512);
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(() => {
+        const status = getIndexingStatus();
+        if (!status.isRunning) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 50);
+    });
+
+    assert.ok(
+      stderrSpy.mock.calls.some((c) => c[0]?.toString().includes('[auto-heal]')),
+      'expected background indexing to run auto-heal',
+    );
+    assert.ok(
+      !warnSpy.mock.calls.some((c) => String(c[0]).includes('background indexing error')),
+      'expected background indexing to recover without surfacing a background error',
+    );
+    assert.ok(getNoteByPath('bg-corrupt-recovery.md'));
+
+    warnSpy.mockRestore();
+    stderrSpy.mockRestore();
+    resetIndexingState();
+  });
 });
 
 // ─── indexVaultSync ──────────────────────────────────────────────────────────
@@ -412,6 +483,165 @@ describe('indexVaultSync', () => {
       stderrSpy.mock.calls.some((c) => c[0]?.toString().includes('embed failure')),
       'expected error message in stderr',
     );
+    stderrSpy.mockRestore();
+  });
+
+  it('aborts before marking the index fresh when a file fails with database corruption', async () => {
+    const filePath = path.join(vaultDir, 'corrupt-db-error.md');
+    writeFileSync(filePath, '# Corrupt DB Error\\n\\nSome content here.', 'utf-8');
+
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+    resetIndexingState();
+
+    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    embedSpy.mockRejectedValueOnce(new Error('database disk image is malformed'));
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await assert.rejects(
+      () => indexVaultSync(false, 'Test indexing...'),
+      /database disk image is malformed/,
+    );
+
+    const lastIndexed = getDb()
+      .prepare("SELECT value FROM settings WHERE key = 'last_indexed'")
+      .get() as { value: string } | undefined;
+    assert.equal(lastIndexed, undefined);
+
+    stderrSpy.mockRestore();
+  });
+
+  it('recovers sidecars and retries only the affected batch during full-vault indexing', async () => {
+    const filePath = path.join(vaultDir, 'recover-corrupt-file.md');
+    const cleanPath = path.join(vaultDir, 'recover-clean-control.md');
+    writeFileSync(filePath, '# Recover Corrupt File\n\nNeeds Recovery marker.', 'utf-8');
+    writeFileSync(cleanPath, '# Recover Clean Control\n\nClean Control marker.', 'utf-8');
+
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+    resetIndexingState();
+
+    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    const embeddedTexts: string[] = [];
+    let hasThrownMalformed = false;
+    embedSpy.mockImplementation((texts: string[]) => {
+      const joined = texts.join('\n');
+      embeddedTexts.push(joined);
+      if (joined.includes('Needs Recovery marker') && !hasThrownMalformed) {
+        hasThrownMalformed = true;
+        throw new Error('database disk image is malformed');
+      }
+      return texts.map(() => new Float32Array([0.1, 0.2, 0.3, 0.4]));
+    });
+    let recoveries = 0;
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    try {
+      const result = await indexVaultSync(false, 'Test indexing...', {
+        recoverDatabase: () => {
+          recoveries++;
+          openDb();
+          initVecTable(4);
+        },
+      });
+
+      assert.equal(recoveries, 1);
+      assert.equal(result.errors.length, 0);
+      assert.ok(getNoteByPath('recover-corrupt-file.md'));
+      assert.ok(getNoteByPath('recover-clean-control.md'));
+      assert.equal(
+        embeddedTexts.filter((text) => text.includes('Needs Recovery marker')).length,
+        2,
+        'corruption-failed file should be retried once',
+      );
+      assert.equal(
+        embeddedTexts.filter((text) => text.includes('Clean Control marker')).length,
+        2,
+        'other files in the affected batch are retried to restore any WAL-backed writes',
+      );
+      const lastIndexed = getDb()
+        .prepare("SELECT value FROM settings WHERE key = 'last_indexed'")
+        .get() as { value: string } | undefined;
+      assert.ok(lastIndexed);
+    } finally {
+      embedSpy.mockReset();
+      embedSpy.mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it('does not mark the index fresh when corruption repeats after recovery', async () => {
+    const filePath = path.join(vaultDir, 'repeat-corrupt-file.md');
+    writeFileSync(filePath, '# Repeat Corrupt File\n\nRepeats malformed marker.', 'utf-8');
+
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+    resetIndexingState();
+
+    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    embedSpy.mockImplementation((texts: string[]) => {
+      if (texts.join('\n').includes('Repeats malformed marker')) {
+        throw new Error('database disk image is malformed');
+      }
+      return texts.map(() => new Float32Array([0.1, 0.2, 0.3, 0.4]));
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let recoveries = 0;
+
+    try {
+      await assert.rejects(
+        () =>
+          indexVaultSync(false, 'Test indexing...', {
+            recoverDatabase: () => {
+              recoveries++;
+              openDb();
+              initVecTable(4);
+            },
+          }),
+        /database disk image is malformed/,
+      );
+
+      assert.equal(recoveries, 1);
+      const lastIndexed = getDb()
+        .prepare("SELECT value FROM settings WHERE key = 'last_indexed'")
+        .get() as { value: string } | undefined;
+      assert.equal(lastIndexed, undefined);
+    } finally {
+      embedSpy.mockReset();
+      embedSpy.mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it('does not mark the index fresh when requireClean sees non-corruption errors', async () => {
+    const filePath = path.join(vaultDir, 'require-clean-error.md');
+    writeFileSync(filePath, '# Require Clean Error\\n\\nSome content here.', 'utf-8');
+
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+    resetIndexingState();
+
+    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    embedSpy.mockRejectedValueOnce(new Error('embedding API unavailable'));
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await assert.rejects(
+      () => indexVaultSync(false, 'Test indexing...', { requireClean: true }),
+      /index freshness was not updated/,
+    );
+
+    const lastIndexed = getDb()
+      .prepare("SELECT value FROM settings WHERE key = 'last_indexed'")
+      .get() as { value: string } | undefined;
+    assert.equal(lastIndexed, undefined);
+
     stderrSpy.mockRestore();
   });
 

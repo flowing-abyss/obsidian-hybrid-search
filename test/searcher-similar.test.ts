@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-searcher-similar-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
+vi.resetModules();
 
 const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/db.js');
 

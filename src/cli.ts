@@ -22,18 +22,21 @@ import {
   applyDbConfigDefaults,
   checkModelChanged,
   getFailedChunks,
+  getDb,
   getStats,
   getStoredEmbeddingDim,
   getStoredModel,
   initVecTable,
+  isLikelyDatabaseCorruption,
   openDb,
   saveConfigMeta,
   wipeDatabaseFiles,
+  wipeDatabaseSidecars,
 } from './db.js';
 import { getContextLength, getEmbeddingDim, primeEmbeddingDim } from './embedder.js';
 import {
   getIndexingStatus,
-  indexFile,
+  indexFileWithRecovery,
   indexVaultSync,
   startBackgroundIndexing,
   startWatcher,
@@ -258,10 +261,15 @@ async function init({ allowWipe = false }: { allowWipe?: boolean } = {}) {
   // Check if model changed — only wipe during reindex, not during serve/search/status.
   // Wiping on serve/search would destroy the index whenever env vars are missing (e.g.
   // when Obsidian launches without shell env vars like OPENAI_BASE_URL).
-  const modelName =
-    config.apiKey || process.env.OPENAI_BASE_URL ? config.apiModel : `local:${config.localModel}`;
+  const modelName = currentModelName();
   if (allowWipe) {
-    checkModelChanged(modelName);
+    if (checkModelChanged(modelName)) {
+      saveConfigMeta({
+        vaultPath: config.vaultPath,
+        apiBaseUrl: config.apiBaseUrl,
+        apiModel: config.apiModel,
+      });
+    }
   } else {
     // Read-only path: warn if model differs but do not wipe
     const stored = getStoredModel();
@@ -298,6 +306,32 @@ async function init({ allowWipe = false }: { allowWipe?: boolean } = {}) {
     initVecTable(embeddingDim);
   }
   return contextLength;
+}
+
+function currentModelName(): string {
+  return config.apiKey || process.env.OPENAI_BASE_URL
+    ? config.apiModel
+    : `local:${config.localModel}`;
+}
+
+function restoreDbRuntimeMetadata(modelName: string, embeddingDim: number | null): void {
+  saveConfigMeta({
+    vaultPath: config.vaultPath,
+    apiBaseUrl: config.apiBaseUrl,
+    apiModel: config.apiModel,
+  });
+  getDb()
+    .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_model', ?)")
+    .run(modelName);
+  if (embeddingDim !== null) {
+    initVecTable(embeddingDim);
+  }
+}
+
+function recoverDbSidecarsForReindex(modelName: string, embeddingDim: number | null): void {
+  wipeDatabaseSidecars();
+  openDb();
+  restoreDbRuntimeMetadata(modelName, embeddingDim);
 }
 
 /** Color-code a score value based on relevance thresholds. */
@@ -625,14 +659,15 @@ program
     if (!filePath && !existsSync(config.dbPath)) {
       opts.force = true;
     }
-    if (opts.force && !filePath) {
-      wipeDatabaseFiles();
-    }
-    const contextLength = await init({ allowWipe: true });
 
     if (filePath) {
+      const contextLength = await init({ allowWipe: false });
       const fullPath = path.join(config.vaultPath, filePath);
-      const status = await indexFile(fullPath, contextLength, opts.force);
+      const modelName = currentModelName();
+      const embeddingDim = getStoredEmbeddingDim();
+      const status = await indexFileWithRecovery(fullPath, contextLength, opts.force, () =>
+        recoverDbSidecarsForReindex(modelName, embeddingDim),
+      );
       console.log(
         JSON.stringify(
           status === 'indexed'
@@ -655,7 +690,26 @@ program
       );
     } else {
       const header = opts.force ? 'Recreating database and indexing vault...' : 'Indexing vault...';
-      await indexVaultSync(opts.force, header);
+      const modelName = currentModelName();
+      if (opts.force) {
+        wipeDatabaseFiles();
+      }
+      try {
+        await init({ allowWipe: true });
+      } catch (err) {
+        if (!isLikelyDatabaseCorruption(err)) {
+          throw err;
+        }
+        process.stderr.write(
+          '[auto-heal] SQLite index corruption detected during startup; removing WAL/SHM sidecars and retrying.\n',
+        );
+        wipeDatabaseSidecars();
+        await init({ allowWipe: true });
+      }
+      const embeddingDim = getStoredEmbeddingDim();
+      await indexVaultSync(Boolean(opts.force), header, {
+        recoverDatabase: () => recoverDbSidecarsForReindex(modelName, embeddingDim),
+      });
     }
   });
 

@@ -8,13 +8,13 @@
     "url": "https://github.com/flowing-abyss/obsidian-hybrid-search",
     "source": "github"
   },
-  "version": "0.13.11",
+  "version": "0.13.12",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "obsidian-hybrid-search",
-      "version": "0.13.11",
+      "version": "0.13.12",
       "transport": {
         "type": "stdio"
       },

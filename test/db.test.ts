@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, it } from 'vitest';
@@ -52,6 +52,8 @@ const {
   filterNotePathsByFrontmatter,
   getStoredModel,
   wipeDatabaseFiles,
+  wipeDatabaseSidecars,
+  isLikelyDatabaseCorruption,
   closeDb,
 } = await import('../src/db.js');
 const { searchBm25, searchFuzzyTitle, search } = await import('../src/searcher.js');
@@ -89,9 +91,7 @@ const initialNotes = [
 
 // ─── Setup / teardown ────────────────────────────────────────────────────────
 
-beforeAll(() => {
-  openDb();
-  initVecTable(4);
+function seedInitialNotes(): void {
   for (const note of initialNotes) {
     upsertNote({
       path: note.path,
@@ -103,11 +103,84 @@ beforeAll(() => {
       chunks: [{ text: note.content, embedding: fakeEmbedding }],
     });
   }
+}
+
+beforeAll(() => {
+  openDb();
+  initVecTable(4);
+  seedInitialNotes();
 });
 
 afterAll(() => {
   closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
+});
+
+// ─── database corruption recovery primitives ─────────────────────────────────
+
+describe('database corruption helpers', () => {
+  it('classifies SQLite corruption errors without treating lock contention as corruption', () => {
+    assert.equal(isLikelyDatabaseCorruption('database disk image is malformed'), true);
+    assert.equal(isLikelyDatabaseCorruption('file is not a database'), true);
+    assert.equal(isLikelyDatabaseCorruption({ code: 'SQLITE_CORRUPT' }), true);
+    assert.equal(isLikelyDatabaseCorruption({ code: 'SQLITE_CORRUPT_VTAB' }), true);
+    assert.equal(isLikelyDatabaseCorruption({ code: 'SQLITE_NOTADB' }), true);
+
+    assert.equal(isLikelyDatabaseCorruption('database is locked'), false);
+    assert.equal(isLikelyDatabaseCorruption({ code: 'SQLITE_BUSY' }), false);
+    assert.equal(isLikelyDatabaseCorruption({ code: 'SQLITE_LOCKED' }), false);
+    assert.equal(isLikelyDatabaseCorruption('disk I/O error'), false);
+  });
+
+  it('wipes WAL and SHM sidecars without deleting the main database file', () => {
+    assert.equal(typeof wipeDatabaseSidecars, 'function');
+    const dbPath = path.join(vaultDir, '.obsidian-hybrid-search.db');
+    getDb().pragma('wal_checkpoint(TRUNCATE)');
+    closeDb();
+
+    assert.equal(existsSync(dbPath), true);
+    writeFileSync(`${dbPath}-wal`, 'wal marker');
+    writeFileSync(`${dbPath}-shm`, 'shm marker');
+
+    wipeDatabaseSidecars();
+
+    assert.equal(existsSync(dbPath), true);
+    assert.equal(existsSync(`${dbPath}-wal`), false);
+    assert.equal(existsSync(`${dbPath}-shm`), false);
+
+    openDb();
+    initVecTable(4);
+  });
+
+  it('surfaces sidecar deletion failures instead of continuing recovery', () => {
+    assert.equal(typeof wipeDatabaseSidecars, 'function');
+    const dbPath = path.join(vaultDir, '.obsidian-hybrid-search.db');
+    getDb().pragma('wal_checkpoint(TRUNCATE)');
+    closeDb();
+    mkdirSync(`${dbPath}-wal`);
+
+    assert.throws(() => wipeDatabaseSidecars());
+
+    rmSync(`${dbPath}-wal`, { recursive: true, force: true });
+    openDb();
+    initVecTable(4);
+  });
+
+  it('closes a partially opened database handle when openDb fails', () => {
+    const dbPath = path.join(vaultDir, '.obsidian-hybrid-search.db');
+    getDb().pragma('wal_checkpoint(TRUNCATE)');
+    closeDb();
+    writeFileSync(dbPath, 'not a sqlite database');
+
+    assert.throws(() => openDb(), /database|malformed|file/i);
+
+    wipeDatabaseFiles();
+    assert.equal(existsSync(dbPath), false);
+
+    openDb();
+    initVecTable(4);
+    seedInitialNotes();
+  });
 });
 
 // ─── frontmatter storage ─────────────────────────────────────────────────────

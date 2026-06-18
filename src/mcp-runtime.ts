@@ -22,15 +22,17 @@ import {
   openDb,
   saveConfigMeta,
   wipeDatabaseFiles,
+  wipeDatabaseSidecars,
 } from './db.js';
 import { getContextLength, getEmbeddingDim, primeEmbeddingDim } from './embedder.js';
 import {
   getIndexingStatus,
-  indexFile,
+  indexFileWithRecovery,
   indexVaultSync,
   populateMissingLinks,
   startBackgroundIndexing,
   startWatcher,
+  withIndexingDbLock,
 } from './indexer.js';
 import { isAmbiguousNotePathError, readNotes, search } from './searcher.js';
 
@@ -168,7 +170,11 @@ async function handleReindex(
 ): Promise<{ indexed: number; skipped: number; errors: unknown[] }> {
   if (a.path) {
     const fullPath = join(config.vaultPath, a.path);
-    const status = await indexFile(fullPath, contextLength, Boolean(a.force));
+    const status = await withIndexingDbLock(() =>
+      indexFileWithRecovery(fullPath, contextLength, Boolean(a.force), () =>
+        resetDbAfterSidecarRecovery(modelName, embeddingDim),
+      ),
+    );
     if (status === 'indexed') return { indexed: 1, skipped: 0, errors: [] };
     if (status === 'skipped') return { indexed: 0, skipped: 1, errors: [] };
     return {
@@ -182,15 +188,36 @@ async function handleReindex(
       ],
     };
   }
-  if (a.force) {
-    resetDbForForceReindex(modelName, embeddingDim);
-  }
-  const header = a.force ? 'Recreating database and indexing vault...' : 'Indexing vault...';
-  return indexVaultSync(Boolean(a.force), header);
+
+  return withIndexingDbLock(async () => {
+    if (a.force) {
+      resetDbForForceReindex(modelName, embeddingDim);
+    }
+    const header = a.force ? 'Recreating database and indexing vault...' : 'Indexing vault...';
+    return indexVaultSync(Boolean(a.force), header, {
+      recoverDatabase: () => resetDbAfterSidecarRecovery(modelName, embeddingDim),
+    });
+  });
 }
 
 function resetDbForForceReindex(modelName: string, embeddingDim: number | null): void {
   wipeDatabaseFiles();
+  openDb();
+  saveConfigMeta({
+    vaultPath: config.vaultPath,
+    apiBaseUrl: config.apiBaseUrl,
+    apiModel: config.apiModel,
+  });
+  getDb()
+    .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_model', ?)")
+    .run(modelName);
+  if (embeddingDim !== null) {
+    initVecTable(embeddingDim);
+  }
+}
+
+function resetDbAfterSidecarRecovery(modelName: string, embeddingDim: number | null): void {
+  wipeDatabaseSidecars();
   openDb();
   saveConfigMeta({
     vaultPath: config.vaultPath,

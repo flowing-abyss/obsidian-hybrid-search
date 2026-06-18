@@ -9,6 +9,29 @@ type DB = InstanceType<typeof Database>;
 
 let _db: DB | null = null;
 
+const CORRUPTION_CODES = new Set(['SQLITE_CORRUPT', 'SQLITE_CORRUPT_VTAB', 'SQLITE_NOTADB']);
+const NON_CORRUPTION_CODES = new Set(['SQLITE_BUSY', 'SQLITE_LOCKED']);
+const CORRUPTION_MESSAGE_RE =
+  /database disk image is malformed|file is not a database|malformed database schema|database corruption|database is corrupt/i;
+const NON_CORRUPTION_MESSAGE_RE =
+  /database is locked|database table is locked|SQLITE_BUSY|SQLITE_LOCKED/i;
+
+function errorCode(err: unknown): string | undefined {
+  if (!err || typeof err !== 'object' || !('code' in err)) return undefined;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+export function isLikelyDatabaseCorruption(err: unknown): boolean {
+  const code = errorCode(err);
+  if (code && NON_CORRUPTION_CODES.has(code)) return false;
+  if (code && CORRUPTION_CODES.has(code)) return true;
+
+  const message = err instanceof Error ? err.message : typeof err === 'string' ? err : String(err);
+  if (NON_CORRUPTION_MESSAGE_RE.test(message)) return false;
+  return CORRUPTION_MESSAGE_RE.test(message);
+}
+
 function normalizeAlias(alias: string): string {
   return alias.normalize('NFD').toLowerCase();
 }
@@ -475,15 +498,30 @@ function restoreIgnorePatterns(db: DB): void {
 
 export function openDb(): DB {
   closeDb();
+  try {
+    return openDbOnce();
+  } catch (err) {
+    if (!isLikelyDatabaseCorruption(err)) throw err;
+    wipeDatabaseSidecars();
+    return openDbOnce();
+  }
+}
+
+function openDbOnce(): DB {
   const db = new Database(config.dbPath);
-  sqliteVec.load(db);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  cleanupNfcPaths(db);
-  restoreIgnorePatterns(db);
-  _db = db;
-  return db;
+  try {
+    sqliteVec.load(db);
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    cleanupNfcPaths(db);
+    restoreIgnorePatterns(db);
+    _db = db;
+    return db;
+  } catch (err) {
+    db.close();
+    throw err;
+  }
 }
 
 export function getDb(): DB {
@@ -506,11 +544,24 @@ export function wipeDatabaseFiles(): void {
   closeDb();
   const dbPath = config.dbPath;
   for (const ext of ['', '-shm', '-wal']) {
-    try {
-      unlinkSync(dbPath + ext);
-    } catch {
-      // File doesn't exist — ok
-    }
+    unlinkIfExists(dbPath + ext);
+  }
+}
+
+export function wipeDatabaseSidecars(): void {
+  closeDb();
+  const dbPath = config.dbPath;
+  for (const ext of ['-shm', '-wal']) {
+    unlinkIfExists(dbPath + ext);
+  }
+}
+
+function unlinkIfExists(filePath: string): void {
+  try {
+    unlinkSync(filePath);
+  } catch (err) {
+    if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return;
+    throw err;
   }
 }
 
