@@ -526,7 +526,12 @@ describe('filter-only mode', () => {
   });
 
   it('filter-only without filters shows help/error', async () => {
+    process.stderr.write(`[DIAG test] filter-only-no-filters start\n`);
+    const t0 = Date.now();
     const results = await search('', {});
+    process.stderr.write(
+      `[DIAG test] filter-only-no-filters search returned in ${Date.now() - t0}ms n=${results.length}\n`,
+    );
     assert.equal(results.length, 0, 'should return empty without filters');
   });
 
@@ -900,11 +905,16 @@ describe('zero-vector guard', () => {
   });
 
   it('hybrid search with zero query vector produces no semantic scores', async () => {
+    process.stderr.write(`[DIAG test] zero-vector-hybrid start\n`);
+    const t0 = Date.now();
     // In unit tests embed() is never called (no OPENAI_API_KEY / no vec table data
     // matching zero-vector queries), so searchVector returns [] for all queries.
     // The important thing is that the zero-vector path in searchVector is guarded.
     // We verify the symptom: no result should have all-equal 0.5 semantic scores.
     const results = await search('Content here', { mode: 'hybrid', limit: 5 });
+    process.stderr.write(
+      `[DIAG test] zero-vector-hybrid search returned in ${Date.now() - t0}ms n=${results.length}\n`,
+    );
     // Results should come from BM25/fuzzy only; none should have uniform 0.5 semantic
     const semanticHits = results.filter((r) => r.scores.semantic !== null);
     const allSameHalf = semanticHits.every((r) => r.scores.semantic === 0.5);
@@ -948,7 +958,12 @@ describe('alias exact-match search', () => {
   });
 
   it('hybrid mode includes alias exact-match via fuzzy_title list', async () => {
+    process.stderr.write(`[DIAG test] hybrid-alias-exact start\n`);
+    const t0 = Date.now();
     const results = await search('ЗК', { mode: 'hybrid', limit: 10 });
+    process.stderr.write(
+      `[DIAG test] hybrid-alias-exact search returned in ${Date.now() - t0}ms n=${results.length}\n`,
+    );
     const match = results.find((r) => r.path === 'zk-system.md');
     assert.ok(
       match,

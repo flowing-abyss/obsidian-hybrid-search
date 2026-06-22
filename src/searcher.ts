@@ -450,11 +450,18 @@ export function searchFuzzyTitle(query: string, limit: number): RawResult[] {
 async function embedQuery(text: string): Promise<Float32Array | null> {
   return measureSearchStage('embedQuery', async () => {
     try {
+      const t = Date.now();
       const [emb] = await embed([text], 'query');
+      process.stderr.write(
+        `[DIAG embedQuery] embed() resolved in ${Date.now() - t}ms emb=${emb === null ? 'null' : 'vec'}\n`,
+      );
       if (emb) return emb;
       // null = embedding failed (already retried internally)
       return null;
-    } catch {
+    } catch (err) {
+      process.stderr.write(
+        `[DIAG embedQuery] embed() threw in: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
       return null;
     }
   });
@@ -1421,17 +1428,53 @@ async function searchByQuery(
   // #1 result and the BM25 winner (weight=2.0) always beats the true hybrid winner.
   // The caller (search()) already slices to `limit` after filtering.
   const candidateLimit = Math.max(limit, 20);
-  const f32 = await embedQuery(query);
+  const __diagStart = Date.now();
+  process.stderr.write(`[DIAG searchByQuery] start q=${JSON.stringify(query)} limit=${limit}\n`);
+  const f32 = await (async () => {
+    const t0 = Date.now();
+    const r = await embedQuery(query);
+    process.stderr.write(
+      `[DIAG searchByQuery] embedQuery done in ${Date.now() - t0}ms r=${r === null ? 'null' : 'vec'}\n`,
+    );
+    return r;
+  })();
   const [bm25Results, fuzzyResults, vectorResults] = await Promise.all([
     Promise.resolve(
-      measureSearchStageSync('bm25', () =>
-        searchBm25(query, candidateLimit, snippetLength, buildAnchors),
-      ),
+      (() => {
+        const t = Date.now();
+        const r = measureSearchStageSync('bm25', () =>
+          searchBm25(query, candidateLimit, snippetLength, buildAnchors),
+        );
+        process.stderr.write(
+          `[DIAG searchByQuery] bm25 done in ${Date.now() - t}ms n=${r.length}\n`,
+        );
+        return r;
+      })(),
     ),
     Promise.resolve(
-      measureSearchStageSync('fuzzyTitle', () => searchFuzzyTitle(query, candidateLimit)),
+      (() => {
+        const t = Date.now();
+        const r = measureSearchStageSync('fuzzyTitle', () =>
+          searchFuzzyTitle(query, candidateLimit),
+        );
+        process.stderr.write(
+          `[DIAG searchByQuery] fuzzyTitle done in ${Date.now() - t}ms n=${r.length}\n`,
+        );
+        return r;
+      })(),
     ),
-    f32 ? searchVector(f32, candidateLimit) : Promise.resolve([]),
+    (async () => {
+      if (!f32) {
+        process.stderr.write(`[DIAG searchByQuery] vector skipped (null embed)\n`);
+        return [];
+      }
+      const t = Date.now();
+      const r = searchVector(f32, candidateLimit);
+      process.stderr.write(
+        `[DIAG searchByQuery] vector done in ${Date.now() - t}ms n=${r.length}\n`,
+      );
+      return r;
+    })(),
   ]);
 
   // Exact alias matches (fuzzy_title=1.0) are canonical identity signals — treated like BM25.
@@ -1445,6 +1488,9 @@ async function searchByQuery(
       [1.5, 1.5, 2.0, 0.25],
     ),
   );
+  process.stderr.write(
+    `[DIAG searchByQuery] rrfFusion done n=${results.length} total=${Date.now() - __diagStart}ms\n`,
+  );
 
   // Populate scores.hybrid for hybrid mode — always, regardless of rerank flag
   for (const r of results) {
@@ -1455,6 +1501,7 @@ async function searchByQuery(
     results = await measureSearchStage('rerank', () => applyRerank(results, query, candidateLimit));
   }
 
+  process.stderr.write(`[DIAG searchByQuery] end total=${Date.now() - __diagStart}ms\n`);
   return results;
 }
 
