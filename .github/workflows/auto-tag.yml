@@ -13,12 +13,50 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read # needed to poll CI status before tagging
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
           token: ${{ secrets.DEPENDENCY_UPDATE_TOKEN }}
+
+      - name: Wait for CI to pass on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # CI (ci.yml) runs on push to master. The release workflow's guard
+          # requires CI to be green for the tagged commit, so we must not tag
+          # until CI has completed successfully. Polling (not a fixed sleep)
+          # makes this deterministic regardless of runner load.
+          for i in $(seq 1 60); do
+            run_json="$(gh run list \
+              --workflow CI \
+              --commit "$GITHUB_SHA" \
+              --limit 1 \
+              --json databaseId,status,conclusion,url)"
+            run_count="$(jq 'length' <<<"$run_json")"
+            if [ "$run_count" -eq 0 ]; then
+              echo "No CI run registered yet for $GITHUB_SHA, retrying..."
+              sleep 10
+              continue
+            fi
+            status="$(jq -r '.[0].status' <<<"$run_json")"
+            conclusion="$(jq -r '.[0].conclusion' <<<"$run_json")"
+            url="$(jq -r '.[0].url' <<<"$run_json")"
+            if [ "$status" = "completed" ]; then
+              if [ "$conclusion" = "success" ]; then
+                echo "CI passed for $GITHUB_SHA: $url"
+                exit 0
+              fi
+              echo "ERROR: CI did not pass for $GITHUB_SHA (conclusion=$conclusion). Not tagging a broken commit. Run: $url"
+              exit 1
+            fi
+            echo "CI still in_progress for $GITHUB_SHA ($url). Waiting..."
+            sleep 15
+          done
+          echo "ERROR: Timed out waiting for CI on $GITHUB_SHA."
+          exit 1
 
       - name: Verify version was bumped relative to previous commit
         run: |
