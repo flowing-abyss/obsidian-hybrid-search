@@ -68,7 +68,7 @@
     "cli-table3": "^0.6.5",
     "commander": "^14.0.3",
     "gray-matter": "^4.0.3",
-    "onnxruntime-node": "^1.27.0",
+    "onnxruntime-node": "^1.26.0",
     "picocolors": "^1.1.1",
     "sqlite-vec": "^0.1.9",
     "yaml": "^2.9.0",
