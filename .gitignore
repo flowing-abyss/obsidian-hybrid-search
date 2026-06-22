@@ -17,6 +17,7 @@ AGENTS.md
 .agents/
 .claude/
 .codex/
+.opencode/
 .pi/
 .pi-lens/
 .a5c/
