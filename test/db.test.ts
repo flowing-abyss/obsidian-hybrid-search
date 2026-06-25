@@ -39,7 +39,11 @@ const {
   initVecTable,
   upsertNote,
   upsertLinks,
+  upsertMarkdownLinks,
+  upsertNoteUrls,
   getLinksForPaths,
+  getMarkdownLinksForPaths,
+  getUrlsForPaths,
   getNoteByPath,
   getDb,
   deleteNote,
@@ -1352,6 +1356,111 @@ describe('restoreIgnorePatterns', () => {
     // Cleanup
     if (saved !== undefined) process.env.OBSIDIAN_IGNORE_PATTERNS = saved;
     else delete process.env.OBSIDIAN_IGNORE_PATTERNS;
+  });
+});
+
+// ─── Markdown links and URLs ─────────────────────────────────────────────────
+
+describe('markdown link and URL storage', () => {
+  it('replaces and reads markdown links with backlinks', () => {
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+
+    upsertMarkdownLinks('source.md', ['target-b.md', 'target-a.md']);
+    upsertMarkdownLinks('other.md', ['source.md']);
+    upsertMarkdownLinks('source.md', ['target-a.md']);
+
+    const maps = getMarkdownLinksForPaths(['source.md', 'target-a.md']);
+
+    assert.deepEqual(maps.links.get('source.md'), ['target-a.md']);
+    assert.deepEqual(maps.backlinks.get('source.md'), ['other.md']);
+    assert.deepEqual(maps.backlinks.get('target-a.md'), ['source.md']);
+  });
+
+  it('replaces and reads URLs in first-seen source order', () => {
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+
+    upsertNoteUrls('source.md', [
+      'https://second.example',
+      'https://first.example',
+      'https://second.example',
+    ]);
+
+    const urls = getUrlsForPaths(['source.md']);
+
+    assert.deepEqual(urls.get('source.md'), ['https://second.example', 'https://first.example']);
+  });
+
+  it('cleans markdown links and URLs on note delete according to keepLinks', () => {
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+
+    const db = getDb();
+    for (const notePath of ['source.md', 'target.md', 'other.md']) {
+      db.prepare(
+        'INSERT INTO notes (path, title, tags, content, frontmatter, mtime, hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).run(notePath, notePath, '[]', 'content', '', 1, notePath);
+    }
+
+    upsertMarkdownLinks('source.md', ['target.md']);
+    upsertMarkdownLinks('other.md', ['source.md']);
+    upsertNoteUrls('source.md', ['https://example.com']);
+
+    deleteNote('source.md', true);
+
+    let markdownCount = db.prepare('SELECT COUNT(*) as c FROM markdown_links').get() as {
+      c: number;
+    };
+    const urlCount = db.prepare('SELECT COUNT(*) as c FROM note_urls').get() as { c: number };
+    assert.equal(markdownCount.c, 2, 'keepLinks=true should preserve markdown graph rows');
+    assert.equal(urlCount.c, 0, 'note_urls for deleted source should be removed');
+
+    deleteNote('target.md', false);
+
+    markdownCount = db.prepare('SELECT COUNT(*) as c FROM markdown_links').get() as { c: number };
+    assert.equal(markdownCount.c, 1, 'physical target delete should remove rows involving target');
+  });
+
+  it('cleanupNfcPaths removes markdown and URL rows involving NFC paths', () => {
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+
+    const nfcPath = 'caf\u00e9.md';
+    const db = getDb();
+    db.prepare(
+      'INSERT INTO notes (path, title, tags, content, frontmatter, mtime, hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run(nfcPath, 'Cafe', '[]', 'Content.', '', 1, 'h1');
+    db.prepare('INSERT INTO markdown_links (from_path, to_path) VALUES (?, ?)').run(
+      'other.md',
+      nfcPath,
+    );
+    db.prepare('INSERT INTO markdown_links (from_path, to_path) VALUES (?, ?)').run(
+      nfcPath,
+      'other.md',
+    );
+    db.prepare('INSERT INTO note_urls (from_path, url, position) VALUES (?, ?, ?)').run(
+      nfcPath,
+      'https://example.com',
+      0,
+    );
+
+    openDb();
+    initVecTable(4);
+    const dbAfter = getDb();
+    const markdownCount = dbAfter
+      .prepare('SELECT COUNT(*) as c FROM markdown_links WHERE from_path = ? OR to_path = ?')
+      .get(nfcPath, nfcPath) as { c: number };
+    const urlCount = dbAfter
+      .prepare('SELECT COUNT(*) as c FROM note_urls WHERE from_path = ?')
+      .get(nfcPath) as { c: number };
+
+    assert.equal(markdownCount.c, 0);
+    assert.equal(urlCount.c, 0);
   });
 });
 

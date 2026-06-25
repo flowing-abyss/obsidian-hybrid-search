@@ -26,6 +26,7 @@ const {
   indexFileWithRecovery,
   scanVault,
   populateMissingLinks,
+  populateMissingMarkdownReferences,
   cleanupStaleNotes,
   formatDuration,
   renderProgressLine,
@@ -253,6 +254,66 @@ describe('populateMissingLinks', () => {
       | { value: string }
       | undefined;
     assert.equal(flag2?.value, '1');
+  });
+});
+
+// ─── populateMissingMarkdownReferences ───────────────────────────────────────
+
+describe('populateMissingMarkdownReferences', () => {
+  it('populates markdown links and URLs from existing note content', async () => {
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+
+    const db = getDb();
+    db.prepare(
+      'INSERT INTO notes (path, title, tags, content, frontmatter, mtime, hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run(
+      'folder/source.md',
+      'Source',
+      '[]',
+      'See [Target](../target.md) and https://second.example then https://first.example.',
+      '',
+      1,
+      'h1',
+    );
+    db.prepare(
+      'INSERT INTO notes (path, title, tags, content, frontmatter, mtime, hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run('target.md', 'Target', '[]', 'Target content.', '', 1, 'h2');
+
+    await populateMissingMarkdownReferences();
+
+    const links = db
+      .prepare('SELECT to_path FROM markdown_links WHERE from_path = ?')
+      .all('folder/source.md') as { to_path: string }[];
+    assert.deepEqual(
+      links.map((link) => link.to_path),
+      ['target.md'],
+    );
+
+    const urls = db
+      .prepare('SELECT url FROM note_urls WHERE from_path = ? ORDER BY position ASC')
+      .all('folder/source.md') as { url: string }[];
+    assert.deepEqual(
+      urls.map((row) => row.url),
+      ['https://second.example', 'https://first.example'],
+    );
+
+    const flag = db.prepare("SELECT value FROM settings WHERE key = 'markdown_links_v1'").get() as
+      | { value: string }
+      | undefined;
+    assert.equal(flag?.value, '1');
+  });
+
+  it('is idempotent once the settings flag is present', async () => {
+    await populateMissingMarkdownReferences();
+    const db = getDb();
+    db.prepare('DELETE FROM markdown_links').run();
+
+    await populateMissingMarkdownReferences();
+
+    const count = db.prepare('SELECT COUNT(*) as c FROM markdown_links').get() as { c: number };
+    assert.equal(count.c, 0);
   });
 });
 

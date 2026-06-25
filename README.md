@@ -258,6 +258,12 @@ obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --direction ou
 # Only backlinks (who references this note)
 obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --direction backlinks
 
+# Traverse standard Markdown note links instead of Obsidian wikilinks
+obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --link-type markdown
+
+# Traverse both wikilinks and standard Markdown note links
+obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --link-type all
+
 # Longer context around each link
 obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --snippet-length 500
 

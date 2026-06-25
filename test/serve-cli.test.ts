@@ -128,6 +128,14 @@ describe('serve CLI smoke tests', () => {
     assertNoVaultDbFiles();
   });
 
+  it('rejects an unsupported related link type', async () => {
+    const result = await runCli(['alpha.md', '--related', '--link-type', 'url']);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /Invalid --link-type/i);
+    assertNoVaultDbFiles();
+  });
+
   it('rejects a non-numeric read snippet length', async () => {
     const result = await runCli(['read', 'alpha.md', '--snippet-length', 'abc']);
 

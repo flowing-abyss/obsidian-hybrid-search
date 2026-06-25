@@ -68,6 +68,7 @@ function normalizeSearchOptions(rawOptions: SearchOptionsBoundary | undefined): 
   if (rawOptions.related !== undefined) options.related = rawOptions.related;
   if (rawOptions.depth !== undefined) options.depth = rawOptions.depth;
   if (rawOptions.direction !== undefined) options.direction = rawOptions.direction;
+  if (rawOptions.linkType !== undefined) options.linkType = rawOptions.linkType;
   if (rawOptions.snippetLength !== undefined) options.snippetLength = rawOptions.snippetLength;
   if (rawOptions.notePath !== undefined) options.notePath = rawOptions.notePath;
   if (rawOptions.rerank !== undefined) options.rerank = rawOptions.rerank;

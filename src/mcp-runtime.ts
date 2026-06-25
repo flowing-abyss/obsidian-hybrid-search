@@ -30,6 +30,7 @@ import {
   indexFileWithRecovery,
   indexVaultSync,
   populateMissingLinks,
+  populateMissingMarkdownReferences,
   startBackgroundIndexing,
   startWatcher,
   withIndexingDbLock,
@@ -140,6 +141,11 @@ export async function createMcpRuntime(): Promise<McpRuntime> {
     console.error('[server] embedding dimension unknown — vector table not initialized');
   }
 
+  await withIndexingDbLock(async () => {
+    await populateMissingLinks();
+    await populateMissingMarkdownReferences();
+  });
+
   return {
     version: packageVersion,
     contextLength,
@@ -153,9 +159,6 @@ export function startMcpBackgroundServices(runtime: McpRuntime): void {
   checkForUpdates(runtime.version).catch(() => {});
 
   // Phase 4 & 5: background indexing + watcher (after server is up)
-  populateMissingLinks().catch((err) => {
-    console.warn('[server] links migration error:', err);
-  });
   startBackgroundIndexing(runtime.contextLength).catch((err) => {
     console.warn('[server] background indexing error:', err);
   });
@@ -282,6 +285,7 @@ async function callSearchTool(a: Record<string, unknown>): Promise<McpToolResult
       related: searchArgs.related,
       depth: searchArgs.depth,
       direction: searchArgs.direction,
+      linkType: searchArgs.link_type,
       snippetLength: searchArgs.snippet_length,
       rerank: searchArgs.rerank,
       anchors: searchArgs.anchors,
@@ -401,11 +405,11 @@ export function createMcpServer(runtime: McpRuntime): Server {
           "Use 'query' for text search across all notes (default mode 'hybrid' combines BM25 keyword matching, fuzzy title, and semantic embeddings — best for almost all queries; ranks by how thoroughly notes cover the topic). " +
           "Use 'queries' for 2-4 reformulations when recall matters. " +
           "Use 'path' to find semantically similar notes to a given note path, excluding the source note and its outgoing links. " +
-          "Use 'path' + 'related: true' to traverse the knowledge graph (outgoing links and backlinks). " +
+          "Use 'path' + 'related: true' to traverse the knowledge graph (outgoing links and backlinks); use link_type to choose wiki, markdown, or all note links. " +
           "Each result includes a 'rank' field (1 = best match). " +
           'Score guide for ranked text/path results: 0.8–1.0 = highly relevant, 0.5–0.8 = moderately relevant, 0.2–0.5 = somewhat relevant, below 0.2 = low relevance. ' +
           'In related mode, the source note is included at depth 0; skip it when you need only neighbors. ' +
-          'Returns: path, title, tags[], snippet, score (0-1), matchedBy[], links[], backlinks[], scores{semantic,bm25,fuzzy_title,hybrid}. Score fields are numbers or null.',
+          'Returns: path, title, tags[], snippet, score (0-1), matchedBy[], links[], backlinks[], markdownLinks[], markdownBacklinks[], urls[], scores{semantic,bm25,fuzzy_title,hybrid}. links/backlinks are wikilinks; markdownLinks/markdownBacklinks are resolved Markdown file links; urls are external HTTP(S) metadata. Score fields are numbers or null.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -474,7 +478,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
               type: 'boolean',
               description:
                 'Graph traversal from a note path instead of text search. Use with path when the user asks for linked notes, backlinks, neighborhoods, or context around a specific note. ' +
-                'Follows explicit wikilinks only; it does not do semantic similarity unless path is used without related. Results include depth: negative = backlink, positive = outgoing, 0 = source.',
+                'By default follows explicit wikilinks only; set link_type to markdown or all when the vault uses standard Markdown file links. It does not do semantic similarity unless path is used without related. Results include depth: negative = backlink, positive = outgoing, 0 = source.',
             },
             depth: {
               type: 'number',
@@ -487,6 +491,13 @@ export function createMcpServer(runtime: McpRuntime): Server {
               description:
                 'Traversal direction for related mode; default both. outgoing returns notes the source links to, backlinks returns notes that link to the source, both returns both. ' +
                 'Use a specific direction only when the user asks for it or the workflow implies it.',
+            },
+            link_type: {
+              type: 'string',
+              enum: ['wiki', 'markdown', 'all'],
+              description:
+                'Graph source for related mode; default wiki. wiki follows Obsidian [[wikilinks]], markdown follows resolved standard Markdown file links like [text](note.md), all follows the union with wiki edges first. ' +
+                'Use markdown for OKF-style or portable Markdown vaults. Do not use this for external URLs; urls[] are returned as metadata and are never traversed.',
             },
             snippet_length: {
               type: 'number',
@@ -549,7 +560,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
         description:
           'Fetch one or more Obsidian notes by vault-relative path and return their full content with metadata. ' +
           'Use directly when the user provides vault-relative path(s), or after search/related traversal to read notes you found. ' +
-          'Returns title, aliases, tags, content (full text), links (outgoing wikilinks), and backlinks. ' +
+          'Returns title, aliases, tags, content (full text), links/backlinks (wikilinks), markdownLinks/markdownBacklinks (resolved Markdown file links), and urls (external HTTP(S) metadata). ' +
           'On path miss: returns found:false with top-3 fuzzy title suggestions — does not throw. ' +
           'Accepts a single path string or an array of paths for batch reading. ' +
           'Use snippet_length to cap content size when reading many notes at once. ' +

@@ -2,6 +2,7 @@ import { z, type ZodError } from 'zod';
 
 const SearchModeSchema = z.enum(['hybrid', 'semantic', 'fulltext', 'title']);
 const DirectionSchema = z.enum(['outgoing', 'backlinks', 'both']);
+const LinkTypeSchema = z.enum(['wiki', 'markdown', 'all']);
 const FiniteNumberSchema = z.number().finite();
 const NonNegativeIntegerSchema = FiniteNumberSchema.int().min(0);
 const ThresholdSchema = FiniteNumberSchema.min(0).max(1);
@@ -16,6 +17,7 @@ export const SearchOptionsBoundarySchema = z.object({
   related: z.boolean().optional(),
   depth: NonNegativeIntegerSchema.optional(),
   direction: DirectionSchema.optional(),
+  linkType: LinkTypeSchema.optional(),
   snippetLength: NonNegativeIntegerSchema.optional(),
   notePath: z.string().optional(),
   rerank: z.boolean().optional(),
@@ -36,6 +38,7 @@ export const SearchToolArgumentsSchema = z.object({
   related: z.boolean().optional(),
   depth: NonNegativeIntegerSchema.optional(),
   direction: DirectionSchema.optional(),
+  link_type: LinkTypeSchema.optional(),
   snippet_length: NonNegativeIntegerSchema.optional(),
   rerank: z.boolean().optional(),
   anchors: z.boolean().optional(),

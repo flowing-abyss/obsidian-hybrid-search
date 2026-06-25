@@ -38,6 +38,7 @@ import {
   getIndexingStatus,
   indexFileWithRecovery,
   indexVaultSync,
+  populateMissingMarkdownReferences,
   startBackgroundIndexing,
   startWatcher,
 } from './indexer.js';
@@ -136,6 +137,7 @@ interface SearchOpts {
   related?: boolean;
   depth: string;
   direction?: 'outgoing' | 'backlinks' | 'both';
+  linkType?: 'wiki' | 'markdown' | 'all';
   snippetLength?: string;
   json?: boolean;
   open?: boolean;
@@ -305,6 +307,7 @@ async function init({ allowWipe = false }: { allowWipe?: boolean } = {}) {
     primeEmbeddingDim(embeddingDim);
     initVecTable(embeddingDim);
   }
+  await populateMissingMarkdownReferences();
   return contextLength;
 }
 
@@ -529,6 +532,7 @@ program
     '--direction <direction>',
     'Direction for --related: outgoing|backlinks|both (default: both)',
   )
+  .option('--link-type <type>', 'Graph type for --related: wiki|markdown|all (default: wiki)')
   .option('--snippet-length <n>', 'Max snippet length in characters (default: 300)')
   .option('--json', 'Output as JSON')
   .option('--only-paths', 'Output note paths one per line (for use in pipes)')
@@ -576,6 +580,14 @@ program
         opts.snippetLength !== undefined
           ? parseCliIntegerOption('--snippet-length', opts.snippetLength, { min: 0 })
           : undefined;
+      if (
+        opts.linkType !== undefined &&
+        opts.linkType !== 'wiki' &&
+        opts.linkType !== 'markdown' &&
+        opts.linkType !== 'all'
+      ) {
+        throw new Error('Invalid --link-type: expected wiki, markdown, or all');
+      }
     } catch (err) {
       failCliValidation(err);
     }
@@ -594,6 +606,7 @@ program
         related: opts.related ?? false,
         depth,
         direction: opts.direction,
+        linkType: opts.linkType,
         snippetLength,
         notePath: opts.path,
         rerank: opts.rerank ?? false,

@@ -1,6 +1,6 @@
 {
   "name": "obsidian-hybrid-search",
-  "version": "0.13.13",
+  "version": "0.13.14",
   "mcpName": "io.github.flowing-abyss/obsidian-hybrid-search",
   "type": "module",
   "bin": {
@@ -70,7 +70,11 @@
     "gray-matter": "^4.0.3",
     "onnxruntime-node": "^1.26.0",
     "picocolors": "^1.1.1",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
     "sqlite-vec": "^0.1.9",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.1.0",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },

@@ -15,8 +15,16 @@ vi.mock('../src/embedder.js', () => ({
 
 // ─── Module imports (after env is set) ───────────────────────────────────────
 
-const { closeDb, openDb, initVecTable, upsertNote, upsertLinks, getDb } =
-  await import('../src/db.js');
+const {
+  closeDb,
+  openDb,
+  initVecTable,
+  upsertNote,
+  upsertLinks,
+  upsertMarkdownLinks,
+  upsertNoteUrls,
+  getDb,
+} = await import('../src/db.js');
 const { search, bumpIndexVersion, readNotes } = await import('../src/searcher.js');
 const { reranker } = await import('../src/reranker.js');
 
@@ -73,6 +81,34 @@ beforeAll(() => {
       path: 'headed-note.md',
       title: 'Headed Note',
       content: '# Intro\nPrelude.\n\n## Deep Section\nBatch heading target keyword lives here.\n',
+      tags: [],
+    },
+    { path: 'md-target.md', title: 'Markdown Target', content: 'Markdown target.', tags: [] },
+    { path: 'all-shared.md', title: 'All Shared', content: 'Shared target.', tags: [] },
+    { path: 'all-deep.md', title: 'All Deep', content: 'Deep target.', tags: [] },
+    { path: 'conflict.md', title: 'Conflict', content: 'Conflict target.', tags: [] },
+    { path: 'cache-source.md', title: 'Cache Source', content: 'Cache source.', tags: [] },
+    { path: 'cache-target.md', title: 'Cache Target', content: 'Cache target.', tags: [] },
+    {
+      path: 'md-context-source.md',
+      title: 'Markdown Context Source',
+      content:
+        '![Context Target](md-context-target.md)\n' +
+        '`[Context Target](md-context-target.md)`\n' +
+        'Filler text. '.repeat(30) +
+        'Before context. See [Context Target](./md-context-target.md) for details. After context.',
+      tags: [],
+    },
+    {
+      path: 'md-context-target.md',
+      title: 'Markdown Context Target',
+      content: 'Markdown context target.',
+      tags: [],
+    },
+    {
+      path: 'conflict-parent.md',
+      title: 'Conflict Parent',
+      content: 'Conflict parent.',
       tags: [],
     },
   ];
@@ -212,9 +248,17 @@ beforeAll(() => {
   });
 
   // BFS graph: note-a → note-b → note-c → note-a (cycle)
-  upsertLinks('note-a.md', ['note-b.md']);
+  upsertLinks('note-a.md', ['note-b.md', 'all-shared.md']);
   upsertLinks('note-b.md', ['note-c.md']);
   upsertLinks('note-c.md', ['note-a.md']);
+  upsertLinks('md-target.md', ['all-deep.md']);
+  upsertLinks('conflict.md', ['note-a.md']);
+  upsertLinks('conflict-parent.md', ['conflict.md']);
+
+  upsertMarkdownLinks('note-a.md', ['md-target.md', 'all-shared.md', 'conflict.md']);
+  upsertMarkdownLinks('note-b.md', ['all-deep.md']);
+  upsertMarkdownLinks('md-context-source.md', ['md-context-target.md']);
+  upsertNoteUrls('note-a.md', ['https://example.com/note-a']);
 });
 
 afterAll(() => {
@@ -273,8 +317,8 @@ describe('BFS cycle avoidance', () => {
 
   it('visited nodes in a cycle are not re-added', async () => {
     const results = await search('note-a.md', { related: true, direction: 'outgoing', depth: 5 });
-    // With a 3-node cycle: a→b→c→a, there are exactly 3 unique notes
-    assert.strictEqual(results.length, 3, 'should have exactly 3 unique notes despite cycle');
+    const paths = results.map((result) => result.path);
+    assert.strictEqual(new Set(paths).size, paths.length, 'each note should appear only once');
   });
 });
 
@@ -325,6 +369,149 @@ describe('BFS direction filtering', () => {
         assert.deepEqual(r.matchedBy, ['backlink'], 'negative depth should be backlink');
       }
     }
+  });
+});
+
+// ─── Related link type filtering ─────────────────────────────────────────────
+
+describe('related linkType filtering', () => {
+  it('defaults to wiki links only', async () => {
+    const results = await search('note-a.md', { related: true, direction: 'outgoing', depth: 1 });
+    const paths = results.map((r) => r.path);
+    assert.ok(paths.includes('note-b.md'), 'default wiki traversal should include wiki target');
+    assert.ok(
+      !paths.includes('md-target.md'),
+      'default wiki traversal should not include markdown target',
+    );
+  });
+
+  it('markdown linkType traverses only markdown links', async () => {
+    const results = await search('note-a.md', {
+      related: true,
+      direction: 'outgoing',
+      depth: 1,
+      linkType: 'markdown',
+      snippetLength: 90,
+    });
+    const paths = results.map((r) => r.path);
+    assert.ok(paths.includes('md-target.md'), 'markdown traversal should include markdown target');
+    assert.ok(
+      !paths.includes('note-b.md'),
+      'markdown traversal should not include wiki-only target',
+    );
+    const target = results.find((r) => r.path === 'md-target.md');
+    assert.deepEqual(target?.matchedBy, ['markdown_link']);
+  });
+
+  it('all linkType returns union with wiki-first ordering and accumulated provenance', async () => {
+    const results = await search('note-a.md', {
+      related: true,
+      direction: 'outgoing',
+      depth: 1,
+      linkType: 'all',
+    });
+    const paths = results.map((r) => r.path);
+    assert.ok(paths.indexOf('note-b.md') < paths.indexOf('md-target.md'));
+    const shared = results.find((r) => r.path === 'all-shared.md');
+    assert.ok(shared, 'shared target should be present once');
+    assert.equal(results.filter((r) => r.path === 'all-shared.md').length, 1);
+    assert.deepEqual(shared.matchedBy, ['link', 'markdown_link']);
+  });
+
+  it('all linkType keeps shallower depth when the same path is reached at different depths', async () => {
+    const results = await search('note-a.md', {
+      related: true,
+      direction: 'outgoing',
+      depth: 2,
+      linkType: 'all',
+    });
+    const deep = results.find((r) => r.path === 'all-deep.md');
+    assert.ok(deep, 'all-deep should be reachable');
+    assert.equal(deep.depth, 2, 'wiki depth 2 should beat no shallower markdown path from source');
+  });
+
+  it('all linkType keeps outgoing before backlinks when opposite signed depths conflict', async () => {
+    const results = await search('note-a.md', {
+      related: true,
+      direction: 'both',
+      depth: 1,
+      linkType: 'all',
+    });
+    const conflict = results.find((r) => r.path === 'conflict.md');
+    assert.ok(conflict, 'conflict target should be present');
+    assert.equal(conflict.depth, 1);
+    assert.ok(conflict.matchedBy.includes('markdown_link'));
+  });
+
+  it('related results include wiki, markdown, and URL metadata fields', async () => {
+    const results = await search('note-a.md', {
+      related: true,
+      direction: 'outgoing',
+      depth: 1,
+      linkType: 'markdown',
+    });
+
+    const source = results.find((result) => result.path === 'note-a.md');
+    const target = results.find((result) => result.path === 'md-target.md');
+
+    assert.deepEqual(source?.markdownLinks, ['all-shared.md', 'conflict.md', 'md-target.md']);
+    assert.deepEqual(source?.urls, ['https://example.com/note-a']);
+    assert.deepEqual(target?.markdownBacklinks, ['note-a.md']);
+  });
+
+  it('uses Markdown link context for markdown related snippets', async () => {
+    const results = await search('md-context-source.md', {
+      related: true,
+      direction: 'outgoing',
+      depth: 1,
+      linkType: 'markdown',
+    });
+
+    const target = results.find((result) => result.path === 'md-context-target.md');
+
+    assert.ok(target?.snippet.includes('[Context Target](./md-context-target.md)'));
+    assert.ok(!target?.snippet.includes('![Context Target](md-context-target.md)'));
+  });
+
+  it('continues both-direction traversal through nodes already found in opposite direction', async () => {
+    const results = await search('note-a.md', {
+      related: true,
+      direction: 'both',
+      depth: 2,
+      linkType: 'all',
+    });
+
+    const conflictParent = results.find((result) => result.path === 'conflict-parent.md');
+
+    assert.ok(conflictParent, 'should traverse backlinks of conflict at depth 2');
+    assert.equal(conflictParent.depth, -2);
+  });
+
+  it('invalidates related cache after graph changes', async () => {
+    const before = await search('cache-source.md', {
+      related: true,
+      direction: 'outgoing',
+      depth: 1,
+      linkType: 'markdown',
+    });
+    assert.deepEqual(
+      before.map((result) => result.path),
+      ['cache-source.md'],
+    );
+
+    upsertMarkdownLinks('cache-source.md', ['cache-target.md']);
+    bumpIndexVersion();
+    const after = await search('cache-source.md', {
+      related: true,
+      direction: 'outgoing',
+      depth: 1,
+      linkType: 'markdown',
+    });
+
+    assert.deepEqual(
+      after.map((result) => result.path),
+      ['cache-source.md', 'cache-target.md'],
+    );
   });
 });
 

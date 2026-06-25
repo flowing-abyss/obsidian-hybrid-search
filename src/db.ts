@@ -249,6 +249,19 @@ function runMigrations(db: DB): void {
       PRIMARY KEY (from_path, to_path)
     );
 
+    CREATE TABLE IF NOT EXISTS markdown_links (
+      from_path TEXT NOT NULL,
+      to_path   TEXT NOT NULL,
+      PRIMARY KEY (from_path, to_path)
+    );
+
+    CREATE TABLE IF NOT EXISTS note_urls (
+      from_path TEXT NOT NULL,
+      url       TEXT NOT NULL,
+      position  INTEGER NOT NULL,
+      PRIMARY KEY (from_path, url)
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
       value TEXT
@@ -266,6 +279,7 @@ function runMigrations(db: DB): void {
   // links(from_path, to_path) is already covered by the PRIMARY KEY.
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_links_to ON links(to_path);
+    CREATE INDEX IF NOT EXISTS idx_markdown_links_to ON markdown_links(to_path);
     CREATE INDEX IF NOT EXISTS idx_chunks_note_chunk_index ON chunks(note_id, chunk_index);
   `);
 
@@ -475,6 +489,11 @@ function cleanupNfcPaths(db: DB): void {
       db.prepare('DELETE FROM chunks WHERE note_id = ?').run(note.id);
       deleteChildRows(db, note.id);
       db.prepare('DELETE FROM links WHERE from_path = ? OR to_path = ?').run(note.path, note.path);
+      db.prepare('DELETE FROM markdown_links WHERE from_path = ? OR to_path = ?').run(
+        note.path,
+        note.path,
+      );
+      db.prepare('DELETE FROM note_urls WHERE from_path = ?').run(note.path);
       db.prepare('DELETE FROM notes WHERE id = ?').run(note.id);
     }
   }
@@ -844,7 +863,12 @@ export function deleteNote(notePath: string, keepLinks = false): void {
 
   if (!keepLinks) {
     db.prepare('DELETE FROM links WHERE from_path = ? OR to_path = ?').run(notePath, notePath);
+    db.prepare('DELETE FROM markdown_links WHERE from_path = ? OR to_path = ?').run(
+      notePath,
+      notePath,
+    );
   }
+  db.prepare('DELETE FROM note_urls WHERE from_path = ?').run(notePath);
   db.prepare('DELETE FROM notes WHERE id = ?').run(note.id);
   logEvent('deleted', notePath);
   bumpDbVersion();
@@ -919,6 +943,86 @@ export function upsertLinks(fromPath: string, toPaths: string[]): void {
   for (const toPath of toPaths) {
     insert.run(fromPath, toPath);
   }
+}
+
+export function upsertMarkdownLinks(fromPath: string, toPaths: string[]): void {
+  const db = getDb();
+  db.prepare('DELETE FROM markdown_links WHERE from_path = ?').run(fromPath);
+  const insert = db.prepare(
+    'INSERT OR IGNORE INTO markdown_links (from_path, to_path) VALUES (?, ?)',
+  );
+  for (const toPath of toPaths) {
+    insert.run(fromPath, toPath);
+  }
+}
+
+export function upsertNoteUrls(fromPath: string, urls: string[]): void {
+  const db = getDb();
+  db.prepare('DELETE FROM note_urls WHERE from_path = ?').run(fromPath);
+  const insert = db.prepare(
+    'INSERT OR IGNORE INTO note_urls (from_path, url, position) VALUES (?, ?, ?)',
+  );
+  const seen = new Set<string>();
+  let position = 0;
+  for (const url of urls) {
+    if (seen.has(url)) continue;
+    seen.add(url);
+    insert.run(fromPath, url, position);
+    position++;
+  }
+}
+
+export function getMarkdownLinksForPaths(paths: string[]): {
+  links: Map<string, string[]>;
+  backlinks: Map<string, string[]>;
+} {
+  const links = new Map<string, string[]>();
+  const backlinks = new Map<string, string[]>();
+  for (const path of paths) {
+    links.set(path, []);
+    backlinks.set(path, []);
+  }
+  if (paths.length === 0) return { links, backlinks };
+
+  const db = getDb();
+  const placeholders = paths.map(() => '?').join(', ');
+  const outgoing = db
+    .prepare(
+      `SELECT from_path, to_path FROM markdown_links WHERE from_path IN (${placeholders}) ORDER BY from_path ASC, to_path ASC`,
+    )
+    .all(...paths) as { from_path: string; to_path: string }[];
+  for (const { from_path, to_path } of outgoing) {
+    links.get(from_path)!.push(to_path);
+  }
+
+  const incoming = db
+    .prepare(
+      `SELECT from_path, to_path FROM markdown_links WHERE to_path IN (${placeholders}) ORDER BY to_path ASC, from_path ASC`,
+    )
+    .all(...paths) as { from_path: string; to_path: string }[];
+  for (const { from_path, to_path } of incoming) {
+    backlinks.get(to_path)!.push(from_path);
+  }
+
+  return { links, backlinks };
+}
+
+export function getUrlsForPaths(paths: string[]): Map<string, string[]> {
+  const urls = new Map<string, string[]>();
+  for (const path of paths) urls.set(path, []);
+  if (paths.length === 0) return urls;
+
+  const db = getDb();
+  const placeholders = paths.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT from_path, url FROM note_urls WHERE from_path IN (${placeholders}) ORDER BY from_path ASC, position ASC, url ASC`,
+    )
+    .all(...paths) as { from_path: string; url: string }[];
+  for (const { from_path, url } of rows) {
+    urls.get(from_path)!.push(url);
+  }
+  return urls;
 }
 
 export function getLinksForPaths(paths: string[]): {

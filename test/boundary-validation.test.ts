@@ -93,6 +93,23 @@ describe('parseCliNumberOption', () => {
 });
 
 describe('SearchOptionsBoundarySchema', () => {
+  it('accepts supported related link graph selectors', () => {
+    for (const linkType of ['wiki', 'markdown', 'all']) {
+      const result = SearchOptionsBoundarySchema.safeParse({ linkType });
+
+      assert.equal(result.success, true, `expected ${linkType} to be accepted`);
+    }
+  });
+
+  it('rejects unsupported related link graph selectors', () => {
+    const result = SearchOptionsBoundarySchema.safeParse({ linkType: 'url' });
+
+    assert.equal(result.success, false);
+    if (!result.success) {
+      assert.match(formatValidationError('search options', result.error), /linkType/);
+    }
+  });
+
   it('rejects search option numeric values outside CLI domains', () => {
     const invalidOptions = [
       { field: 'limit', options: { limit: -1 } },
@@ -114,6 +131,23 @@ describe('SearchOptionsBoundarySchema', () => {
 });
 
 describe('SearchToolArgumentsSchema', () => {
+  it('accepts supported snake_case related link graph selectors', () => {
+    for (const link_type of ['wiki', 'markdown', 'all']) {
+      const result = SearchToolArgumentsSchema.safeParse({ link_type });
+
+      assert.equal(result.success, true, `expected ${link_type} to be accepted`);
+    }
+  });
+
+  it('rejects unsupported snake_case related link graph selectors', () => {
+    const result = SearchToolArgumentsSchema.safeParse({ link_type: 'url' });
+
+    assert.equal(result.success, false);
+    if (!result.success) {
+      assert.match(formatValidationError('search arguments', result.error), /link_type/);
+    }
+  });
+
   it('rejects snake_case snippet length outside CLI domain', () => {
     const result = SearchToolArgumentsSchema.safeParse({ snippet_length: -1 });
 

@@ -17,7 +17,8 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
 // ─── Module imports ───────────────────────────────────────────────────────────
 
-const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/db.js');
+const { closeDb, openDb, initVecTable, upsertNote, upsertMarkdownLinks, upsertNoteUrls } =
+  await import('../src/db.js');
 const { readNotes, search } = await import('../src/searcher.js');
 
 const fakeEmbedding = new Float32Array([0.5, 0.5, 0.5, 0.5]);
@@ -43,6 +44,8 @@ beforeAll(() => {
     hash: 'h2',
     chunks: [{ text: 'Beta note content', embedding: fakeEmbedding }],
   });
+  upsertMarkdownLinks('alpha.md', ['beta.md']);
+  upsertNoteUrls('alpha.md', ['https://example.com/alpha']);
 });
 
 afterAll(() => {
@@ -67,6 +70,9 @@ describe('SearchResult shape', () => {
       assert.ok(Array.isArray(r.matchedBy), 'matchedBy must be an array');
       assert.ok(Array.isArray(r.links), 'links must be an array');
       assert.ok(Array.isArray(r.backlinks), 'backlinks must be an array');
+      assert.ok(Array.isArray(r.markdownLinks), 'markdownLinks must be an array');
+      assert.ok(Array.isArray(r.markdownBacklinks), 'markdownBacklinks must be an array');
+      assert.ok(Array.isArray(r.urls), 'urls must be an array');
       assert.ok(typeof r.scores === 'object', 'scores must be an object');
     }
   });
@@ -290,6 +296,9 @@ describe('readNotes() result shape contract', () => {
     assert.ok(typeof result.content === 'string');
     assert.ok(Array.isArray(result.links));
     assert.ok(Array.isArray(result.backlinks));
+    assert.ok(Array.isArray(result.markdownLinks));
+    assert.ok(Array.isArray(result.markdownBacklinks));
+    assert.ok(Array.isArray(result.urls));
   });
 
   it('miss result has path, found:false, suggestions[]', () => {
@@ -298,6 +307,18 @@ describe('readNotes() result shape contract', () => {
     assert.strictEqual(result.found, false);
     assert.ok(typeof result.path === 'string');
     assert.ok(Array.isArray(result.suggestions));
+    assert.equal('markdownLinks' in result, false);
+  });
+
+  it('related:false keeps URL metadata but returns empty graph arrays', () => {
+    const [result] = readNotes(['alpha.md'], { related: false });
+    assert.ok(result?.found === true);
+    if (!result.found) return;
+    assert.deepEqual(result.links, []);
+    assert.deepEqual(result.backlinks, []);
+    assert.deepEqual(result.markdownLinks, []);
+    assert.deepEqual(result.markdownBacklinks, []);
+    assert.deepEqual(result.urls, ['https://example.com/alpha']);
   });
 
   it('batch returns one result per input path in order', () => {

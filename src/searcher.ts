@@ -9,14 +9,20 @@ import {
   getDb,
   getDbVersion,
   getLinksForPaths,
+  getMarkdownLinksForPaths,
   getMatchingNotesByFrontmatter,
   getNoteByPath,
   getOutgoingLinks,
   getOutgoingLinksForPaths,
+  getUrlsForPaths,
   hasVecTable,
   resolveNotePath,
 } from './db.js';
 import { embed } from './embedder.js';
+import {
+  extractMarkdownReferenceOccurrences,
+  resolveMarkdownNoteLinks,
+} from './markdown-references.js';
 import { reranker, type RerankCandidate } from './reranker.js';
 import { measureSearchStage, measureSearchStageSync } from './search-profile.js';
 
@@ -29,6 +35,9 @@ export interface NoteReadResult {
   content: string;
   links: string[];
   backlinks: string[];
+  markdownLinks: string[];
+  markdownBacklinks: string[];
+  urls: string[];
 }
 
 export interface NoteReadMiss {
@@ -73,6 +82,9 @@ export interface SearchResult {
   matchedBy: string[];
   links: string[];
   backlinks: string[];
+  markdownLinks: string[];
+  markdownBacklinks: string[];
+  urls: string[];
   scores: {
     semantic: number | null;
     bm25: number | null;
@@ -93,6 +105,7 @@ export interface SearchOptions {
   related?: boolean;
   depth?: number;
   direction?: 'outgoing' | 'backlinks' | 'both';
+  linkType?: 'wiki' | 'markdown' | 'all';
   snippetLength?: number;
   /** Explicit note path for similarity/related lookup — overrides the input heuristic */
   notePath?: string;
@@ -187,6 +200,9 @@ function toSearchResult(r: RawResult): SearchResult {
     matchedBy,
     links: [],
     backlinks: [],
+    markdownLinks: [],
+    markdownBacklinks: [],
+    urls: [],
     scores: {
       semantic: r.scores.semantic ?? null,
       bm25: r.scores.bm25 ?? null,
@@ -833,6 +849,57 @@ function getLinkContext(noteContent: string, linkedNotePath: string, windowSize 
   return prefix + noteContent.slice(start, end).trim() + suffix;
 }
 
+function getContextAroundMatch(
+  noteContent: string,
+  matchIndex: number,
+  matchLength: number,
+  windowSize: number,
+): string {
+  const contextBudget = Math.max(0, windowSize - matchLength);
+  const beforeBudget = Math.floor(contextBudget / 2);
+  const afterBudget = contextBudget - beforeBudget;
+  let start = Math.max(0, matchIndex - beforeBudget);
+  let end = Math.min(noteContent.length, matchIndex + matchLength + afterBudget);
+
+  if (start > 0) {
+    while (start < matchIndex && !/\s/.test(noteContent[start]!)) start++;
+  }
+  if (end < noteContent.length) {
+    while (end > matchIndex + matchLength && !/\s/.test(noteContent[end - 1]!)) end--;
+  }
+
+  const prefix = start > 0 ? '...' : '';
+  const suffix = end < noteContent.length ? '...' : '';
+  return prefix + noteContent.slice(start, end).trim() + suffix;
+}
+
+function getMarkdownLinkContext(
+  noteContent: string,
+  sourcePath: string,
+  linkedNotePath: string,
+  windowSize = 300,
+): string {
+  const normalizedTarget = linkedNotePath.normalize('NFD');
+  const occurrences = extractMarkdownReferenceOccurrences(noteContent).localDestinations;
+  for (const occurrence of occurrences) {
+    const resolved = resolveMarkdownNoteLinks(
+      sourcePath,
+      [occurrence.destination],
+      new Set([normalizedTarget]),
+    );
+    if (resolved.includes(normalizedTarget)) {
+      return getContextAroundMatch(
+        noteContent,
+        occurrence.startOffset,
+        occurrence.endOffset - occurrence.startOffset,
+        windowSize,
+      );
+    }
+  }
+
+  return '';
+}
+
 function getCachedNoteContent(
   db: ReturnType<typeof getDb>,
   cache: Map<string, string>,
@@ -854,10 +921,12 @@ function searchRelated(
   maxDepth: number,
   direction: 'outgoing' | 'backlinks' | 'both' = 'both',
   snippetLength = 300,
+  linkType: 'wiki' | 'markdown' | 'all' = 'wiki',
 ): SearchResult[] {
   const db = getDb();
   const sourcePath = notePath.normalize('NFD');
   const results: SearchResult[] = [];
+  const resultIndexes = new Map<string, number>();
   const contentCache = new Map<string, string>();
 
   const makeResult = (notePth: string, depth: number, snippet: string): SearchResult | null => {
@@ -884,6 +953,9 @@ function searchRelated(
       matchedBy: depth === 0 ? ['source'] : depth > 0 ? ['link'] : ['backlink'],
       links: [],
       backlinks: [],
+      markdownLinks: [],
+      markdownBacklinks: [],
+      urls: [],
       scores: { semantic: null, bm25: null, fuzzy_title: null, hybrid: null },
     };
   };
@@ -892,6 +964,90 @@ function searchRelated(
   const source = makeResult(sourcePath, 0, '');
   if (!source) return [];
   results.push(source);
+  resultIndexes.set(sourcePath, 0);
+
+  const addOrMergeResult = (
+    notePth: string,
+    depth: number,
+    snippet: string,
+    matchedBy: 'link' | 'backlink' | 'markdown_link' | 'markdown_backlink',
+  ): boolean => {
+    const existingIndex = resultIndexes.get(notePth);
+    if (existingIndex !== undefined) {
+      const existing = results[existingIndex]!;
+      const existingAbs = Math.abs(existing.depth ?? 0);
+      const nextAbs = Math.abs(depth);
+      if (nextAbs < existingAbs) {
+        const replacement = makeResult(notePth, depth, snippet);
+        if (!replacement) return false;
+        replacement.matchedBy = [matchedBy];
+        results[existingIndex] = replacement;
+        return false;
+      }
+      if (nextAbs === existingAbs && !existing.matchedBy.includes(matchedBy)) {
+        existing.matchedBy.push(matchedBy);
+      }
+      return false;
+    }
+
+    const r = makeResult(notePth, depth, snippet);
+    if (!r) return false;
+    r.matchedBy = [matchedBy];
+    resultIndexes.set(notePth, results.length);
+    results.push(r);
+    return true;
+  };
+
+  const getOutgoingEdges = (
+    frontierPaths: string[],
+  ): Map<string, Array<{ path: string; matchedBy: 'link' | 'markdown_link' }>> => {
+    const edges = new Map<string, Array<{ path: string; matchedBy: 'link' | 'markdown_link' }>>();
+    for (const frontierPath of frontierPaths) edges.set(frontierPath, []);
+    if (linkType === 'wiki' || linkType === 'all') {
+      const wikiLinks = getOutgoingLinksForPaths(frontierPaths);
+      for (const frontierPath of frontierPaths) {
+        for (const target of wikiLinks.get(frontierPath) ?? []) {
+          edges.get(frontierPath)!.push({ path: target, matchedBy: 'link' });
+        }
+      }
+    }
+    if (linkType === 'markdown' || linkType === 'all') {
+      const markdownLinks = getMarkdownLinksForPaths(frontierPaths).links;
+      for (const frontierPath of frontierPaths) {
+        for (const target of markdownLinks.get(frontierPath) ?? []) {
+          edges.get(frontierPath)!.push({ path: target, matchedBy: 'markdown_link' });
+        }
+      }
+    }
+    return edges;
+  };
+
+  const getBacklinkEdges = (
+    frontierPaths: string[],
+  ): Map<string, Array<{ path: string; matchedBy: 'backlink' | 'markdown_backlink' }>> => {
+    const edges = new Map<
+      string,
+      Array<{ path: string; matchedBy: 'backlink' | 'markdown_backlink' }>
+    >();
+    for (const frontierPath of frontierPaths) edges.set(frontierPath, []);
+    if (linkType === 'wiki' || linkType === 'all') {
+      const wikiBacklinks = getBacklinksForPaths(frontierPaths);
+      for (const frontierPath of frontierPaths) {
+        for (const source of wikiBacklinks.get(frontierPath) ?? []) {
+          edges.get(frontierPath)!.push({ path: source, matchedBy: 'backlink' });
+        }
+      }
+    }
+    if (linkType === 'markdown' || linkType === 'all') {
+      const markdownBacklinks = getMarkdownLinksForPaths(frontierPaths).backlinks;
+      for (const frontierPath of frontierPaths) {
+        for (const source of markdownBacklinks.get(frontierPath) ?? []) {
+          edges.get(frontierPath)!.push({ path: source, matchedBy: 'markdown_backlink' });
+        }
+      }
+    }
+    return edges;
+  };
 
   // Forward BFS — follow outgoing links (+depth)
   if (direction === 'outgoing' || direction === 'both') {
@@ -899,16 +1055,18 @@ function searchRelated(
     let frontier = [sourcePath];
     for (let d = 1; d <= maxDepth; d++) {
       const next: string[] = [];
-      const linksByParent = getOutgoingLinksForPaths(frontier);
+      const linksByParent = getOutgoingEdges(frontier);
       for (const parentPath of frontier) {
-        for (const to_path of linksByParent.get(parentPath) ?? []) {
-          if (visitedFwd.has(to_path)) continue;
-          visitedFwd.add(to_path);
+        for (const edge of linksByParent.get(parentPath) ?? []) {
           const parentContent = getCachedNoteContent(db, contentCache, parentPath);
-          const snippet = getLinkContext(parentContent, to_path, snippetLength);
-          const r = makeResult(to_path, d, snippet);
-          if (r) results.push(r);
-          next.push(to_path);
+          const snippet =
+            edge.matchedBy === 'markdown_link'
+              ? getMarkdownLinkContext(parentContent, parentPath, edge.path, snippetLength)
+              : getLinkContext(parentContent, edge.path, snippetLength);
+          addOrMergeResult(edge.path, d, snippet, edge.matchedBy);
+          if (visitedFwd.has(edge.path)) continue;
+          visitedFwd.add(edge.path);
+          if (resultIndexes.has(edge.path)) next.push(edge.path);
         }
       }
       frontier = next;
@@ -922,16 +1080,18 @@ function searchRelated(
     let frontier = [sourcePath];
     for (let d = 1; d <= maxDepth; d++) {
       const next: string[] = [];
-      const backlinksByParent = getBacklinksForPaths(frontier);
+      const backlinksByParent = getBacklinkEdges(frontier);
       for (const parentPath of frontier) {
-        for (const from_path of backlinksByParent.get(parentPath) ?? []) {
-          if (visitedBwd.has(from_path)) continue;
-          visitedBwd.add(from_path);
-          const fromContent = getCachedNoteContent(db, contentCache, from_path);
-          const snippet = getLinkContext(fromContent, parentPath, snippetLength);
-          const r = makeResult(from_path, -d, snippet);
-          if (r) results.push(r);
-          next.push(from_path);
+        for (const edge of backlinksByParent.get(parentPath) ?? []) {
+          const fromContent = getCachedNoteContent(db, contentCache, edge.path);
+          const snippet =
+            edge.matchedBy === 'markdown_backlink'
+              ? getMarkdownLinkContext(fromContent, edge.path, parentPath, snippetLength)
+              : getLinkContext(fromContent, parentPath, snippetLength);
+          addOrMergeResult(edge.path, -d, snippet, edge.matchedBy);
+          if (visitedBwd.has(edge.path)) continue;
+          visitedBwd.add(edge.path);
+          if (resultIndexes.has(edge.path)) next.push(edge.path);
         }
       }
       frontier = next;
@@ -945,9 +1105,14 @@ function searchRelated(
   // Populate links/backlinks for all results
   const paths = results.map((r) => r.path);
   const { links, backlinks } = getLinksForPaths(paths);
+  const markdown = getMarkdownLinksForPaths(paths);
+  const urls = getUrlsForPaths(paths);
   for (const r of results) {
     r.links = links.get(r.path) ?? [];
     r.backlinks = backlinks.get(r.path) ?? [];
+    r.markdownLinks = markdown.links.get(r.path) ?? [];
+    r.markdownBacklinks = markdown.backlinks.get(r.path) ?? [];
+    r.urls = urls.get(r.path) ?? [];
   }
 
   return results;
@@ -1040,15 +1205,16 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   if (isPathLookup && options.related) {
     const maxDepth = options.depth ?? 1;
     const direction = options.direction ?? 'both';
+    const linkType = options.linkType ?? 'wiki';
     const scopeStr = Array.isArray(options.scope) ? options.scope.join(',') : (options.scope ?? '');
     const tagStr = Array.isArray(options.tag) ? options.tag.join(',') : (options.tag ?? '');
     const fmStr = Array.isArray(options.frontmatter)
       ? options.frontmatter.join(',')
       : (options.frontmatter ?? '');
-    const key = `related\0${resolvedPath}\0${maxDepth}\0${direction}\0${snippetLength}\0${scopeStr}\0${tagStr}\0${fmStr}`;
+    const key = `related\0v${getDbVersion()}_${localVersion}\0${resolvedPath}\0${maxDepth}\0${direction}\0${linkType}\0${snippetLength}\0${scopeStr}\0${tagStr}\0${fmStr}`;
     const cached = searchCache.get(key);
     if (cached) return cached;
-    let related = searchRelated(resolvedPath, maxDepth, direction, snippetLength);
+    let related = searchRelated(resolvedPath, maxDepth, direction, snippetLength, linkType);
     // Apply scope, tag, and frontmatter filters (related bypasses the normal pipeline)
     if (options.scope) related = related.filter((r) => matchesScopeFilter(r.path, options.scope!));
     if (options.tag && (!Array.isArray(options.tag) || options.tag.length > 0)) {
@@ -1231,6 +1397,8 @@ export async function search(input: string, options: SearchOptions = {}): Promis
 
     const paths = filteredResults.map((r) => r.path);
     const { links, backlinks } = getLinksForPaths(paths);
+    const markdown = getMarkdownLinksForPaths(paths);
+    const urls = getUrlsForPaths(paths);
     const fallbackSnippets = getSnippetFallbacks(
       paths.filter((path, index) => {
         const raw = filteredResults[index];
@@ -1251,6 +1419,9 @@ export async function search(input: string, options: SearchOptions = {}): Promis
         rank: i + 1,
         links: links.get(sr.path) ?? [],
         backlinks: backlinks.get(sr.path) ?? [],
+        markdownLinks: markdown.links.get(sr.path) ?? [],
+        markdownBacklinks: markdown.backlinks.get(sr.path) ?? [],
+        urls: urls.get(sr.path) ?? [],
       };
     });
 
@@ -1534,12 +1705,19 @@ export function readNotes(
 
     let links: string[] = [];
     let backlinks: string[] = [];
+    let markdownLinks: string[] = [];
+    let markdownBacklinks: string[] = [];
+    let urls: string[] = [];
 
     if (related) {
       const linkMap = getLinksForPaths([normalizedPath]);
       links = linkMap.links.get(normalizedPath) ?? [];
       backlinks = linkMap.backlinks.get(normalizedPath) ?? [];
+      const markdownMap = getMarkdownLinksForPaths([normalizedPath]);
+      markdownLinks = markdownMap.links.get(normalizedPath) ?? [];
+      markdownBacklinks = markdownMap.backlinks.get(normalizedPath) ?? [];
     }
+    urls = getUrlsForPaths([normalizedPath]).get(normalizedPath) ?? [];
 
     results.push({
       path: note.path,
@@ -1550,6 +1728,9 @@ export function readNotes(
       content,
       links,
       backlinks,
+      markdownLinks,
+      markdownBacklinks,
+      urls,
     });
   }
 

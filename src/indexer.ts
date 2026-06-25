@@ -16,11 +16,14 @@ import {
   openDb,
   updateLastIndexed,
   upsertLinks,
+  upsertMarkdownLinks,
   upsertNote,
+  upsertNoteUrls,
   wipeDatabaseSidecars,
 } from './db.js';
 import { embed, getContextLength } from './embedder.js';
 import { isIgnored } from './ignore.js';
+import { extractMarkdownReferences, resolveMarkdownNoteLinks } from './markdown-references.js';
 import { bumpIndexVersion } from './searcher.js';
 
 export interface IndexResult {
@@ -125,6 +128,25 @@ export async function withIndexingDbLock<T>(operation: () => T | Promise<T>): Pr
 
 function toVaultRelativePath(fullPath: string): string {
   return path.relative(config.vaultPath, fullPath).split(path.sep).join('/').normalize('NFD');
+}
+
+function getExistingNotePathSet(): Set<string> {
+  const rows = getDb().prepare('SELECT path FROM notes').all() as { path: string }[];
+  return new Set(rows.map((row) => row.path));
+}
+
+function resolveMarkdownReferencesForNote(
+  fromPath: string,
+  content: string,
+  existingPaths = getExistingNotePathSet(),
+): { links: string[]; urls: string[] } {
+  const references = extractMarkdownReferences(content);
+  const links = resolveMarkdownNoteLinks(
+    fromPath,
+    references.localDestinations.map((link) => link.destination),
+    existingPaths,
+  );
+  return { links, urls: references.urls };
 }
 
 function* walkDir(dir: string): Generator<string> {
@@ -234,6 +256,9 @@ export async function indexFile(
 
     const resolvedLinks = resolveWikilinks(frontmatterRaw + '\n' + content, relPath);
     upsertLinks(relPath, resolvedLinks);
+    const markdownReferences = resolveMarkdownReferencesForNote(relPath, content);
+    upsertMarkdownLinks(relPath, markdownReferences.links);
+    upsertNoteUrls(relPath, markdownReferences.urls);
 
     bumpIndexVersion();
     return 'indexed';
@@ -295,6 +320,41 @@ export async function populateMissingLinks(): Promise<void> {
 }
 
 /**
+ * One-time migration: populate resolved Markdown file links and external URLs
+ * from stored note content for all notes indexed before this feature existed.
+ */
+// eslint-disable-next-line @typescript-eslint/require-await
+export async function populateMissingMarkdownReferences(): Promise<void> {
+  const db = getDb();
+  const done = (
+    db.prepare("SELECT value FROM settings WHERE key = 'markdown_links_v1'").get() as
+      | { value: string }
+      | undefined
+  )?.value;
+  if (done) return;
+
+  const notes = db.prepare('SELECT path, content FROM notes WHERE content IS NOT NULL').all() as {
+    path: string;
+    content: string;
+  }[];
+  const existingPaths = new Set(notes.map((note) => note.path));
+  const tx = db.transaction(() => {
+    for (const note of notes) {
+      const references = resolveMarkdownReferencesForNote(note.path, note.content, existingPaths);
+      upsertMarkdownLinks(note.path, references.links);
+      upsertNoteUrls(note.path, references.urls);
+    }
+    db.prepare(
+      "INSERT OR REPLACE INTO settings(key, value) VALUES('markdown_links_v1', '1')",
+    ).run();
+    db.prepare(
+      "INSERT OR REPLACE INTO settings(key, value) VALUES('db_version', CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'db_version'), 0) + 1 AS TEXT))",
+    ).run();
+  });
+  tx();
+}
+
+/**
  * Re-resolve wikilinks for ALL indexed notes unconditionally.
  * Called after every full vault reindex so that notes whose targets
  * didn't exist at index time get their links backfilled.
@@ -312,6 +372,21 @@ async function resolveAllLinks(): Promise<void> {
   for (const note of notes) {
     const links = resolveWikilinks((note.frontmatter || '') + '\n' + note.content, note.path);
     upsertLinks(note.path, links);
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/require-await
+async function resolveAllMarkdownReferences(): Promise<void> {
+  const db = getDb();
+  const notes = db.prepare('SELECT path, content FROM notes WHERE content IS NOT NULL').all() as {
+    path: string;
+    content: string;
+  }[];
+  const existingPaths = new Set(notes.map((note) => note.path));
+  for (const note of notes) {
+    const references = resolveMarkdownReferencesForNote(note.path, note.content, existingPaths);
+    upsertMarkdownLinks(note.path, references.links);
+    upsertNoteUrls(note.path, references.urls);
   }
 }
 
@@ -394,6 +469,11 @@ export async function indexVaultSync(
       options.recoverDatabase,
     );
     await runWithDatabaseRecovery(
+      'markdown reference resolution',
+      () => resolveAllMarkdownReferences(),
+      options.recoverDatabase,
+    );
+    await runWithDatabaseRecovery(
       'freshness update',
       () => updateLastIndexed(),
       options.recoverDatabase,
@@ -465,6 +545,11 @@ export async function indexVaultSync(
   await runWithDatabaseRecovery(
     'link resolution',
     () => resolveAllLinks(),
+    options.recoverDatabase,
+  );
+  await runWithDatabaseRecovery(
+    'markdown reference resolution',
+    () => resolveAllMarkdownReferences(),
     options.recoverDatabase,
   );
   await runWithDatabaseRecovery(
