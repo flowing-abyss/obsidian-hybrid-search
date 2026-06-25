@@ -26,6 +26,17 @@ type ScoreFn = (
   inputs: Array<{ text: string; text_pair: string }>,
 ) => Promise<Array<Array<{ label: string; score: number }>>>;
 
+interface MockedSequenceClassification {
+  from_pretrained: ReturnType<typeof vi.fn>;
+}
+
+async function getMockedSequenceClassification(): Promise<MockedSequenceClassification> {
+  const transformers = (await import('@huggingface/transformers')) as unknown as {
+    AutoModelForSequenceClassification: MockedSequenceClassification;
+  };
+  return transformers.AutoModelForSequenceClassification;
+}
+
 const { CrossEncoderReranker } = await import('../src/reranker.js');
 
 // ─── Mock pipeline factory ────────────────────────────────────────────────────
@@ -201,13 +212,11 @@ describe('CrossEncoderReranker._loadModel', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('returns a scoring function that extracts single-label logits', async () => {
-    const { AutoModelForSequenceClassification } = await import('@huggingface/transformers');
+    const AutoModelForSequenceClassification = await getMockedSequenceClassification();
     const modelFn = vi.fn().mockResolvedValue({
       logits: { data: new Float32Array([0.1, 0.9]), dims: [2, 1] },
     });
-    (
-      AutoModelForSequenceClassification.from_pretrained as ReturnType<typeof vi.fn>
-    ).mockResolvedValue(modelFn);
+    AutoModelForSequenceClassification.from_pretrained.mockResolvedValue(modelFn);
 
     const r = new CrossEncoderReranker('test-model');
     const scoreFn = await (r as unknown as { _loadModel: () => Promise<unknown> })._loadModel();
@@ -224,13 +233,11 @@ describe('CrossEncoderReranker._loadModel', () => {
   });
 
   it('returns a scoring function that extracts last-label logits for multi-label models', async () => {
-    const { AutoModelForSequenceClassification } = await import('@huggingface/transformers');
+    const AutoModelForSequenceClassification = await getMockedSequenceClassification();
     const modelFn = vi.fn().mockResolvedValue({
       logits: { data: new Float32Array([0.1, 0.2, 0.3, 0.4]), dims: [2, 2] },
     });
-    (
-      AutoModelForSequenceClassification.from_pretrained as ReturnType<typeof vi.fn>
-    ).mockResolvedValue(modelFn);
+    AutoModelForSequenceClassification.from_pretrained.mockResolvedValue(modelFn);
 
     const r = new CrossEncoderReranker('test-model');
     const scoreFn = await (r as unknown as { _loadModel: () => Promise<unknown> })._loadModel();
@@ -248,13 +255,11 @@ describe('CrossEncoderReranker._loadModel', () => {
   });
 
   it('falls back to 0 when logit data is missing for an index', async () => {
-    const { AutoModelForSequenceClassification } = await import('@huggingface/transformers');
+    const AutoModelForSequenceClassification = await getMockedSequenceClassification();
     const modelFn = vi.fn().mockResolvedValue({
       logits: { data: new Float32Array([0.5]), dims: [2, 1] },
     });
-    (
-      AutoModelForSequenceClassification.from_pretrained as ReturnType<typeof vi.fn>
-    ).mockResolvedValue(modelFn);
+    AutoModelForSequenceClassification.from_pretrained.mockResolvedValue(modelFn);
 
     const r = new CrossEncoderReranker('test-model');
     const scoreFn = await (r as unknown as { _loadModel: () => Promise<unknown> })._loadModel();
