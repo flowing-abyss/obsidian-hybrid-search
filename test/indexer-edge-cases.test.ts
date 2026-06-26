@@ -12,11 +12,6 @@ vi.mock('chokidar', () => ({
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-indexer-edge-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-vi.mock('../src/embedder.js', () => ({
-  embed: vi.fn((texts: string[]) => Promise.resolve(texts.map(() => null))),
-  getContextLength: vi.fn(() => Promise.resolve(512)),
-}));
-
 const {
   indexFile,
   indexVaultSync,
@@ -32,6 +27,14 @@ const { closeDb, openDb, initVecTable, upsertNote, getDb, isLikelyDatabaseCorrup
   await import('../src/db.js');
 const { bumpIndexVersion } = await import('../src/searcher.js');
 
+// Spy on embedder (matching test/indexer-file.test.ts strategy) so both files
+// cooperate on the same real module instance under vitest's isolate:false.
+// A vi.mock() factory here would be discarded once another test file imports
+// the real embedder module, leaking the real (384-dim) local model through.
+const embedder = await import('../src/embedder.js');
+vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
+vi.spyOn(embedder, 'getContextLength').mockResolvedValue(512);
+
 const fakeEmbedding = new Float32Array([0.1, 0.2, 0.3, 0.4]);
 
 function writeNote(relPath: string, content: string): void {
@@ -46,6 +49,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  vi.mocked(embedder.embed).mockRestore();
+  vi.mocked(embedder.getContextLength).mockRestore();
   closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
 });
