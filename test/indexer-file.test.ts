@@ -95,6 +95,9 @@ describe('renderProgressLine', () => {
 // ─── scanVault / walkDir ─────────────────────────────────────────────────────
 
 describe('scanVault', () => {
+  const scanVaultRelPaths = (): string[] =>
+    scanVault().map((file) => path.relative(vaultDir, file).split(path.sep).join('/'));
+
   it('finds markdown files in the vault', () => {
     writeFileSync(path.join(vaultDir, 'found.md'), '# Found');
     const files = scanVault();
@@ -150,14 +153,10 @@ describe('scanVault', () => {
     writeFileSync(rootDraftPath, '# Root draft');
 
     try {
-      const files = scanVault();
+      const files = scanVaultRelPaths();
 
-      assert.ok(!files.some((f) => f.endsWith('project-gitignore-scope/draft.md')));
-      assert.ok(
-        files.some(
-          (f) => f.endsWith('draft.md') && !f.endsWith('project-gitignore-scope/draft.md'),
-        ),
-      );
+      assert.ok(!files.includes('project-gitignore-scope/draft.md'));
+      assert.ok(files.includes('draft.md'));
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
       rmSync(rootDraftPath, { force: true });
@@ -172,10 +171,10 @@ describe('scanVault', () => {
     writeFileSync(path.join(unicodeDir, 'visible.md'), '# Visible unicode');
 
     try {
-      const files = scanVault();
+      const files = scanVaultRelPaths();
 
-      assert.ok(!files.some((f) => f.endsWith('Café-project/hidden.md')));
-      assert.ok(files.some((f) => f.endsWith('Café-project/visible.md')));
+      assert.ok(!files.includes('Café-project/hidden.md'));
+      assert.ok(files.includes('Café-project/visible.md'));
     } finally {
       rmSync(unicodeDir, { recursive: true, force: true });
     }
@@ -192,10 +191,10 @@ describe('scanVault', () => {
     writeFileSync(path.join(keepDir, 'reincluded.md'), '# Reincluded');
 
     try {
-      const files = scanVault();
+      const files = scanVaultRelPaths();
 
-      assert.ok(!files.some((f) => f.endsWith('gitignored-keep/hidden.md')));
-      assert.ok(files.some((f) => f.endsWith('gitignored-keep/reincluded.md')));
+      assert.ok(!files.includes('gitignored-keep/hidden.md'));
+      assert.ok(files.includes('gitignored-keep/reincluded.md'));
     } finally {
       if (oldInclude === undefined) delete process.env.OBSIDIAN_INCLUDE_PATTERNS;
       else process.env.OBSIDIAN_INCLUDE_PATTERNS = oldInclude;
