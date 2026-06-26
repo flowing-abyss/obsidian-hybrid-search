@@ -22,7 +22,7 @@ import {
   wipeDatabaseSidecars,
 } from './db.js';
 import { embed, getContextLength } from './embedder.js';
-import { isIgnored } from './ignore.js';
+import { createIgnorePolicy, type IgnorePolicy } from './ignore.js';
 import { extractMarkdownReferences, resolveMarkdownNoteLinks } from './markdown-references.js';
 import { bumpIndexVersion } from './searcher.js';
 
@@ -70,9 +70,10 @@ async function indexBatch(
   force: boolean,
 ): Promise<IndexResult> {
   const result: IndexResult = { indexed: 0, skipped: 0, errors: [] };
+  const policy = createIgnorePolicy();
   await Promise.all(
     files.map(async (f) => {
-      const status = await indexFile(f, contextLength, force);
+      const status = await indexFile(f, contextLength, force, policy);
       if (status === 'indexed') result.indexed++;
       else if (status === 'skipped') result.skipped++;
       else {
@@ -149,7 +150,7 @@ function resolveMarkdownReferencesForNote(
   return { links, urls: references.urls };
 }
 
-function* walkDir(dir: string): Generator<string> {
+function* walkDir(dir: string, policy: IgnorePolicy): Generator<string> {
   let entries: { name: string; isDirectory(): boolean; isFile(): boolean }[];
   try {
     entries = readdirSync(dir, {
@@ -163,8 +164,8 @@ function* walkDir(dir: string): Generator<string> {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       const rel = toVaultRelativePath(full);
-      if (!isIgnored(rel + '/')) {
-        yield* walkDir(full);
+      if (!policy.isIgnored(rel + '/')) {
+        yield* walkDir(full, policy);
       }
     } else if (entry.isFile() && entry.name.endsWith('.md')) {
       yield full;
@@ -174,9 +175,10 @@ function* walkDir(dir: string): Generator<string> {
 
 export function scanVault(): string[] {
   const files: string[] = [];
-  for (const fullPath of walkDir(config.vaultPath)) {
+  const policy = createIgnorePolicy();
+  for (const fullPath of walkDir(config.vaultPath, policy)) {
     const rel = toVaultRelativePath(fullPath);
-    if (!isIgnored(rel)) {
+    if (!policy.isIgnored(rel)) {
       files.push(fullPath);
     }
   }
@@ -187,12 +189,14 @@ export async function indexFile(
   fullPath: string,
   contextLength?: number,
   force = false,
+  policy = createIgnorePolicy(),
 ): Promise<'indexed' | 'skipped' | { error: string }> {
   try {
     const stat = statSync(fullPath);
     const mtime = stat.mtimeMs;
 
     const relPath = toVaultRelativePath(fullPath);
+    if (policy.isIgnored(relPath)) return 'skipped';
     const existing = force ? undefined : getNoteMeta(relPath);
 
     // Fast skip: mtime unchanged
@@ -277,7 +281,8 @@ export async function indexFileWithRecovery(
   force = false,
   recoverDatabase: () => void = recoverDatabaseSidecarsForIndexing,
 ): Promise<'indexed' | 'skipped' | { error: string }> {
-  const status = await indexFile(fullPath, contextLength, force);
+  const policy = createIgnorePolicy();
+  const status = await indexFile(fullPath, contextLength, force, policy);
   if (status === 'indexed' || status === 'skipped' || !isLikelyDatabaseCorruption(status.error)) {
     return status;
   }
@@ -286,7 +291,7 @@ export async function indexFileWithRecovery(
     '[auto-heal] SQLite index corruption detected while indexing one file; removing WAL/SHM sidecars and retrying once.\n',
   );
   recoverDatabase();
-  return indexFile(fullPath, contextLength, true);
+  return indexFile(fullPath, contextLength, true, createIgnorePolicy());
 }
 
 /**
@@ -401,9 +406,14 @@ export function cleanupStaleNotes(fsPaths?: Set<string>): void {
 
   // Newly ignored notes: file still exists on disk, keep their link entries
   // so backlinks from ignored notes remain visible in search results
-  const pathsToRemove = getPathsToRemoveForIgnoreChange(config.ignorePatterns);
+  const policy = createIgnorePolicy();
+  const pathsToRemove = getPathsToRemoveForIgnoreChange(
+    config.ignorePatterns,
+    policy.signature(),
+    (p) => policy.isIgnored(p),
+  );
   for (const p of pathsToRemove) {
-    if (isIgnored(p)) {
+    if (policy.isIgnored(p)) {
       deleteNote(p, true); // keepLinks=true
       deleted++;
     }
@@ -678,20 +688,22 @@ const pendingUnlinks = new Set<string>();
 export function startWatcher(contextLength: number): void {
   import('chokidar')
     .then(({ watch }) => {
+      let watcherPolicy = createIgnorePolicy();
       const watcher = watch(config.vaultPath, {
         ignored: (filePath: string) => {
           const base = path.basename(filePath);
+          if (base === '.gitignore') return false;
           try {
             if (statSync(filePath).isDirectory()) {
               const rel = toVaultRelativePath(filePath);
-              return isIgnored(rel + '/');
+              return watcherPolicy.isIgnored(rel + '/');
             }
           } catch {
             // File doesn't exist — fall through to extension check below
           }
           if (!base.endsWith('.md')) return true;
           const rel = toVaultRelativePath(filePath);
-          return isIgnored(rel);
+          return watcherPolicy.isIgnored(rel);
         },
         persistent: true,
         ignoreInitial: true,
@@ -714,8 +726,41 @@ export function startWatcher(contextLength: number): void {
         fileDelays.set(filePath, timer);
       };
 
+      const handleGitignoreChange = () => {
+        void withIndexingDbLock(async () => {
+          try {
+            watcherPolicy = createIgnorePolicy();
+            const files = scanVault();
+            const fsPaths = new Set(files.map(toVaultRelativePath));
+            await runWithDatabaseRecovery(
+              'watcher gitignore cleanup',
+              () => cleanupStaleNotes(fsPaths),
+              recoverDatabaseSidecarsForIndexing,
+            );
+            for (const file of files) {
+              const normalizedPath = path.normalize(file).normalize('NFD');
+              if (!_indexQueue.includes(normalizedPath)) {
+                _indexQueue.push(normalizedPath);
+                _totalExpected++;
+              }
+            }
+            watcher.add(config.vaultPath);
+            void processQueue(contextLength).catch((err) => {
+              console.warn('[watcher] queue processing error:', err);
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[watcher] gitignore change error: ${msg}`);
+          }
+        });
+      };
+
       const safeHandleFileChange = (filePath: string) => {
         try {
+          if (path.basename(filePath) === '.gitignore') {
+            handleGitignoreChange();
+            return;
+          }
           handleFileChange(filePath);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -728,6 +773,10 @@ export function startWatcher(contextLength: number): void {
         pendingUnlinks.add(filePath);
         void withIndexingDbLock(async () => {
           try {
+            if (path.basename(filePath) === '.gitignore') {
+              handleGitignoreChange();
+              return;
+            }
             const rel = toVaultRelativePath(filePath);
             const existing = fileDelays.get(filePath);
             if (existing) {

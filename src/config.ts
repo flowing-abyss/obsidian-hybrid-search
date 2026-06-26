@@ -15,6 +15,16 @@ export const config = {
       .map((p) => p.trim())
       .filter(Boolean);
   },
+  get includePatterns(): string[] {
+    return (process.env.OBSIDIAN_INCLUDE_PATTERNS ?? '')
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
+  },
+  get respectGitignore(): boolean {
+    const raw = process.env.OBSIDIAN_RESPECT_GITIGNORE?.trim().toLowerCase();
+    return raw !== 'false' && raw !== '0' && raw !== 'no';
+  },
   get apiKey(): string | undefined {
     return process.env.OPENAI_API_KEY;
   },

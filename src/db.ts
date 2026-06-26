@@ -3,7 +3,7 @@ import { statSync, unlinkSync } from 'node:fs';
 import * as sqliteVec from 'sqlite-vec';
 import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
 import { config } from './config.js';
-import { isIgnored } from './ignore.js';
+import { getIgnoreSignature, isIgnored } from './ignore.js';
 
 type DB = InstanceType<typeof Database>;
 
@@ -1311,19 +1311,33 @@ export function getFailedChunks(limit = 100): FailedChunk[] {
  * Returns paths of notes that should be removed because they now match ignore patterns.
  * Stores new patterns in settings. Returns empty array if patterns unchanged.
  */
-export function getPathsToRemoveForIgnoreChange(patterns: string[]): string[] {
+export function getPathsToRemoveForIgnoreChange(
+  patterns: string[],
+  signature = getIgnoreSignature(),
+  isIgnoredPath: (path: string) => boolean = isIgnored,
+): string[] {
   const db = getDb();
-  const key = 'ignore_patterns';
-  const stored = db.prepare(`SELECT value FROM settings WHERE key = '${key}'`).get() as
+  const patternsKey = 'ignore_patterns';
+  const signatureKey = 'ignore_state_signature';
+  const storedPatterns = db
+    .prepare(`SELECT value FROM settings WHERE key = '${patternsKey}'`)
+    .get() as { value: string } | undefined;
+  const stored = db.prepare(`SELECT value FROM settings WHERE key = '${signatureKey}'`).get() as
     | { value: string }
     | undefined;
-  const newJson = JSON.stringify([...patterns].sort((a, b) => a.localeCompare(b)));
+  const storedSignature = storedPatterns ? stored : undefined;
+  const patternsJson = JSON.stringify([...patterns].sort((a, b) => a.localeCompare(b)));
 
-  if (stored && stored.value === newJson) return [];
+  if (storedSignature && storedSignature.value === signature) return [];
 
-  db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('${key}', ?)`).run(newJson);
+  db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('${patternsKey}', ?)`).run(
+    patternsJson,
+  );
+  db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('${signatureKey}', ?)`).run(
+    signature,
+  );
 
-  if (!stored) {
+  if (!storedSignature) {
     // No stored patterns — check if DB has notes
     // If yes, this is a "reset" scenario, need to filter by new patterns
     // If no, this is truly a first run
@@ -1334,7 +1348,7 @@ export function getPathsToRemoveForIgnoreChange(patterns: string[]): string[] {
   // Return all DB paths that match the new ignore patterns
   const allPaths = (db.prepare('SELECT path FROM notes').all() as { path: string }[])
     .map((r) => r.path)
-    .filter((p) => isIgnored(p));
+    .filter((p) => isIgnoredPath(p));
   return allPaths;
 }
 

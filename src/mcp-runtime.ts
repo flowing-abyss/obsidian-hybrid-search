@@ -350,6 +350,8 @@ function callStatusTool(a: Record<string, unknown>, runtime: McpRuntime): McpToo
         ? { version_check: 'offline' }
         : {}),
     ignore_patterns: config.ignorePatterns,
+    respect_gitignore: config.respectGitignore,
+    include_patterns: config.includePatterns,
   };
   if (statusArgs.include_activity) {
     output.recent_activity = stats.recentActivity;

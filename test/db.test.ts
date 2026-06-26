@@ -764,6 +764,12 @@ describe('ignore patterns (isIgnored)', () => {
     assert.ok(!isIgnored('notes/pkm/note.md'), 'different folder should not be ignored');
   });
 
+  it('keeps bare ignore patterns anchored to the vault root for compatibility', () => {
+    process.env.OBSIDIAN_IGNORE_PATTERNS = 'drafts';
+    assert.ok(isIgnored('drafts/note.md'), 'root drafts directory should be ignored');
+    assert.ok(!isIgnored('notes/drafts/note.md'), 'nested drafts directory should not be ignored');
+  });
+
   it('matches extension pattern', () => {
     process.env.OBSIDIAN_IGNORE_PATTERNS = '*.canvas';
     assert.ok(isIgnored('diagram.canvas'), '.canvas file should be ignored');
@@ -775,6 +781,71 @@ describe('ignore patterns (isIgnored)', () => {
     assert.ok(isIgnored('templates/daily.md'), 'templates path ignored');
     assert.ok(isIgnored('.obsidian/config.json'), '.obsidian path ignored');
     assert.ok(!isIgnored('notes/daily.md'), 'notes path not ignored');
+  });
+
+  it('respects .gitignore by default', () => {
+    const gitignorePath = path.join(vaultDir, '.gitignore');
+    writeFileSync(gitignorePath, 'gitignored.md\n');
+
+    try {
+      assert.ok(isIgnored('gitignored.md'), 'gitignored.md should be ignored by .gitignore');
+    } finally {
+      rmSync(gitignorePath, { force: true });
+    }
+  });
+
+  it('can disable gitignore matching', () => {
+    const oldRespect = process.env.OBSIDIAN_RESPECT_GITIGNORE;
+    const gitignorePath = path.join(vaultDir, '.gitignore');
+    process.env.OBSIDIAN_RESPECT_GITIGNORE = 'false';
+    writeFileSync(gitignorePath, 'gitignored-disabled.md\n');
+
+    try {
+      assert.ok(
+        !isIgnored('gitignored-disabled.md'),
+        'disabled gitignore should not ignore the path',
+      );
+    } finally {
+      if (oldRespect === undefined) delete process.env.OBSIDIAN_RESPECT_GITIGNORE;
+      else process.env.OBSIDIAN_RESPECT_GITIGNORE = oldRespect;
+      rmSync(gitignorePath, { force: true });
+    }
+  });
+
+  it('honors gitignore negation rules', () => {
+    const gitignorePath = path.join(vaultDir, '.gitignore');
+    writeFileSync(gitignorePath, 'negated.md\n!negated.md\nstill-ignored.md\n');
+
+    try {
+      assert.ok(!isIgnored('negated.md'), 'negated path should be re-included');
+      assert.ok(isIgnored('still-ignored.md'), 'non-negated path should stay ignored');
+    } finally {
+      rmSync(gitignorePath, { force: true });
+    }
+  });
+
+  it('allows include patterns to override gitignore only', () => {
+    const oldInclude = process.env.OBSIDIAN_INCLUDE_PATTERNS;
+    const oldIgnore = process.env.OBSIDIAN_IGNORE_PATTERNS;
+    const gitignorePath = path.join(vaultDir, '.gitignore');
+    process.env.OBSIDIAN_INCLUDE_PATTERNS = 'keep/**';
+    process.env.OBSIDIAN_IGNORE_PATTERNS = 'blocked/**';
+    writeFileSync(gitignorePath, 'git-only/**\nkeep/**\nblocked/**\n');
+
+    try {
+      assert.ok(isIgnored('git-only/note.md'), 'git-only path should be ignored by .gitignore');
+      assert.ok(!isIgnored('keep/note.md'), 'include pattern should override gitignore');
+      assert.ok(
+        isIgnored('blocked/note.md'),
+        'include pattern should not override explicit excludes',
+      );
+    } finally {
+      if (oldInclude === undefined) delete process.env.OBSIDIAN_INCLUDE_PATTERNS;
+      else process.env.OBSIDIAN_INCLUDE_PATTERNS = oldInclude;
+      if (oldIgnore === undefined) delete process.env.OBSIDIAN_IGNORE_PATTERNS;
+      else process.env.OBSIDIAN_IGNORE_PATTERNS = oldIgnore;
+      rmSync(gitignorePath, { force: true });
+    }
   });
 });
 

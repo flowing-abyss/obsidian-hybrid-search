@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 
 vi.mock('chokidar', () => ({
   watch: vi.fn().mockReturnValue({
+    add: vi.fn().mockReturnThis(),
     on: vi.fn().mockReturnThis(),
   }),
 }));
@@ -119,6 +120,89 @@ describe('scanVault', () => {
     const files = scanVault();
     assert.ok(!files.some((f) => f.includes('templates')));
   });
+
+  it('respects root .gitignore rules during scan', () => {
+    const gitignorePath = path.join(vaultDir, '.gitignore');
+    const ignoredPath = path.join(vaultDir, 'ignored-by-git.md');
+    const visiblePath = path.join(vaultDir, 'visible-after-gitignore.md');
+    writeFileSync(gitignorePath, 'ignored-by-git.md\n');
+    writeFileSync(ignoredPath, '# Ignored');
+    writeFileSync(visiblePath, '# Visible');
+
+    try {
+      const files = scanVault();
+
+      assert.ok(!files.some((f) => f.endsWith('ignored-by-git.md')));
+      assert.ok(files.some((f) => f.endsWith('visible-after-gitignore.md')));
+    } finally {
+      rmSync(gitignorePath, { force: true });
+      rmSync(ignoredPath, { force: true });
+      rmSync(visiblePath, { force: true });
+    }
+  });
+
+  it('applies nested .gitignore only to descendants', () => {
+    const projectDir = path.join(vaultDir, 'project-gitignore-scope');
+    const rootDraftPath = path.join(vaultDir, 'draft.md');
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(path.join(projectDir, '.gitignore'), 'draft.md\n');
+    writeFileSync(path.join(projectDir, 'draft.md'), '# Ignored nested draft');
+    writeFileSync(rootDraftPath, '# Root draft');
+
+    try {
+      const files = scanVault();
+
+      assert.ok(!files.some((f) => f.endsWith('project-gitignore-scope/draft.md')));
+      assert.ok(
+        files.some(
+          (f) => f.endsWith('draft.md') && !f.endsWith('project-gitignore-scope/draft.md'),
+        ),
+      );
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+      rmSync(rootDraftPath, { force: true });
+    }
+  });
+
+  it('discovers nested .gitignore files under unicode directory names', () => {
+    const unicodeDir = path.join(vaultDir, 'Café-project');
+    mkdirSync(unicodeDir, { recursive: true });
+    writeFileSync(path.join(unicodeDir, '.gitignore'), 'hidden.md\n');
+    writeFileSync(path.join(unicodeDir, 'hidden.md'), '# Hidden unicode');
+    writeFileSync(path.join(unicodeDir, 'visible.md'), '# Visible unicode');
+
+    try {
+      const files = scanVault();
+
+      assert.ok(!files.some((f) => f.endsWith('Café-project/hidden.md')));
+      assert.ok(files.some((f) => f.endsWith('Café-project/visible.md')));
+    } finally {
+      rmSync(unicodeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('descends into gitignored directories when include patterns can re-include notes', () => {
+    const oldInclude = process.env.OBSIDIAN_INCLUDE_PATTERNS;
+    const gitignorePath = path.join(vaultDir, '.gitignore');
+    const keepDir = path.join(vaultDir, 'gitignored-keep');
+    process.env.OBSIDIAN_INCLUDE_PATTERNS = 'gitignored-keep/reincluded.md';
+    mkdirSync(keepDir, { recursive: true });
+    writeFileSync(gitignorePath, 'gitignored-keep/\n');
+    writeFileSync(path.join(keepDir, 'hidden.md'), '# Hidden');
+    writeFileSync(path.join(keepDir, 'reincluded.md'), '# Reincluded');
+
+    try {
+      const files = scanVault();
+
+      assert.ok(!files.some((f) => f.endsWith('gitignored-keep/hidden.md')));
+      assert.ok(files.some((f) => f.endsWith('gitignored-keep/reincluded.md')));
+    } finally {
+      if (oldInclude === undefined) delete process.env.OBSIDIAN_INCLUDE_PATTERNS;
+      else process.env.OBSIDIAN_INCLUDE_PATTERNS = oldInclude;
+      rmSync(gitignorePath, { force: true });
+      rmSync(keepDir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ─── indexFile ───────────────────────────────────────────────────────────────
@@ -169,6 +253,27 @@ describe('indexFile', () => {
   it('returns error for a non-existent file', async () => {
     const result = await indexFile(path.join(vaultDir, 'no-such-file.md'), 512);
     assert.ok(typeof result === 'object' && 'error' in result);
+  });
+
+  it('skips files ignored by current policy', async () => {
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+
+    const gitignorePath = path.join(vaultDir, '.gitignore');
+    const filePath = path.join(vaultDir, 'direct-ignored.md');
+    writeFileSync(gitignorePath, 'direct-ignored.md\n');
+    writeFileSync(filePath, '# Direct Ignored\n\nShould not be indexed.');
+
+    try {
+      const result = await indexFile(filePath, 512);
+
+      assert.equal(result, 'skipped');
+      assert.ok(!getNoteByPath('direct-ignored.md'));
+    } finally {
+      rmSync(gitignorePath, { force: true });
+      rmSync(filePath, { force: true });
+    }
   });
 
   it('auto-recovers and indexes a single file after database sidecar corruption', async () => {
@@ -348,6 +453,27 @@ describe('cleanupStaleNotes', () => {
     cleanupStaleNotes(new Set(['still-here.md']));
     const note = getNoteByPath('still-here.md');
     assert.ok(note);
+  });
+
+  it('removes notes newly ignored by .gitignore', async () => {
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+
+    const filePath = path.join(vaultDir, 'gitignore-cleanup.md');
+    const gitignorePath = path.join(vaultDir, '.gitignore');
+    writeFileSync(filePath, '# Gitignore Cleanup\n\nBefore ignore.');
+    await indexFile(filePath, 512);
+    assert.ok(getNoteByPath('gitignore-cleanup.md'));
+
+    writeFileSync(gitignorePath, 'gitignore-cleanup.md\n');
+    try {
+      cleanupStaleNotes(new Set(['gitignore-cleanup.md']));
+      assert.ok(!getNoteByPath('gitignore-cleanup.md'));
+    } finally {
+      rmSync(gitignorePath, { force: true });
+      rmSync(filePath, { force: true });
+    }
   });
 });
 
@@ -796,5 +922,16 @@ describe('indexVaultSync', () => {
     startWatcher(4);
     await new Promise((r) => setTimeout(r, 10));
     assert.equal((chokidar.watch as ReturnType<typeof vi.fn>).mock.calls.length, 1);
+  });
+
+  it('startWatcher does not ignore .gitignore files', async () => {
+    const chokidar = await import('chokidar');
+    const { startWatcher } = await import('../src/indexer');
+    startWatcher(4);
+    await new Promise((r) => setTimeout(r, 10));
+
+    const lastCall = (chokidar.watch as ReturnType<typeof vi.fn>).mock.calls.at(-1);
+    const options = lastCall?.[1] as { ignored?: (filePath: string) => boolean } | undefined;
+    assert.equal(options?.ignored?.(path.join(vaultDir, '.gitignore')), false);
   });
 });

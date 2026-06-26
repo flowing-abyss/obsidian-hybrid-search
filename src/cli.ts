@@ -759,6 +759,8 @@ program
           ? { version_check: 'offline' }
           : {}),
       ignore_patterns: config.ignorePatterns,
+      respect_gitignore: config.respectGitignore,
+      include_patterns: config.includePatterns,
     };
     if (opts.recent) {
       output.recent_activity = stats.recentActivity;

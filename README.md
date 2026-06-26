@@ -424,7 +424,9 @@ Uses the built-in `Xenova/multilingual-e5-small` model — works fully offline, 
       "env": {
         "OBSIDIAN_VAULT_PATH": "/path/to/your/vault",
         "OBSIDIAN_PREFIX": "myvault_",
+        "OBSIDIAN_RESPECT_GITIGNORE": "true",
         "OBSIDIAN_IGNORE_PATTERNS": ".obsidian/**,templates/**,*.canvas",
+        "OBSIDIAN_INCLUDE_PATTERNS": "private/notes/**",
         "OPENAI_API_KEY": "sk-or-v1-...",
         "OPENAI_BASE_URL": "https://openrouter.ai/api/v1",
         "OPENAI_EMBEDDING_MODEL": "openai/text-embedding-3-small"
@@ -488,20 +490,24 @@ If `OBSIDIAN_PREFIX` is set, tool names are prefixed in the MCP list (for exampl
 
 ## Configuration
 
-| Environment variable       | Default                              | Description                                                                        |
-| -------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
-| `OBSIDIAN_VAULT_PATH`      | Required for MCP; CLI auto-detects   | Absolute path to your vault                                                        |
-| `OBSIDIAN_PREFIX`          | `""`                                 | Optional MCP tool prefix, e.g. `myvault_` → `myvault_search`, `myvault_read`       |
-| `OBSIDIAN_IGNORE_PATTERNS` | `.obsidian/**,templates/**,*.canvas` | Comma-separated ignore patterns                                                    |
-| `OPENAI_API_KEY`           | —                                    | API key; omit to use local model embeddings or keyless servers (Ollama, LM Studio) |
-| `OPENAI_BASE_URL`          | `https://api.openai.com/v1`          | API base URL                                                                       |
-| `OPENAI_EMBEDDING_MODEL`   | `text-embedding-3-small`             | Embedding model name                                                               |
+| Environment variable         | Default                              | Description                                                                        |
+| ---------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
+| `OBSIDIAN_VAULT_PATH`        | Required for MCP; CLI auto-detects   | Absolute path to your vault                                                        |
+| `OBSIDIAN_PREFIX`            | `""`                                 | Optional MCP tool prefix, e.g. `myvault_` → `myvault_search`, `myvault_read`       |
+| `OBSIDIAN_IGNORE_PATTERNS`   | `.obsidian/**,templates/**,*.canvas` | Comma-separated ignore patterns                                                    |
+| `OBSIDIAN_RESPECT_GITIGNORE` | `true`                               | Read root and nested `.gitignore` files; set to `false` to disable                 |
+| `OBSIDIAN_INCLUDE_PATTERNS`  | `""`                                 | Comma-separated patterns to re-include notes ignored only by `.gitignore`          |
+| `OPENAI_API_KEY`             | —                                    | API key; omit to use local model embeddings or keyless servers (Ollama, LM Studio) |
+| `OPENAI_BASE_URL`            | `https://api.openai.com/v1`          | API base URL                                                                       |
+| `OPENAI_EMBEDDING_MODEL`     | `text-embedding-3-small`             | Embedding model name                                                               |
 
 ### Ignore patterns
 
 - `folder/**` — ignore a directory and all its contents
 - `*.canvas` — ignore by extension
 - `exact/path.md` — ignore a specific file
+
+Root and nested `.gitignore` files are respected by default. Set `OBSIDIAN_RESPECT_GITIGNORE=false` to disable this. Use `OBSIDIAN_INCLUDE_PATTERNS` to re-include Markdown notes that are ignored only by `.gitignore`; include patterns do not override `OBSIDIAN_IGNORE_PATTERNS` or internal exclusions.
 
 The ignore configuration is persisted in the database, so it is restored automatically even if the environment variable is missing on restart.
 
