@@ -144,20 +144,16 @@ function matchesScopeFilter(notePath: string, scope: string | string[]): boolean
   const scopes = (Array.isArray(scope) ? scope : [scope]).map((s) => s.normalize('NFD'));
   const includes = scopes.filter((s) => !s.startsWith('-'));
   const excludes = scopes.filter((s) => s.startsWith('-')).map((s) => s.slice(1));
-  // Multiple excludes = AND logic (note must NOT match ANY of the excludes)
-  if (
-    excludes.some((ex) => {
-      const exScope = ex.endsWith('/') ? ex : ex + '/';
-      return notePath.startsWith(ex) || notePath.startsWith(exScope);
-    })
-  )
-    return false;
+  // A scope prefix matches a path when the path is exactly the prefix or the
+  // prefix is a parent directory (followed by '/'). This prevents 'notes' from
+  // matching 'notes-old/foo.md'. Multiple excludes = AND logic (note must NOT
+  // match ANY of the excludes).
+  const scopeMatches = (path: string, prefix: string): boolean =>
+    path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : prefix + '/');
+  if (excludes.some((ex) => scopeMatches(notePath, ex))) return false;
   // Multiple includes = OR logic (note must match ANY of the includes)
   if (includes.length === 0) return true;
-  return includes.some((inc) => {
-    const incScope = inc.endsWith('/') ? inc : inc + '/';
-    return notePath.startsWith(inc) || notePath.startsWith(incScope);
-  });
+  return includes.some((inc) => scopeMatches(notePath, inc));
 }
 
 function applyScope(results: RawResult[], scope?: string | string[]): RawResult[] {

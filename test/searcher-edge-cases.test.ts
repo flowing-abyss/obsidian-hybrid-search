@@ -88,22 +88,19 @@ describe('search — scope filtering edge cases', () => {
     assert.ok(!results.some((r) => r.path === 'notes-old/baz.md'));
   });
 
-  it('scope with trailing slash enforces slash boundary', async () => {
-    // 'notes/' should match 'notes/foo.md' but NOT 'notes-old/baz.md'.
-    // NOTE: the bare prefix 'notes' (without trailing slash) DOES match 'notes-old/baz.md'
-    // because matchesScopeFilter checks notePath.startsWith(inc) before the slash-boundary
-    // form (incScope). The trailing-slash variant is the only one that enforces the
-    // directory boundary. See src/searcher.ts:157-160. This is a documented behavior quirk.
+  it('scope with trailing slash enforces directory boundary', async () => {
     const results = await search('content', { mode: 'fulltext', scope: 'notes/', limit: 100 });
     assert.ok(results.some((r) => r.path === 'notes/foo.md'));
     assert.ok(!results.some((r) => r.path === 'notes-old/baz.md'));
   });
 
-  it('bare scope prefix matches sibling directories (documented quirk)', async () => {
-    // 'notes' (no trailing slash) matches 'notes-old/baz.md' via startsWith('notes').
-    // Documenting the actual behavior of matchesScopeFilter — see src/searcher.ts:159.
+  it('bare scope prefix enforces directory boundary (no false match on sibling dirs)', async () => {
+    // 'notes' (no trailing slash) should match 'notes/foo.md' but NOT 'notes-old/baz.md'.
+    // The scope filter treats a bare prefix as a directory name, so 'notes' must not
+    // match 'notes-old' — only paths that are exactly 'notes' or begin with 'notes/'.
     const results = await search('content', { mode: 'fulltext', scope: 'notes', limit: 100 });
-    assert.ok(results.some((r) => r.path === 'notes-old/baz.md'));
+    assert.ok(results.some((r) => r.path === 'notes/foo.md'));
+    assert.ok(!results.some((r) => r.path === 'notes-old/baz.md'));
   });
 });
 
@@ -375,6 +372,15 @@ describe('search — filter-only mode (empty query + filters)', () => {
       hash: 'h-fm-b',
       chunks: [{ text: 'Frontmatter filter test beta', embedding: fakeEmbedding }],
     });
+    upsertNote({
+      path: 'fm-dir/alpha.md',
+      title: 'FM Dir Alpha',
+      tags: ['todo'],
+      content: 'Directory scope filter test alpha.',
+      mtime: Date.now(),
+      hash: 'h-fm-dir-a',
+      chunks: [{ text: 'Directory scope filter test alpha', embedding: fakeEmbedding }],
+    });
   });
 
   it('empty query + tag filter returns matching notes with score=1.0', async () => {
@@ -387,11 +393,10 @@ describe('search — filter-only mode (empty query + filters)', () => {
   });
 
   it('empty query + scope filter returns notes in scope', async () => {
-    const results = await search('', { scope: 'fm-', limit: 100 });
-    // fm- prefix should match fm-a.md and fm-b.md
+    const results = await search('', { scope: 'fm-dir/', limit: 100 });
     assert.ok(results.length > 0);
     for (const r of results) {
-      assert.ok(r.path.startsWith('fm-'));
+      assert.ok(r.path.startsWith('fm-dir/'));
     }
   });
 
