@@ -138,7 +138,7 @@ All note paths stored in DB are **NFD-normalized** (`path.normalize('NFD')`). ma
 
 ### Tag/Scope Filtering
 
-`-` prefix means **exclude**: `tag="-category/cs"` removes notes with that tag. Tag arrays are AND for includes and AND for excludes. Scope filters match against path prefix; multiple include scopes are OR.
+`-` prefix means **exclude**: `tag="-category/cs"` removes notes with that tag. Arrays are OR for includes, AND for excludes. Scope filters match against path prefix.
 
 ### Snippet Logic
 
@@ -224,3 +224,20 @@ git push origin master && git push origin v0.8.13
 - Pre-commit hooks run tests automatically and synchronize `server.json` with `package.json`
 - CI creates GitHub Release and publishes to npm
 - `server.json` is always kept in sync with `package.json` by `npm run sync-server-json`
+
+## CodeGraph
+
+When this project has a `.codegraph/` directory, use the CodeGraph MCP tools for codebase navigation before falling back to broad filesystem search.
+
+Lightweight tools are appropriate in the main session:
+
+- `mcp__codegraph__codegraph_status` to confirm the index is available.
+- `mcp__codegraph__codegraph_files` to inspect indexed file structure.
+- `mcp__codegraph__codegraph_search` to find symbols by name.
+- `mcp__codegraph__codegraph_callers` and `mcp__codegraph__codegraph_callees` to trace call flow.
+- `mcp__codegraph__codegraph_impact` to check what a symbol change could affect.
+- `mcp__codegraph__codegraph_node` for a targeted symbol lookup.
+
+For deep exploration, prefer `mcp__codegraph__codegraph_explore` only after first using `mcp__codegraph__codegraph_search` to identify specific symbols, files, or short code terms. Avoid broad natural-language `codegraph_explore` queries.
+
+Use regular file reads or `rg` when CodeGraph has no result, when you need exact surrounding context not returned by CodeGraph, or when inspecting non-indexed files.
