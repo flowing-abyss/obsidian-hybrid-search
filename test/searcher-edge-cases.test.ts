@@ -56,6 +56,15 @@ describe('search — scope filtering edge cases', () => {
       hash: 'h-baz',
       chunks: [{ text: 'Content in notes-old folder', embedding: fakeEmbedding }],
     });
+    upsertNote({
+      path: 'notes/deep/scoped.md',
+      title: 'Deep Scoped Note',
+      tags: [],
+      content: 'Content in notes/deep subfolder.',
+      mtime: Date.now(),
+      hash: 'h-deep-scoped',
+      chunks: [{ text: 'Content in notes/deep subfolder', embedding: fakeEmbedding }],
+    });
   });
 
   it('single include scope matches path prefix', async () => {
@@ -100,6 +109,17 @@ describe('search — scope filtering edge cases', () => {
     // match 'notes-old' — only paths that are exactly 'notes' or begin with 'notes/'.
     const results = await search('content', { mode: 'fulltext', scope: 'notes', limit: 100 });
     assert.ok(results.some((r) => r.path === 'notes/foo.md'));
+    assert.ok(!results.some((r) => r.path === 'notes-old/baz.md'));
+  });
+
+  it('nested scope prefix matches only notes under that subdirectory', async () => {
+    const results = await search('content', {
+      mode: 'fulltext',
+      scope: 'notes/deep',
+      limit: 100,
+    });
+    assert.ok(results.some((r) => r.path === 'notes/deep/scoped.md'));
+    assert.ok(!results.some((r) => r.path === 'notes/foo.md'));
     assert.ok(!results.some((r) => r.path === 'notes-old/baz.md'));
   });
 });
