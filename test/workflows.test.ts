@@ -73,6 +73,9 @@ describe('GitHub Actions workflows', () => {
       ),
       ['Format generated files', 'Build', 'Unit tests', 'Dead code'],
     );
+
+    const format = stepByName(workflow, 'update-deps', 'Format generated files');
+    assert.equal(format.run, 'npm run format');
   });
 
   it('weekly dependency update explicitly dispatches CI for the pull request branch', () => {

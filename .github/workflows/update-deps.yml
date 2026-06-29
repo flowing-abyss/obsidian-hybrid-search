@@ -44,7 +44,7 @@ jobs:
 
       - name: Format generated files
         if: steps.changes.outputs.changed == 'true'
-        run: npx prettier --write package.json package-lock.json server.json
+        run: npm run format
 
       - name: Build
         if: steps.changes.outputs.changed == 'true'
