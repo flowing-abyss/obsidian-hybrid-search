@@ -163,3 +163,136 @@ jobs:
         run: gh pr merge --auto --squash --delete-branch ${{ steps.pr.outputs.pull-request-number }}
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: Wait for pull request merge
+        if: steps.pr.outputs.pull-request-number
+        id: merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pull-request-number }}
+        run: |
+          for i in $(seq 1 90); do
+            pr_json="$(gh pr view "$PR_NUMBER" --json state,mergedAt,mergeCommit,url)"
+            state="$(jq -r '.state' <<<"$pr_json")"
+            merged_at="$(jq -r '.mergedAt // empty' <<<"$pr_json")"
+            merge_commit="$(jq -r '.mergeCommit.oid // empty' <<<"$pr_json")"
+            url="$(jq -r '.url' <<<"$pr_json")"
+
+            if [ "$state" = "MERGED" ] && [ -n "$merged_at" ] && [ -n "$merge_commit" ]; then
+              echo "Pull request #$PR_NUMBER merged at $merged_at: $url"
+              echo "commit=$merge_commit" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if [ "$state" = "CLOSED" ]; then
+              echo "Pull request #$PR_NUMBER closed without a merge: $url"
+              exit 1
+            fi
+
+            echo "Pull request #$PR_NUMBER is $state. Waiting for auto-merge..."
+            sleep 20
+          done
+
+          echo "Timed out waiting for pull request #$PR_NUMBER to merge."
+          exit 1
+
+      - name: Run CI for merged master commit
+        if: steps.merge.outputs.commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --ref master
+
+      - name: Wait for CI to pass on merged master commit
+        if: steps.merge.outputs.commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_COMMIT: ${{ steps.merge.outputs.commit }}
+        run: |
+          for i in $(seq 1 90); do
+            run_json="$(gh run list \
+              --workflow CI \
+              --branch master \
+              --commit "$MERGE_COMMIT" \
+              --event workflow_dispatch \
+              --limit 1 \
+              --json databaseId,status,conclusion,url)"
+
+            run_count="$(jq 'length' <<<"$run_json")"
+            if [ "$run_count" -eq 0 ]; then
+              echo "No dispatched CI run registered yet for master at $MERGE_COMMIT. Waiting..."
+              sleep 20
+              continue
+            fi
+
+            status="$(jq -r '.[0].status' <<<"$run_json")"
+            conclusion="$(jq -r '.[0].conclusion' <<<"$run_json")"
+            url="$(jq -r '.[0].url' <<<"$run_json")"
+
+            if [ "$status" = "completed" ]; then
+              if [ "$conclusion" = "success" ]; then
+                echo "CI passed for merged master commit $MERGE_COMMIT: $url"
+                exit 0
+              fi
+              echo "CI failed for merged master commit $MERGE_COMMIT."
+              echo "Conclusion: $conclusion"
+              echo "Run: $url"
+              exit 1
+            fi
+
+            echo "CI is $status for merged master commit $MERGE_COMMIT ($url). Waiting..."
+            sleep 20
+          done
+
+          echo "Timed out waiting for CI on merged master commit $MERGE_COMMIT."
+          exit 1
+
+      - name: Run auto-tag for dependency update merge
+        if: steps.merge.outputs.commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_COMMIT: ${{ steps.merge.outputs.commit }}
+        run: gh workflow run auto-tag.yml --ref master -f commit="$MERGE_COMMIT"
+
+      - name: Wait for auto-tag to pass
+        if: steps.merge.outputs.commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_COMMIT: ${{ steps.merge.outputs.commit }}
+        run: |
+          for i in $(seq 1 60); do
+            run_json="$(gh run list \
+              --workflow "Auto-tag after dependency update merge" \
+              --branch master \
+              --commit "$MERGE_COMMIT" \
+              --event workflow_dispatch \
+              --limit 1 \
+              --json databaseId,status,conclusion,url)"
+
+            run_count="$(jq 'length' <<<"$run_json")"
+            if [ "$run_count" -eq 0 ]; then
+              echo "No auto-tag run registered yet for $MERGE_COMMIT. Waiting..."
+              sleep 20
+              continue
+            fi
+
+            status="$(jq -r '.[0].status' <<<"$run_json")"
+            conclusion="$(jq -r '.[0].conclusion' <<<"$run_json")"
+            url="$(jq -r '.[0].url' <<<"$run_json")"
+
+            if [ "$status" = "completed" ]; then
+              if [ "$conclusion" = "success" ]; then
+                echo "Auto-tag passed for $MERGE_COMMIT: $url"
+                exit 0
+              fi
+              echo "Auto-tag failed for $MERGE_COMMIT."
+              echo "Conclusion: $conclusion"
+              echo "Run: $url"
+              exit 1
+            fi
+
+            echo "Auto-tag is $status for $MERGE_COMMIT ($url). Waiting..."
+            sleep 20
+          done
+
+          echo "Timed out waiting for auto-tag on $MERGE_COMMIT."
+          exit 1

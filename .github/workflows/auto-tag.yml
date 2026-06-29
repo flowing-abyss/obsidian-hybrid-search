@@ -3,23 +3,59 @@ name: Auto-tag after dependency update merge
 on:
   push:
     branches: [master]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Master commit SHA to tag'
+        required: true
+        type: string
 
 jobs:
   tag:
     # Only run when the dependency update PR is squash-merged into master.
     # Depending on the merge path, the squash commit subject may come from
     # either the PR title or the head commit message.
-    if: "startsWith(github.event.head_commit.message, 'chore: weekly dependency update') || startsWith(github.event.head_commit.message, 'chore: update dependencies')"
+    if: "github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore: weekly dependency update') || startsWith(github.event.head_commit.message, 'chore: update dependencies')"
     runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: read # needed to poll CI status before tagging
 
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout dispatched commit
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+          ref: ${{ inputs.commit }}
+          token: ${{ secrets.DEPENDENCY_UPDATE_TOKEN }}
+
+      - name: Checkout pushed commit
+        if: github.event_name != 'workflow_dispatch'
+        uses: actions/checkout@v6
         with:
           fetch-depth: 2
           token: ${{ secrets.DEPENDENCY_UPDATE_TOKEN }}
+
+      - name: Verify dispatched commit is current master
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git fetch --depth=1 origin master:refs/remotes/origin/master
+          HEAD_COMMIT="$(git rev-parse HEAD)"
+          MASTER_COMMIT="$(git rev-parse origin/master)"
+          if [ "$HEAD_COMMIT" != "$MASTER_COMMIT" ]; then
+            echo "ERROR: dispatched commit $HEAD_COMMIT is not current origin/master $MASTER_COMMIT."
+            exit 1
+          fi
+
+      - name: Verify dependency update merge commit
+        run: |
+          SUBJECT="$(git log -1 --pretty=%s)"
+          if [[ "$SUBJECT" != chore:\ weekly\ dependency\ update* && "$SUBJECT" != chore:\ update\ dependencies* ]]; then
+            echo "ERROR: commit subject is not a dependency update merge: $SUBJECT"
+            exit 1
+          fi
+          echo "Dependency update merge commit: $SUBJECT"
 
       - name: Wait for CI to pass on this commit
         env:
