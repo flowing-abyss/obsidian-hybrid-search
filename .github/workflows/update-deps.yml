@@ -9,14 +9,14 @@ jobs:
   update-deps:
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: write
       pull-requests: write
     env:
-      DEPENDENCY_UPDATE_TOKEN: ${{ secrets.DEPENDENCY_UPDATE_TOKEN }}
       HUSKY: '0'
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v6
         with:
@@ -33,15 +33,6 @@ jobs:
         id: changes
         run: |
           git diff --quiet package.json package-lock.json || echo "changed=true" >> $GITHUB_OUTPUT
-
-      - name: Verify automation token is configured
-        if: steps.changes.outputs.changed == 'true'
-        run: |
-          if [ -z "$DEPENDENCY_UPDATE_TOKEN" ]; then
-            echo "Missing repository secret DEPENDENCY_UPDATE_TOKEN."
-            echo "Use a PAT or GitHub App token so the PR triggers pull_request workflows."
-            exit 1
-          fi
 
       - name: Bump patch version
         if: steps.changes.outputs.changed == 'true'
@@ -72,7 +63,6 @@ jobs:
         id: pr
         uses: peter-evans/create-pull-request@v8
         with:
-          token: ${{ env.DEPENDENCY_UPDATE_TOKEN }}
           commit-message: 'chore: update dependencies'
           branch: chore/update-deps
           title: 'chore: weekly dependency update'
@@ -84,8 +74,59 @@ jobs:
             - Formatting, build, unit tests, and knip passed ✅
           labels: dependencies
 
+      - name: Run CI for pull request branch
+        if: steps.pr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --ref "${{ steps.pr.outputs.pull-request-branch }}"
+
+      - name: Wait for CI to pass on pull request branch
+        if: steps.pr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BRANCH: ${{ steps.pr.outputs.pull-request-branch }}
+          PR_HEAD_SHA: ${{ steps.pr.outputs.pull-request-head-sha }}
+        run: |
+          for i in $(seq 1 90); do
+            run_json="$(gh run list \
+              --workflow CI \
+              --branch "$PR_BRANCH" \
+              --commit "$PR_HEAD_SHA" \
+              --event workflow_dispatch \
+              --limit 1 \
+              --json databaseId,status,conclusion,url)"
+
+            run_count="$(jq 'length' <<<"$run_json")"
+            if [ "$run_count" -eq 0 ]; then
+              echo "No dispatched CI run registered yet for $PR_BRANCH at $PR_HEAD_SHA. Waiting..."
+              sleep 20
+              continue
+            fi
+
+            status="$(jq -r '.[0].status' <<<"$run_json")"
+            conclusion="$(jq -r '.[0].conclusion' <<<"$run_json")"
+            url="$(jq -r '.[0].url' <<<"$run_json")"
+
+            if [ "$status" = "completed" ]; then
+              if [ "$conclusion" = "success" ]; then
+                echo "CI passed for $PR_BRANCH at $PR_HEAD_SHA: $url"
+                exit 0
+              fi
+              echo "CI failed for $PR_BRANCH at $PR_HEAD_SHA."
+              echo "Conclusion: $conclusion"
+              echo "Run: $url"
+              exit 1
+            fi
+
+            echo "CI is $status for $PR_BRANCH at $PR_HEAD_SHA ($url). Waiting..."
+            sleep 20
+          done
+
+          echo "Timed out waiting for CI on $PR_BRANCH at $PR_HEAD_SHA."
+          exit 1
+
       - name: Enable auto-merge
         if: steps.pr.outputs.pull-request-number
         run: gh pr merge --auto --squash --delete-branch ${{ steps.pr.outputs.pull-request-number }}
         env:
-          GH_TOKEN: ${{ env.DEPENDENCY_UPDATE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}

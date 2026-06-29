@@ -21,6 +21,7 @@ type WorkflowJob = {
 };
 
 type Workflow = {
+  on?: Record<string, unknown>;
   jobs: Record<string, WorkflowJob>;
 };
 
@@ -39,15 +40,16 @@ function relativePathForJob(jobName: string): string {
 }
 
 describe('GitHub Actions workflows', () => {
-  it('weekly dependency update creates pull requests with compatible actions and without local hooks', () => {
+  it('weekly dependency update creates pull requests without long-lived tokens or local hooks', () => {
     const workflow = readWorkflow('.github/workflows/update-deps.yml');
     const job = workflow.jobs['update-deps'];
     assert.ok(job);
 
     assert.equal(job.env?.HUSKY, '0');
+    assert.ok(!('DEPENDENCY_UPDATE_TOKEN' in (job.env ?? {})));
     assert.equal(
       job.steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.uses,
-      'actions/checkout@v5',
+      'actions/checkout@v6',
     );
     assert.equal(
       job.steps.find((step) => step.uses?.startsWith('actions/setup-node@'))?.uses,
@@ -56,6 +58,7 @@ describe('GitHub Actions workflows', () => {
 
     const createPullRequest = stepByName(workflow, 'update-deps', 'Create Pull Request');
     assert.equal(createPullRequest.uses, 'peter-evans/create-pull-request@v8');
+    assert.ok(!('token' in (createPullRequest.with ?? {})));
     assert.ok(!('branch-token' in (createPullRequest.with ?? {})));
   });
 
@@ -70,6 +73,42 @@ describe('GitHub Actions workflows', () => {
       ),
       ['Format generated files', 'Build', 'Unit tests', 'Dead code'],
     );
+  });
+
+  it('weekly dependency update explicitly dispatches CI for the pull request branch', () => {
+    const ciWorkflow = readWorkflow('.github/workflows/ci.yml');
+    assert.ok('workflow_dispatch' in (ciWorkflow.on ?? {}));
+
+    const updateWorkflow = readWorkflow('.github/workflows/update-deps.yml');
+    const stepNames = updateWorkflow.jobs['update-deps']?.steps.map((step) => step.name);
+    assert.deepEqual(
+      stepNames?.filter((name) =>
+        [
+          'Create Pull Request',
+          'Run CI for pull request branch',
+          'Wait for CI to pass on pull request branch',
+          'Enable auto-merge',
+        ].includes(name ?? ''),
+      ),
+      [
+        'Create Pull Request',
+        'Run CI for pull request branch',
+        'Wait for CI to pass on pull request branch',
+        'Enable auto-merge',
+      ],
+    );
+
+    const dispatchCi = stepByName(updateWorkflow, 'update-deps', 'Run CI for pull request branch');
+    assert.match(dispatchCi.run ?? '', /gh workflow run ci\.yml/);
+    assert.match(dispatchCi.run ?? '', /steps\.pr\.outputs\.pull-request-branch/);
+
+    const waitForCi = stepByName(
+      updateWorkflow,
+      'update-deps',
+      'Wait for CI to pass on pull request branch',
+    );
+    assert.match(waitForCi.run ?? '', /--event workflow_dispatch/);
+    assert.match(waitForCi.run ?? '', /PR_HEAD_SHA/);
   });
 
   it('release waits for the tagged commit CI run instead of failing while CI is still running', () => {
