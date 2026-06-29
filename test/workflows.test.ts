@@ -17,11 +17,13 @@ type WorkflowStep = {
 
 type WorkflowJob = {
   env?: Record<string, unknown>;
+  permissions?: Record<string, unknown>;
   steps: WorkflowStep[];
 };
 
 type Workflow = {
   on?: Record<string, unknown>;
+  permissions?: Record<string, unknown>;
   jobs: Record<string, WorkflowJob>;
 };
 
@@ -92,14 +94,16 @@ describe('GitHub Actions workflows', () => {
         [
           'Create Pull Request',
           'Run CI for pull request branch',
-          'Wait for CI to pass on pull request branch',
+          'Mark required CI status pending',
+          'Wait for CI and publish required status',
           'Enable auto-merge',
         ].includes(name ?? ''),
       ),
       [
         'Create Pull Request',
         'Run CI for pull request branch',
-        'Wait for CI to pass on pull request branch',
+        'Mark required CI status pending',
+        'Wait for CI and publish required status',
         'Enable auto-merge',
       ],
     );
@@ -111,10 +115,35 @@ describe('GitHub Actions workflows', () => {
     const waitForCi = stepByName(
       updateWorkflow,
       'update-deps',
-      'Wait for CI to pass on pull request branch',
+      'Wait for CI and publish required status',
     );
     assert.match(waitForCi.run ?? '', /--event workflow_dispatch/);
     assert.match(waitForCi.run ?? '', /PR_HEAD_SHA/);
+  });
+
+  it('weekly dependency update publishes the required status from the dispatched CI result', () => {
+    const workflow = readWorkflow('.github/workflows/update-deps.yml');
+    const job = workflow.jobs['update-deps'];
+    assert.ok(job);
+
+    assert.equal(job.permissions?.statuses, 'write');
+
+    const pendingStatus = stepByName(workflow, 'update-deps', 'Mark required CI status pending');
+    assert.match(
+      pendingStatus.run ?? '',
+      /repos\/\$\{GITHUB_REPOSITORY\}\/statuses\/\$\{PR_HEAD_SHA\}/,
+    );
+    assert.match(pendingStatus.run ?? '', /context=lint-and-test/);
+    assert.match(pendingStatus.run ?? '', /state=pending/);
+
+    const waitForCi = stepByName(
+      workflow,
+      'update-deps',
+      'Wait for CI and publish required status',
+    );
+    assert.match(waitForCi.run ?? '', /publish_status success/);
+    assert.match(waitForCi.run ?? '', /publish_status failure/);
+    assert.match(waitForCi.run ?? '', /context=lint-and-test/);
   });
 
   it('release waits for the tagged commit CI run instead of failing while CI is still running', () => {

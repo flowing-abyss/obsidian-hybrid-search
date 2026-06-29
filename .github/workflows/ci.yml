@@ -7,6 +7,9 @@ name: CI
     branches: [master]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: CI (${{ matrix.os }})

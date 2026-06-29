@@ -12,6 +12,7 @@ jobs:
       actions: write
       contents: write
       pull-requests: write
+      statuses: write
     env:
       HUSKY: '0'
 
@@ -84,13 +85,37 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run ci.yml --ref "${{ steps.pr.outputs.pull-request-branch }}"
 
-      - name: Wait for CI to pass on pull request branch
+      - name: Mark required CI status pending
+        if: steps.pr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ steps.pr.outputs.pull-request-head-sha }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${PR_HEAD_SHA}" \
+            -f state=pending \
+            -f context=lint-and-test \
+            -f description="CI is running for dependency update" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+      - name: Wait for CI and publish required status
         if: steps.pr.outputs.pull-request-number
         env:
           GH_TOKEN: ${{ github.token }}
           PR_BRANCH: ${{ steps.pr.outputs.pull-request-branch }}
           PR_HEAD_SHA: ${{ steps.pr.outputs.pull-request-head-sha }}
         run: |
+          publish_status() {
+            local state="$1"
+            local description="$2"
+            local target_url="$3"
+
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${PR_HEAD_SHA}" \
+              -f state="$state" \
+              -f context=lint-and-test \
+              -f description="$description" \
+              -f target_url="$target_url"
+          }
+
           for i in $(seq 1 90); do
             run_json="$(gh run list \
               --workflow CI \
@@ -114,11 +139,13 @@ jobs:
             if [ "$status" = "completed" ]; then
               if [ "$conclusion" = "success" ]; then
                 echo "CI passed for $PR_BRANCH at $PR_HEAD_SHA: $url"
+                publish_status success "CI passed for dependency update" "$url"
                 exit 0
               fi
               echo "CI failed for $PR_BRANCH at $PR_HEAD_SHA."
               echo "Conclusion: $conclusion"
               echo "Run: $url"
+              publish_status failure "CI failed for dependency update" "$url"
               exit 1
             fi
 
@@ -127,6 +154,8 @@ jobs:
           done
 
           echo "Timed out waiting for CI on $PR_BRANCH at $PR_HEAD_SHA."
+          publish_status failure "Timed out waiting for dependency CI" \
+            "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           exit 1
 
       - name: Enable auto-merge
