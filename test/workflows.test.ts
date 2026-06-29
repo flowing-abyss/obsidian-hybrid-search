@@ -69,13 +69,16 @@ describe('GitHub Actions workflows', () => {
     );
     assert.deepEqual(
       stepNames?.filter((name) =>
-        ['Format generated files', 'Build', 'Unit tests', 'Dead code'].includes(name ?? ''),
+        ['Format generated files', 'Build', 'Lint', 'Unit tests', 'Dead code'].includes(name ?? ''),
       ),
-      ['Format generated files', 'Build', 'Unit tests', 'Dead code'],
+      ['Format generated files', 'Build', 'Lint', 'Unit tests', 'Dead code'],
     );
 
     const format = stepByName(workflow, 'update-deps', 'Format generated files');
     assert.equal(format.run, 'npm run format');
+
+    const lint = stepByName(workflow, 'update-deps', 'Lint');
+    assert.equal(lint.run, 'npm run lint');
   });
 
   it('weekly dependency update explicitly dispatches CI for the pull request branch', () => {

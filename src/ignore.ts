@@ -169,11 +169,11 @@ function includeMayMatchDescendant(
   relDirPath: string,
   includePatterns: readonly string[],
 ): boolean {
-  const dir = normalizeRelPath(relDirPath).replace(/\/+$/, '');
+  const dir = stripTrailingSlashes(normalizeRelPath(relDirPath));
   if (!dir) return includePatterns.length > 0;
   const prefix = dir + '/';
   return includePatterns.some((pattern) => {
-    const normalized = normalizePattern(pattern).replace(/^\/+/, '');
+    const normalized = stripLeadingSlashes(normalizePattern(pattern));
     if (!normalized) return false;
     if (normalized === dir || normalized.startsWith(prefix)) return true;
     if (normalized.includes('*')) {
@@ -184,6 +184,18 @@ function includeMayMatchDescendant(
     }
     return false;
   });
+}
+
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end--;
+  return value.slice(0, end);
+}
+
+function stripLeadingSlashes(value: string): string {
+  let start = 0;
+  while (start < value.length && value.charCodeAt(start) === 47) start++;
+  return value.slice(start);
 }
 
 export function createIgnorePolicy(

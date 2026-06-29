@@ -537,11 +537,10 @@ function getHeadingPathForSnippet(notePath: string, snippetText: string): string
   const before = note.content.slice(0, pos);
   const headingSlots: (string | null)[] = [null, null, null, null, null, null];
   for (const line of before.split('\n')) {
-    const m = /^(#{1,6})\s+(.+)$/.exec(line.trim());
-    if (m) {
-      const level = m[1]!.length;
-      headingSlots[level - 1] = `${m[1]} ${m[2]}`;
-      for (let i = level; i < 6; i++) headingSlots[i] = null;
+    const heading = parseMarkdownHeadingLine(line);
+    if (heading) {
+      headingSlots[heading.level - 1] = `${heading.marker} ${heading.text}`;
+      for (let i = heading.level; i < 6; i++) headingSlots[i] = null;
     }
   }
   const chain = headingSlots.filter((s): s is string => s !== null);
@@ -665,14 +664,32 @@ function getHeadingPathFromContent(content: string, key: string): string | null 
   const before = content.slice(0, pos);
   const headingSlots: (string | null)[] = [null, null, null, null, null, null];
   for (const line of before.split('\n')) {
-    const match = /^(#{1,6})\s+(.+)$/.exec(line.trim());
-    if (!match) continue;
-    const level = match[1]!.length;
-    headingSlots[level - 1] = `${match[1]} ${match[2]}`;
-    for (let i = level; i < 6; i++) headingSlots[i] = null;
+    const heading = parseMarkdownHeadingLine(line);
+    if (!heading) continue;
+    headingSlots[heading.level - 1] = `${heading.marker} ${heading.text}`;
+    for (let i = heading.level; i < 6; i++) headingSlots[i] = null;
   }
   const chain = headingSlots.filter((heading): heading is string => heading !== null);
   return chain.length > 0 ? chain.join(' > ') : null;
+}
+
+function parseMarkdownHeadingLine(
+  line: string,
+): { level: number; marker: string; text: string } | null {
+  const trimmed = line.trim();
+  let level = 0;
+  while (level < 6 && trimmed[level] === '#') level++;
+  if (level === 0 || !isMarkdownWhitespace(trimmed[level] ?? '')) return null;
+
+  let textStart = level + 1;
+  while (textStart < trimmed.length && isMarkdownWhitespace(trimmed[textStart]!)) textStart++;
+  const text = trimmed.slice(textStart);
+  if (!text) return null;
+  return { level, marker: '#'.repeat(level), text };
+}
+
+function isMarkdownWhitespace(char: string): boolean {
+  return char === ' ' || char === '\t' || char === '\r' || char === '\n' || char === '\f';
 }
 
 function searchVector(queryEmbedding: Float32Array, limit: number): RawResult[] {

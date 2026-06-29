@@ -50,6 +50,10 @@ jobs:
         if: steps.changes.outputs.changed == 'true'
         run: npm run build
 
+      - name: Lint
+        if: steps.changes.outputs.changed == 'true'
+        run: npm run lint
+
       - name: Unit tests
         if: steps.changes.outputs.changed == 'true'
         run: npm test
@@ -71,7 +75,7 @@ jobs:
 
             - `npm update --save` was run to update all dependencies within their semver ranges
             - Version bumped to `${{ steps.bump.outputs.version }}`
-            - Formatting, build, unit tests, and knip passed ✅
+            - Formatting, lint, build, unit tests, and knip passed ✅
           labels: dependencies
 
       - name: Run CI for pull request branch

@@ -34,7 +34,6 @@ export interface MarkdownLinkOccurrence {
 }
 
 const HTTP_URL_RE = /https?:\/\/[^\s<>"']+/gi;
-const TRAILING_PUNCTUATION_RE = /[.,;:!?]+$/;
 
 function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
@@ -49,14 +48,34 @@ function normalizeReferenceId(value: string | null | undefined): string {
 }
 
 function stripBareUrlTrailingPunctuation(value: string): string {
-  let next = value.replace(TRAILING_PUNCTUATION_RE, '');
+  let next = stripTrailingBareUrlPunctuation(value);
   while (next.endsWith(')')) {
-    const opens = (next.match(/\(/g) ?? []).length;
-    const closes = (next.match(/\)/g) ?? []).length;
+    const opens = countChar(next, '(');
+    const closes = countChar(next, ')');
     if (closes <= opens) break;
     next = next.slice(0, -1);
   }
-  return next.replace(/[”"']+$/g, '');
+  return stripTrailingQuotes(next);
+}
+
+function stripTrailingBareUrlPunctuation(value: string): string {
+  let end = value.length;
+  while (end > 0 && '.,;:!?'.includes(value[end - 1]!)) end--;
+  return value.slice(0, end);
+}
+
+function stripTrailingQuotes(value: string): string {
+  let end = value.length;
+  while (end > 0 && '”"\''.includes(value[end - 1]!)) end--;
+  return value.slice(0, end);
+}
+
+function countChar(value: string, char: string): number {
+  let count = 0;
+  for (const current of value) {
+    if (current === char) count++;
+  }
+  return count;
 }
 
 function pushUnique(values: string[], seen: Set<string>, value: string): void {

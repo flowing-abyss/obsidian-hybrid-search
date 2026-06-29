@@ -849,11 +849,27 @@ export function parseInlineTags(content: string): string[] {
 
 export function parseWikilinks(content: string): string[] {
   const seen = new Set<string>();
-  for (const match of content.matchAll(/\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]/g)) {
-    const target = match[1]!.trim();
+  let index = 0;
+  while (index < content.length) {
+    const start = content.indexOf('[[', index);
+    if (start === -1) break;
+    const end = content.indexOf(']]', start + 2);
+    if (end === -1) break;
+
+    const inner = content.slice(start + 2, end);
+    const pipeIndex = inner.indexOf('|');
+    const headingIndex = inner.indexOf('#');
+    const targetEnd = minPositiveIndex(pipeIndex, headingIndex, inner.length);
+    const target = inner.slice(0, targetEnd).trim();
     if (target) seen.add(target);
+    index = end + 2;
   }
   return [...seen];
+}
+
+function minPositiveIndex(first: number, second: number, fallback: number): number {
+  const indexes = [first, second].filter((candidate) => candidate >= 0);
+  return indexes.length > 0 ? Math.min(...indexes) : fallback;
 }
 
 // eslint-disable-next-line sonarjs/cognitive-complexity -- wikilink resolution requires O(N) alias/title lookups

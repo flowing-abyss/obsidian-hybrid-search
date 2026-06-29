@@ -249,14 +249,12 @@ export function buildMatchText(chunkText: string): string {
   // This skips e.g. callout type-only lines ("> [!quote]" strips to "").
   for (const line of [...bodyLines, fallback]) {
     if (!line.trim()) continue;
-    const result = line
-      .replace(/^(?:>\s*)+(?:\[![^\]]*\]\s*)?(?:>\s*)*/, '') // blockquote/callout markers (handles "> [!type] > ...")
-      .replace(/<[^>]+>/g, '') // HTML tags (<u>, <mark>, etc.)
-      .replace(/\[\^[^\]]+\]/g, '') // footnote references ([^1])
-      .replace(/!\[\[[^\]]+\]\]/g, '') // embed wikilinks ![[Note]] → strip entirely
-      .replace(/!\[.*?\]\(.*?\)/g, '') // images ![alt](url)
-      .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, t: string, a: string) => a || t) // [[wikilinks]] → alias if present, else target
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [links](url) → text
+    const stripped = stripMarkdownImages(
+      stripHtmlTags(stripLeadingBlockquoteCallout(line)) // blockquote/callout markers and HTML tags
+        .replace(/\[\^[^\]]+\]/g, '') // footnote references ([^1])
+        .replace(/!\[\[[^\]]+\]\]/g, ''), // embed wikilinks ![[Note]] → strip entirely
+    );
+    const result = replaceMarkdownInlineLinks(replaceWikilinkLabels(stripped))
       .replace(/[*_]{1,2}([^*_]+)[*_]{1,2}/g, '$1') // bold / italic
       .replace(/`([^`]+)`/g, '$1') // inline code
       .replace(/^(?:[-*+]|\d+[.)]) \s*/m, '') // list markers
@@ -265,6 +263,138 @@ export function buildMatchText(chunkText: string): string {
     if (result) return result.slice(0, 80);
   }
   return '';
+}
+
+function stripLeadingBlockquoteCallout(value: string): string {
+  let index = stripLeadingQuoteMarkers(value, 0);
+  if (value.startsWith('[!', index)) {
+    const calloutEnd = value.indexOf(']', index + 2);
+    if (calloutEnd !== -1) {
+      index = skipWhitespace(value, calloutEnd + 1);
+      index = stripLeadingQuoteMarkers(value, index);
+    }
+  }
+  return value.slice(index);
+}
+
+function stripLeadingQuoteMarkers(value: string, start: number): number {
+  let index = start;
+  while (value[index] === '>') {
+    index = skipWhitespace(value, index + 1);
+  }
+  return index;
+}
+
+function skipWhitespace(value: string, start: number): number {
+  let index = start;
+  while (index < value.length && isWhitespace(value[index]!)) index++;
+  return index;
+}
+
+function isWhitespace(char: string): boolean {
+  return char === ' ' || char === '\t' || char === '\n' || char === '\r' || char === '\f';
+}
+
+function stripHtmlTags(value: string): string {
+  let result = '';
+  let index = 0;
+  while (index < value.length) {
+    if (value[index] !== '<') {
+      result += value[index];
+      index++;
+      continue;
+    }
+    const end = value.indexOf('>', index + 1);
+    if (end === -1) {
+      result += value.slice(index);
+      break;
+    }
+    index = end + 1;
+  }
+  return result;
+}
+
+function stripMarkdownImages(value: string): string {
+  let result = '';
+  let index = 0;
+  while (index < value.length) {
+    if (!value.startsWith('![', index)) {
+      result += value[index];
+      index++;
+      continue;
+    }
+
+    const labelEnd = value.indexOf(']', index + 2);
+    if (labelEnd === -1 || value[labelEnd + 1] !== '(') {
+      result += value[index];
+      index++;
+      continue;
+    }
+    const destinationEnd = value.indexOf(')', labelEnd + 2);
+    if (destinationEnd === -1) {
+      result += value[index];
+      index++;
+      continue;
+    }
+    index = destinationEnd + 1;
+  }
+  return result;
+}
+
+function replaceWikilinkLabels(value: string): string {
+  let result = '';
+  let index = 0;
+  while (index < value.length) {
+    const start = value.indexOf('[[', index);
+    if (start === -1) {
+      result += value.slice(index);
+      break;
+    }
+
+    const end = value.indexOf(']]', start + 2);
+    if (end === -1) {
+      result += value.slice(index);
+      break;
+    }
+
+    result += value.slice(index, start);
+    const inner = value.slice(start + 2, end);
+    const aliasIndex = inner.indexOf('|');
+    result += aliasIndex === -1 ? inner : inner.slice(aliasIndex + 1);
+    index = end + 2;
+  }
+  return result;
+}
+
+function replaceMarkdownInlineLinks(value: string): string {
+  let result = '';
+  let index = 0;
+  while (index < value.length) {
+    const labelStart = value.indexOf('[', index);
+    if (labelStart === -1) {
+      result += value.slice(index);
+      break;
+    }
+
+    const labelEnd = value.indexOf(']', labelStart + 1);
+    if (labelEnd === -1 || value[labelEnd + 1] !== '(') {
+      result += value.slice(index, labelStart + 1);
+      index = labelStart + 1;
+      continue;
+    }
+
+    const destinationEnd = value.indexOf(')', labelEnd + 2);
+    if (destinationEnd === -1) {
+      result += value.slice(index, labelStart + 1);
+      index = labelStart + 1;
+      continue;
+    }
+
+    result += value.slice(index, labelStart);
+    result += value.slice(labelStart + 1, labelEnd);
+    index = destinationEnd + 1;
+  }
+  return result;
 }
 
 export function chunkNote(content: string, contextLength: number): Chunk[] {

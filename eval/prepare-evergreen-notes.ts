@@ -209,12 +209,18 @@ function noteBaseName(note: EvergreenNote): string {
 }
 
 function sanitizeFileBaseName(value: string): string {
-  const sanitized = sanitizeControlCharacters(value)
+  const normalized = sanitizeControlCharacters(value)
     .replace(/[<>:"/\\|?*]/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/[. ]+$/g, '');
+    .trim();
+  const sanitized = normalized.slice(0, trailingDotStart(normalized));
   return sanitized || 'Untitled';
+}
+
+function trailingDotStart(value: string): number {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 46) end--;
+  return end;
 }
 
 function uniqueFileName(baseName: string, extension: string, used: Set<string>): string {
