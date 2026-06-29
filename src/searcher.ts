@@ -527,8 +527,7 @@ function getHeadingPathForSnippet(notePath: string, snippetText: string): string
 
   // Strategy 2: scan note content up to the snippet position
   const note = db.prepare('SELECT content FROM notes WHERE path = ?').get(notePath) as
-    | { content: string }
-    | undefined;
+    { content: string } | undefined;
   if (!note?.content) return null;
 
   const pos = note.content.indexOf(key);
@@ -921,8 +920,7 @@ function getCachedNoteContent(
   const cached = cache.get(notePath);
   if (cached !== undefined) return cached;
   const note = db.prepare('SELECT content FROM notes WHERE path = ?').get(notePath) as
-    | { content: string }
-    | undefined;
+    { content: string } | undefined;
   const content = note?.content ?? '';
   cache.set(notePath, content);
   return content;
@@ -946,8 +944,7 @@ function searchRelated(
     const note = db
       .prepare('SELECT path, title, tags, aliases FROM notes WHERE path = ?')
       .get(notePth) as
-      | { path: string; title: string; tags: string; aliases: string | null }
-      | undefined;
+      { path: string; title: string; tags: string; aliases: string | null } | undefined;
     if (!note) return null;
     let tags: string[];
     try {
@@ -1518,9 +1515,11 @@ async function applyRerank(
     fetchMissingChunkTexts(candidates); // sync — better-sqlite3 has no async API
     const rerankScores = await reranker.scoreAll(
       query,
-      candidates.map(
-        (c): RerankCandidate => ({ title: c.title, chunkText: c.chunkText, snippet: c.snippet }),
-      ),
+      candidates.map((c): RerankCandidate => ({
+        title: c.title,
+        chunkText: c.chunkText,
+        snippet: c.snippet,
+      })),
     );
     // Position-aware blending: mix normalized hybrid score with sigmoid(logit).
     // Pre-rerank hybrid position determines how much we trust retrieval vs reranker:

@@ -149,8 +149,7 @@ describe('H2 – intermediate upsert state (no chunks / no vectors)', () => {
     // Simulate the mid-upsert window: vectors gone, note still in notes/FTS5
     const db = getDb();
     const row = db.prepare('SELECT id FROM notes WHERE path = ?').get('h2-interim.md') as
-      | { id: number }
-      | undefined;
+      { id: number } | undefined;
     assert.ok(row, 'note must exist in DB');
 
     db.prepare(
@@ -178,8 +177,7 @@ describe('H2 – intermediate upsert state (no chunks / no vectors)', () => {
 
     const db = getDb();
     const row = db.prepare('SELECT id FROM notes WHERE path = ?').get('h2-fts.md') as
-      | { id: number }
-      | undefined;
+      { id: number } | undefined;
     assert.ok(row);
 
     db.prepare(
@@ -211,8 +209,7 @@ describe('H3 – tag-filtered search during intermediate upsert state', () => {
 
     const db = getDb();
     const row = db.prepare('SELECT id FROM notes WHERE path = ?').get('h3-tagged.md') as
-      | { id: number }
-      | undefined;
+      { id: number } | undefined;
     assert.ok(row);
 
     db.prepare(

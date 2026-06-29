@@ -348,15 +348,13 @@ describe('populateMissingLinks', () => {
     await populateMissingLinks();
     const db = getDb();
     const flag = db.prepare("SELECT value FROM settings WHERE key = 'links_v1'").get() as
-      | { value: string }
-      | undefined;
+      { value: string } | undefined;
     assert.equal(flag?.value, '1');
 
     // Second call should be a no-op
     await populateMissingLinks();
     const flag2 = db.prepare("SELECT value FROM settings WHERE key = 'links_v1'").get() as
-      | { value: string }
-      | undefined;
+      { value: string } | undefined;
     assert.equal(flag2?.value, '1');
   });
 });
@@ -404,8 +402,7 @@ describe('populateMissingMarkdownReferences', () => {
     );
 
     const flag = db.prepare("SELECT value FROM settings WHERE key = 'markdown_links_v1'").get() as
-      | { value: string }
-      | undefined;
+      { value: string } | undefined;
     assert.equal(flag?.value, '1');
   });
 

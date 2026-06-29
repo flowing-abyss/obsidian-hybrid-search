@@ -208,8 +208,7 @@ function discoverConfig(dbPathOpt?: string): void {
     const get = (key: string) =>
       (
         db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
-          | { value: string }
-          | undefined
+          { value: string } | undefined
       )?.value;
 
     const vaultPath = get('vault_path');
