@@ -13,11 +13,12 @@ jobs:
       pull-requests: write
     env:
       DEPENDENCY_UPDATE_TOKEN: ${{ secrets.DEPENDENCY_UPDATE_TOKEN }}
+      HUSKY: '0'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -50,6 +51,10 @@ jobs:
           npm run sync-server-json
           echo "version=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
 
+      - name: Format generated files
+        if: steps.changes.outputs.changed == 'true'
+        run: npx prettier --write package.json package-lock.json server.json
+
       - name: Build
         if: steps.changes.outputs.changed == 'true'
         run: npm run build
@@ -58,13 +63,16 @@ jobs:
         if: steps.changes.outputs.changed == 'true'
         run: npm test
 
+      - name: Dead code
+        if: steps.changes.outputs.changed == 'true'
+        run: npm run knip
+
       - name: Create Pull Request
         if: steps.changes.outputs.changed == 'true'
         id: pr
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ env.DEPENDENCY_UPDATE_TOKEN }}
-          branch-token: ${{ env.DEPENDENCY_UPDATE_TOKEN }}
           commit-message: 'chore: update dependencies'
           branch: chore/update-deps
           title: 'chore: weekly dependency update'
@@ -73,7 +81,7 @@ jobs:
 
             - `npm update --save` was run to update all dependencies within their semver ranges
             - Version bumped to `${{ steps.bump.outputs.version }}`
-            - Build and unit tests passed ✅
+            - Formatting, build, unit tests, and knip passed ✅
           labels: dependencies
 
       - name: Enable auto-merge

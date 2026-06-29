@@ -15,40 +15,49 @@ jobs:
       id-token: write # needed for OIDC npm publish
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Verify CI passed for this commit
+      - name: Wait for CI to pass for this commit
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          run_json="$(gh run list \
-            --workflow CI \
-            --commit "$GITHUB_SHA" \
-            --limit 1 \
-            --json databaseId,status,conclusion,url)"
+          for i in $(seq 1 90); do
+            run_json="$(gh run list \
+              --workflow CI \
+              --commit "$GITHUB_SHA" \
+              --limit 1 \
+              --json databaseId,status,conclusion,url)"
 
-          run_count="$(jq 'length' <<<"$run_json")"
-          if [ "$run_count" -eq 0 ]; then
-            echo "No CI run found for commit $GITHUB_SHA. Push the commit to master and wait for CI before creating the release tag."
-            exit 1
-          fi
+            run_count="$(jq 'length' <<<"$run_json")"
+            if [ "$run_count" -eq 0 ]; then
+              echo "No CI run registered yet for $GITHUB_SHA. Waiting..."
+              sleep 20
+              continue
+            fi
 
-          status="$(jq -r '.[0].status' <<<"$run_json")"
-          conclusion="$(jq -r '.[0].conclusion' <<<"$run_json")"
-          url="$(jq -r '.[0].url' <<<"$run_json")"
+            status="$(jq -r '.[0].status' <<<"$run_json")"
+            conclusion="$(jq -r '.[0].conclusion' <<<"$run_json")"
+            url="$(jq -r '.[0].url' <<<"$run_json")"
 
-          if [ "$status" != "completed" ] || [ "$conclusion" != "success" ]; then
-            echo "CI has not passed for commit $GITHUB_SHA."
-            echo "Status: $status"
-            echo "Conclusion: $conclusion"
-            echo "Run: $url"
-            echo "Wait for CI to pass, then re-run this release."
-            exit 1
-          fi
+            if [ "$status" = "completed" ]; then
+              if [ "$conclusion" = "success" ]; then
+                echo "Verified CI success for commit $GITHUB_SHA: $url"
+                exit 0
+              fi
+              echo "CI failed for commit $GITHUB_SHA."
+              echo "Conclusion: $conclusion"
+              echo "Run: $url"
+              exit 1
+            fi
 
-          echo "Verified CI success for commit $GITHUB_SHA: $url"
+            echo "CI is $status for $GITHUB_SHA ($url). Waiting..."
+            sleep 20
+          done
 
-      - uses: actions/setup-node@v4
+          echo "Timed out waiting for CI on $GITHUB_SHA."
+          exit 1
+
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
