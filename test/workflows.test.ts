@@ -39,7 +39,7 @@ function relativePathForJob(jobName: string): string {
 }
 
 describe('GitHub Actions workflows', () => {
-  it('weekly dependency update creates pull requests with current actions and without local hooks', () => {
+  it('weekly dependency update creates pull requests with compatible actions and without local hooks', () => {
     const workflow = readWorkflow('.github/workflows/update-deps.yml');
     const job = workflow.jobs['update-deps'];
     assert.ok(job);
@@ -47,7 +47,7 @@ describe('GitHub Actions workflows', () => {
     assert.equal(job.env?.HUSKY, '0');
     assert.equal(
       job.steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.uses,
-      'actions/checkout@v6',
+      'actions/checkout@v5',
     );
     assert.equal(
       job.steps.find((step) => step.uses?.startsWith('actions/setup-node@'))?.uses,
