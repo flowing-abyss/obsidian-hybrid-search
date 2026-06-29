@@ -153,6 +153,12 @@ All note paths stored in DB are **NFD-normalized** (`path.normalize('NFD')`). ma
 
 ---
 
+## Local-Only Files
+
+The `docs/` directory is **local-only** — it is gitignored and must never be committed to the repository. It holds personal plans, specs, and notes that stay on your machine. Do not `git add` anything under `docs/`.
+
+---
+
 ## Common Pitfalls
 
 - **Never** modify `notes_fts_bm25` or `notes_fts_fuzzy` directly — they are FTS5 content tables kept in sync via triggers on `notes`.
