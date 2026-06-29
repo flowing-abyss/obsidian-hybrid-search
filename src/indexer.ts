@@ -304,8 +304,7 @@ export async function populateMissingLinks(): Promise<void> {
   const db = getDb();
   const done = (
     db.prepare("SELECT value FROM settings WHERE key = 'links_v1'").get() as
-      | { value: string }
-      | undefined
+      { value: string } | undefined
   )?.value;
   if (done) return;
 
@@ -333,8 +332,7 @@ export async function populateMissingMarkdownReferences(): Promise<void> {
   const db = getDb();
   const done = (
     db.prepare("SELECT value FROM settings WHERE key = 'markdown_links_v1'").get() as
-      | { value: string }
-      | undefined
+      { value: string } | undefined
   )?.value;
   if (done) return;
 
