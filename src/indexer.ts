@@ -694,6 +694,11 @@ export function startWatcher(contextLength: number): void {
           try {
             if (statSync(filePath).isDirectory()) {
               const rel = toVaultRelativePath(filePath);
+              // chokidar v5 consults `ignored` for the watch root itself, where
+              // rel is ''. isIgnored('/') throws → the catch below would fall
+              // through to `return true`, marking the whole tree ignored and
+              // silently disabling all file watching. Never ignore the vault root.
+              if (rel === '') return false;
               return watcherPolicy.isIgnored(rel + '/');
             }
           } catch {

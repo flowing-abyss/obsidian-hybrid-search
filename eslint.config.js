@@ -10,7 +10,12 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ['*.js', 'vitest.config.ts', 'vitest.integration.config.ts'],
+          allowDefaultProject: [
+            '*.js',
+            'vitest.config.ts',
+            'vitest.integration.config.ts',
+            'vitest.e2e-watcher.config.ts',
+          ],
         },
       },
     },

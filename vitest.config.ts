@@ -9,7 +9,11 @@ export default defineConfig({
     testTimeout: 30_000,
     isolate: false,
     include: ['test/**/*.test.ts'],
-    exclude: ['test/integration.test.ts'],
+    // integration.test.ts needs a real embedder; indexer-watcher-live-e2e.test.ts
+    // runs a real (unmocked) chokidar watcher whose shared module state would
+    // leak into the isolate:false suite — both run standalone via their own
+    // npm scripts (test:integration / test:e2e-watcher).
+    exclude: ['test/integration.test.ts', 'test/indexer-watcher-live-e2e.test.ts'],
     coverage: {
       provider: 'v8',
       include: ['src/**'],
