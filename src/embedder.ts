@@ -5,7 +5,8 @@ import { config } from './config.js';
 
 export const LOCAL_MODEL = 'Xenova/multilingual-e5-small';
 
-export type EmbeddingFailureKind = 'input_too_long' | 'transient' | 'permanent';
+export type EmbeddingFailureKind =
+  'input_too_long' | 'transient' | 'permanent' | 'invalid_response';
 
 export type EmbeddingOutcome =
   | { ok: true; embedding: Float32Array }
@@ -412,6 +413,10 @@ function isInputTooLong(
   );
 }
 
+function isRetryableStatus(status: number): boolean {
+  return [408, 429, 500, 502, 503, 504].includes(status);
+}
+
 function classifyProviderFailure(
   status: number,
   error: {
@@ -421,14 +426,20 @@ function classifyProviderFailure(
     metadata?: { error_type?: string };
   },
 ): EmbeddingFailure {
-  const message = error.message ?? `Embedding API error ${status}`;
+  const effectiveStatus =
+    status >= 200 && status < 300 && typeof error.code === 'number' ? error.code : status;
+  const message = error.message ?? `Embedding API error ${effectiveStatus}`;
   const providerCode = error.code ?? error.type ?? error.metadata?.error_type;
   if (isInputTooLong(message, error.code, error.type, error.metadata?.error_type)) {
-    return failureOutcome('input_too_long', message, status, providerCode);
+    return failureOutcome('input_too_long', message, effectiveStatus, providerCode);
   }
-  const transient =
-    status === 0 || status === 429 || status === 502 || status === 503 || status >= 500;
-  return failureOutcome(transient ? 'transient' : 'permanent', message, status, providerCode);
+  const transient = isRetryableStatus(effectiveStatus);
+  return failureOutcome(
+    transient ? 'transient' : 'permanent',
+    message,
+    effectiveStatus,
+    providerCode,
+  );
 }
 
 function parseErrorBody(raw: string): {
@@ -464,18 +475,43 @@ async function embedApiBatch(texts: string[]): Promise<EmbeddingBatchAttempt> {
   }
 
   if (!res.ok) {
-    const raw = await res.text();
+    let raw: string;
+    try {
+      raw = await res.text();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Embedding API error body unreadable';
+      return {
+        ok: false,
+        failure: failureOutcome(
+          isRetryableStatus(res.status) ? 'transient' : 'invalid_response',
+          message,
+          res.status,
+        ),
+        localize: false,
+      };
+    }
     const failure = classifyProviderFailure(res.status, parseErrorBody(raw));
     return { ok: false, failure, localize: failure.kind === 'input_too_long' };
   }
 
-  const response: unknown = await res.json();
+  let response: unknown;
+  try {
+    response = await res.json();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Embedding API response unreadable';
+    return {
+      ok: false,
+      failure: failureOutcome('invalid_response', message, res.status),
+      localize: false,
+    };
+  }
   const parsed = EmbeddingApiResponseSchema.safeParse(response);
   if (!parsed.success) {
     return {
       ok: false,
       failure: failureOutcome(
-        'permanent',
+        'invalid_response',
         formatValidationError('Embedding API response invalid', parsed.error),
         res.status,
       ),
@@ -503,7 +539,7 @@ async function embedApiBatch(texts: string[]): Promise<EmbeddingBatchAttempt> {
     return {
       ok: false,
       failure: failureOutcome(
-        'permanent',
+        'invalid_response',
         'Embedding API error: response indexes do not match requested batch',
         res.status,
       ),

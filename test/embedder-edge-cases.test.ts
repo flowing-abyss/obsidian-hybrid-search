@@ -86,7 +86,7 @@ describe('embedDetailed() — structured provider outcomes', () => {
 
     assert.ok(outcome && !outcome.ok);
     assert.equal(outcome.kind, 'input_too_long');
-    assert.equal(outcome.status, 200);
+    assert.equal(outcome.status, 400);
     assert.equal(outcome.providerCode, 400);
     assert.match(outcome.message, /maximum input length/i);
     assert.equal(fetchMock.mock.calls.length, 1);
@@ -172,6 +172,124 @@ describe('embedDetailed() — structured provider outcomes', () => {
       [2, 1, 1],
     );
   });
+
+  it('uses an HTTP 200 numeric provider code for bounded transient retries', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(providerErrorResponse(200, { code: 429, message: 'rate limited' }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers();
+
+    const outcomePromise = embedDetailed(['first', 'second'], 'document');
+    await vi.runAllTimersAsync();
+    const outcomes = await outcomePromise;
+
+    assert.equal(fetchMock.mock.calls.length, 3);
+    assert.ok(
+      outcomes.every(
+        (outcome) =>
+          !outcome.ok &&
+          outcome.kind === 'transient' &&
+          outcome.status === 429 &&
+          outcome.providerCode === 429,
+      ),
+    );
+  });
+
+  it('retries HTTP 408 exactly twice without singleton fanout', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(providerErrorResponse(408, { message: 'request timeout' }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers();
+
+    const outcomePromise = embedDetailed(['first', 'second'], 'document');
+    await vi.runAllTimersAsync();
+    const outcomes = await outcomePromise;
+
+    assert.equal(fetchMock.mock.calls.length, 3);
+    assert.ok(outcomes.every((outcome) => !outcome.ok && outcome.kind === 'transient'));
+    for (const [, init] of fetchMock.mock.calls) {
+      const body = JSON.parse((init as { body: string }).body) as { input: string[] };
+      assert.equal(body.input.length, 2);
+    }
+  });
+
+  it('returns positional invalid responses for malformed JSON and maps them to public nulls', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.reject(new SyntaxError('Unexpected token')),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const outcomes = await embedDetailed(['first', 'second'], 'document');
+    const publicResults = await embed(['first', 'second'], 'document');
+
+    assert.equal(fetchMock.mock.calls.length, 2);
+    assert.ok(outcomes.every((outcome) => !outcome.ok && outcome.kind === 'invalid_response'));
+    assert.deepEqual(publicResults, [null, null]);
+  });
+
+  it('handles an unreadable error body as positional invalid responses', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: () => Promise.reject(new Error('body stream failed')),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const outcomes = await embedDetailed(['first', 'second'], 'document');
+
+    assert.equal(fetchMock.mock.calls.length, 1);
+    assert.ok(outcomes.every((outcome) => !outcome.ok && outcome.kind === 'invalid_response'));
+  });
+
+  it('retries an unreadable body when its HTTP status is transient', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      text: () => Promise.reject(new Error('body stream failed')),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers();
+
+    const outcomePromise = embedDetailed(['first', 'second'], 'document');
+    await vi.runAllTimersAsync();
+    const outcomes = await outcomePromise;
+
+    assert.equal(fetchMock.mock.calls.length, 3);
+    assert.ok(outcomes.every((outcome) => !outcome.ok && outcome.kind === 'transient'));
+  });
+
+  for (const scenario of [
+    {
+      name: 'schema',
+      response: { data: [{ embedding: ['bad'], index: 0 }] },
+    },
+    {
+      name: 'index',
+      response: { data: [{ embedding: [0.1], index: 9 }] },
+    },
+    {
+      name: 'cardinality',
+      response: { data: [] },
+    },
+  ]) {
+    it(`localizes ${scenario.name} failures and exposes invalid_response outcomes`, async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => scenario.response,
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const outcomes = await embedDetailed(['first', 'second'], 'document');
+
+      assert.equal(fetchMock.mock.calls.length, 3);
+      assert.ok(outcomes.every((outcome) => !outcome.ok && outcome.kind === 'invalid_response'));
+    });
+  }
 });
 
 describe('embed() — API response validation', () => {
