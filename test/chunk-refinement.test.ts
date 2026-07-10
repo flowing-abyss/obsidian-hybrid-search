@@ -200,6 +200,20 @@ describe('refineChunksToFit', () => {
     assert.ok(refined.every((chunk) => counter(chunk.text, chunk.headingChain) <= 2));
   });
 
+  it('finds the first exact fit beyond the former bounded lookahead', () => {
+    const source = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    const counter: ProjectedTokenCounter = (text, _headingChain) => (text.length === 18 ? 18 : 100);
+
+    const refined = refineChunksToFit(source, [sourceChunk(source)], 18, counter, 0);
+
+    assertSourceAligned(source, refined);
+    assert.deepEqual(
+      refined.map((chunk) => chunk.text.length),
+      [18, 18],
+    );
+    assert.ok(refined.every((chunk) => counter(chunk.text, chunk.headingChain) <= 18));
+  });
+
   it('measures overlap in estimated tokens for ASCII and CJK text', () => {
     const counter: ProjectedTokenCounter = (text) => text.length;
     const asciiSource = 'a'.repeat(300);
@@ -238,6 +252,65 @@ describe('refineChunksToFit', () => {
       countedCharacters < source.length * 30,
       `${countedCharacters} counted characters for ${source.length} source characters`,
     );
+  });
+
+  it('caps huge overlap so candidate-counted text remains bounded', () => {
+    const source = 'x'.repeat(5000);
+    let countedCharacters = 0;
+    const counter: ProjectedTokenCounter = (text) => {
+      countedCharacters += text.length;
+      return text.length;
+    };
+
+    const refined = refineChunksToFit(
+      source,
+      [sourceChunk(source)],
+      128,
+      counter,
+      Number.MAX_SAFE_INTEGER,
+    );
+
+    assert.ok(refined.length < 200, `${refined.length} chunks for ${source.length} characters`);
+    assert.ok(
+      countedCharacters < source.length * 50,
+      `${countedCharacters} counted characters for ${source.length} source characters`,
+    );
+    for (let index = 1; index < refined.length; index++) {
+      assert.ok(refined[index]!.charStart > refined[index - 1]!.charStart);
+    }
+  });
+
+  it('reuses one shared boundary index for refinement and retry splits', () => {
+    const source = Array.from(
+      { length: 300 },
+      (_, index) => `Paragraph ${index}. ${'content '.repeat(6).trim()}`,
+    ).join('\n\n');
+    const boundaryIndex = createChunkBoundaryIndex(source);
+    const counter: ProjectedTokenCounter = (text) => text.length;
+
+    const refined = refineChunksToFit(
+      source,
+      [sourceChunk(source)],
+      160,
+      counter,
+      16,
+      boundaryIndex,
+    );
+    const afterRefinement = getChunkBoundaryIndexStats(boundaryIndex);
+    assert.ok(refined.length > 10);
+    assert.ok(afterRefinement.boundaryVisits > 0);
+
+    let pending = [sourceChunk(source)];
+    for (let round = 0; round < 5; round++) {
+      pending = pending.flatMap((chunk) => {
+        const split = splitChunkForRetry(source, chunk, boundaryIndex);
+        return split ?? [chunk];
+      });
+    }
+
+    const afterRetry = getChunkBoundaryIndexStats(boundaryIndex);
+    assert.equal(afterRetry.collections, 1);
+    assert.ok(afterRetry.boundaryVisits > afterRefinement.boundaryVisits);
   });
 });
 

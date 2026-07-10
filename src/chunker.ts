@@ -489,8 +489,6 @@ function alignExistingChunk(source: string, chunk: Chunk): { chunk: Chunk; align
   };
 }
 
-const LOCAL_FIT_LOOKAHEAD = 16;
-
 interface FittingBoundary {
   position: number;
   count: number;
@@ -502,6 +500,7 @@ function findFittingBoundary(
   limit: number,
   countProjected: ProjectedTokenCounter,
   boundaries: readonly Boundary[],
+  boundaryState: ChunkBoundaryIndexState,
   start: number,
   chunkEnd: number,
 ): FittingBoundary | null {
@@ -519,14 +518,14 @@ function findFittingBoundary(
     if (cached !== undefined) return cached;
     const candidate = createSourceChunk(source, start, position, headingChain);
     const count = countProjected(candidate.text, headingChain);
+    boundaryState.boundaryVisits++;
     counts.set(position, count);
     return count;
   };
 
   let fittingOffset = countAt(0) <= limit ? 0 : -1;
   if (fittingOffset === -1) {
-    const lookaheadEnd = Math.min(lastOffset, LOCAL_FIT_LOOKAHEAD);
-    for (let offset = 1; offset <= lookaheadEnd; offset++) {
+    for (let offset = 1; offset <= lastOffset; offset++) {
       if (countAt(offset) <= limit) {
         fittingOffset = offset;
         break;
@@ -572,6 +571,7 @@ function choosePreferredBoundary(
   limit: number,
   countProjected: ProjectedTokenCounter,
   boundaries: readonly Boundary[],
+  boundaryState: ChunkBoundaryIndexState,
   start: number,
   fitting: FittingBoundary,
 ): FittingBoundary {
@@ -593,6 +593,7 @@ function choosePreferredBoundary(
 
   const candidate = createSourceChunk(source, start, preferred.position, headingChain);
   const count = countProjected(candidate.text, headingChain);
+  boundaryState.boundaryVisits++;
   return count <= limit ? { position: preferred.position, count } : fitting;
 }
 
@@ -625,6 +626,7 @@ function refineAlignedChunk(
   countProjected: ProjectedTokenCounter,
   overlap: number,
   boundaries: readonly Boundary[],
+  boundaryState: ChunkBoundaryIndexState,
 ): Chunk[] {
   if (countProjected(chunk.text, chunk.headingChain) <= limit) return [chunk];
 
@@ -637,6 +639,7 @@ function refineAlignedChunk(
       limit,
       countProjected,
       boundaries,
+      boundaryState,
       start,
       chunk.charEnd,
     );
@@ -653,6 +656,7 @@ function refineAlignedChunk(
             limit,
             countProjected,
             boundaries,
+            boundaryState,
             start,
             fitting,
           );
@@ -660,12 +664,11 @@ function refineAlignedChunk(
     if (child.text.length > 0) refined.push(child);
     if (chosen.position >= chunk.charEnd) break;
 
-    const nextStart = retreatByTokenBudget(
-      source,
-      start,
-      chosen.position,
+    const effectiveOverlap = Math.min(
       Math.max(0, Math.floor(overlap)),
+      Math.floor(estimateTokens(child.text) / 2),
     );
+    const nextStart = retreatByTokenBudget(source, start, chosen.position, effectiveOverlap);
     if (nextStart <= start) throw new Error('Chunk refinement failed to make progress');
     start = nextStart;
   }
@@ -678,9 +681,10 @@ export function refineChunksToFit(
   limit: number,
   countProjected: ProjectedTokenCounter,
   overlap: number,
+  boundaryIndex: ChunkBoundaryIndex = createChunkBoundaryIndex(source),
 ): Chunk[] {
-  const boundaryIndex = createChunkBoundaryIndex(source);
-  const boundaries = getBoundaryIndexState(source, boundaryIndex).boundaries;
+  const boundaryState = getBoundaryIndexState(source, boundaryIndex);
+  const boundaries = boundaryState.boundaries;
   const refined: Chunk[] = [];
   for (const inputChunk of chunks) {
     const aligned = alignExistingChunk(source, inputChunk);
@@ -689,7 +693,15 @@ export function refineChunksToFit(
       continue;
     }
     refined.push(
-      ...refineAlignedChunk(source, aligned.chunk, limit, countProjected, overlap, boundaries),
+      ...refineAlignedChunk(
+        source,
+        aligned.chunk,
+        limit,
+        countProjected,
+        overlap,
+        boundaries,
+        boundaryState,
+      ),
     );
   }
   return refined;
