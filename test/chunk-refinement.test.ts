@@ -3,6 +3,9 @@ import { describe, it } from 'vitest';
 import {
   type Chunk,
   type ProjectedTokenCounter,
+  createChunkBoundaryIndex,
+  estimateTokens,
+  getChunkBoundaryIndexStats,
   refineChunksToFit,
   splitChunkForRetry,
 } from '../src/chunker.js';
@@ -185,14 +188,44 @@ describe('refineChunksToFit', () => {
     assert.ok(refined.every((chunk) => counter(chunk.text, chunk.headingChain) <= 30));
   });
 
+  it('finds a bounded later fitting island when the first candidate is over budget', () => {
+    const source = 'abcdefghijklmnopqrst';
+    const counter: ProjectedTokenCounter = (text, _headingChain) => (text.length === 2 ? 2 : 100);
+
+    const refined = refineChunksToFit(source, [sourceChunk(source)], 2, counter, 0);
+
+    assertSourceAligned(source, refined);
+    assert.equal(refined[0]!.charStart, 0);
+    assert.equal(refined.at(-1)!.charEnd, source.length);
+    assert.ok(refined.every((chunk) => counter(chunk.text, chunk.headingChain) <= 2));
+  });
+
+  it('measures overlap in estimated tokens for ASCII and CJK text', () => {
+    const counter: ProjectedTokenCounter = (text) => text.length;
+    const asciiSource = 'a'.repeat(300);
+    const cjkSource = '界'.repeat(300);
+    const ascii = refineChunksToFit(asciiSource, [sourceChunk(asciiSource)], 64, counter, 4);
+    const cjk = refineChunksToFit(cjkSource, [sourceChunk(cjkSource)], 64, counter, 4);
+
+    const asciiOverlap = asciiSource.slice(ascii[1]!.charStart, ascii[0]!.charEnd);
+    const cjkOverlap = cjkSource.slice(cjk[1]!.charStart, cjk[0]!.charEnd);
+    assert.ok(asciiOverlap.length > cjkOverlap.length);
+    assert.ok(estimateTokens(asciiOverlap) <= 4);
+    assert.ok(estimateTokens(cjkOverlap) <= 4);
+    assert.ok(estimateTokens(asciiOverlap) > 0);
+    assert.ok(estimateTokens(cjkOverlap) > 0);
+  });
+
   it('uses fewer than 100 projected count calls per produced chunk', () => {
     const source = Array.from(
       { length: 1200 },
       (_, index) => `- synthetic reference ${index}: ${'payload '.repeat(8).trim()}`,
     ).join('\n');
     let calls = 0;
+    let countedCharacters = 0;
     const counter: ProjectedTokenCounter = (text) => {
       calls++;
+      countedCharacters += text.length;
       return text.length;
     };
 
@@ -201,6 +234,10 @@ describe('refineChunksToFit', () => {
     assert.ok(refined.length > 100);
     assertSourceAligned(source, refined);
     assert.ok(calls < refined.length * 100, `${calls} calls for ${refined.length} chunks`);
+    assert.ok(
+      countedCharacters < source.length * 30,
+      `${countedCharacters} counted characters for ${source.length} source characters`,
+    );
   });
 });
 
@@ -228,5 +265,34 @@ describe('splitChunkForRetry', () => {
     const source = '😀';
 
     assert.equal(splitChunkForRetry(source, sourceChunk(source)), null);
+  });
+
+  it('reuses one boundary collection with bounded work across recursive splits', () => {
+    const source = Array.from(
+      { length: 2048 },
+      (_, index) => `Paragraph ${index}. ${'body '.repeat(8).trim()}`,
+    ).join('\n\n');
+    const boundaryIndex = createChunkBoundaryIndex(source);
+    const pending = [sourceChunk(source)];
+    const leaves: Chunk[] = [];
+    let maxDepth = 0;
+
+    while (pending.length > 0) {
+      const chunk = pending.pop()!;
+      const depth = Math.ceil(Math.log2(source.length / Math.max(1, chunk.text.length)));
+      maxDepth = Math.max(maxDepth, depth);
+      if (chunk.text.length <= 256) {
+        leaves.push(chunk);
+        continue;
+      }
+      const split = splitChunkForRetry(source, chunk, boundaryIndex);
+      assert.ok(split);
+      pending.push(split[1], split[0]);
+    }
+
+    const stats = getChunkBoundaryIndexStats(boundaryIndex);
+    assert.ok(leaves.length > 100);
+    assert.equal(stats.collections, 1);
+    assert.ok(stats.boundaryVisits <= stats.boundaryCount * (maxDepth + 2));
   });
 });

@@ -9,10 +9,31 @@ export interface Chunk {
 
 export type ProjectedTokenCounter = (text: string, headingChain: readonly string[]) => number;
 
+declare const CHUNK_BOUNDARY_INDEX_BRAND: unique symbol;
+
+export interface ChunkBoundaryIndex {
+  readonly sourceLength: number;
+  readonly [CHUNK_BOUNDARY_INDEX_BRAND]: true;
+}
+
+export interface ChunkBoundaryIndexStats {
+  collections: number;
+  boundaryCount: number;
+  boundaryVisits: number;
+}
+
 interface Boundary {
   position: number;
   priority: number;
 }
+
+interface ChunkBoundaryIndexState {
+  source: string;
+  boundaries: Boundary[];
+  boundaryVisits: number;
+}
+
+const boundaryIndexStates = new WeakMap<ChunkBoundaryIndex, ChunkBoundaryIndexState>();
 
 const BOUNDARY_PRIORITY = {
   CODE_POINT: 0,
@@ -406,6 +427,34 @@ function collectBoundaries(source: string): Boundary[] {
     .sort((left, right) => left.position - right.position);
 }
 
+export function createChunkBoundaryIndex(source: string): ChunkBoundaryIndex {
+  const index = { sourceLength: source.length } as ChunkBoundaryIndex;
+  boundaryIndexStates.set(index, {
+    source,
+    boundaries: collectBoundaries(source),
+    boundaryVisits: 0,
+  });
+  return index;
+}
+
+function getBoundaryIndexState(source: string, index: ChunkBoundaryIndex): ChunkBoundaryIndexState {
+  const state = boundaryIndexStates.get(index);
+  if (!state || state.source !== source) {
+    throw new Error('Chunk boundary index does not match source');
+  }
+  return state;
+}
+
+export function getChunkBoundaryIndexStats(index: ChunkBoundaryIndex): ChunkBoundaryIndexStats {
+  const state = boundaryIndexStates.get(index);
+  if (!state) throw new Error('Invalid chunk boundary index');
+  return {
+    collections: 1,
+    boundaryCount: state.boundaries.length,
+    boundaryVisits: state.boundaryVisits,
+  };
+}
+
 function lowerBoundaryIndex(boundaries: readonly Boundary[], position: number): number {
   let low = 0;
   let high = boundaries.length;
@@ -440,19 +489,32 @@ function alignExistingChunk(source: string, chunk: Chunk): { chunk: Chunk; align
   };
 }
 
-function chooseInitialFittingBoundary(
+const LOCAL_FIT_LOOKAHEAD = 16;
+
+interface FittingBoundary {
+  position: number;
+  count: number;
+}
+
+function findFittingBoundary(
   source: string,
   headingChain: string[],
   limit: number,
   countProjected: ProjectedTokenCounter,
   boundaries: readonly Boundary[],
-  firstIndex: number,
-  lastIndex: number,
   start: number,
-): { index: number; counts: Map<number, number> } {
+  chunkEnd: number,
+): FittingBoundary | null {
+  const firstIndex = lowerBoundaryIndex(boundaries, start + 1);
+  const endIndex = lowerBoundaryIndex(boundaries, chunkEnd);
+  const internalCount = endIndex - firstIndex;
+  const candidateCount = internalCount + 1;
+  const lastOffset = candidateCount - 1;
   const counts = new Map<number, number>();
-  const countAt = (index: number): number => {
-    const position = boundaries[index]!.position;
+  const positionAt = (offset: number): number =>
+    offset < internalCount ? boundaries[firstIndex + offset]!.position : chunkEnd;
+  const countAt = (offset: number): number => {
+    const position = positionAt(offset);
     const cached = counts.get(position);
     if (cached !== undefined) return cached;
     const candidate = createSourceChunk(source, start, position, headingChain);
@@ -461,21 +523,47 @@ function chooseInitialFittingBoundary(
     return count;
   };
 
-  let low = firstIndex;
-  let high = lastIndex;
-  let fittingIndex = -1;
-  while (low <= high) {
-    const middle = low + Math.floor((high - low) / 2);
-    if (countAt(middle) <= limit) {
-      fittingIndex = middle;
-      low = middle + 1;
-    } else {
-      high = middle - 1;
+  let fittingOffset = countAt(0) <= limit ? 0 : -1;
+  if (fittingOffset === -1) {
+    const lookaheadEnd = Math.min(lastOffset, LOCAL_FIT_LOOKAHEAD);
+    for (let offset = 1; offset <= lookaheadEnd; offset++) {
+      if (countAt(offset) <= limit) {
+        fittingOffset = offset;
+        break;
+      }
+    }
+    if (fittingOffset === -1) return null;
+  }
+
+  let firstOverOffset = -1;
+  let distance = 1;
+  while (fittingOffset < lastOffset) {
+    const probeOffset = Math.min(lastOffset, fittingOffset + distance);
+    if (countAt(probeOffset) > limit) {
+      firstOverOffset = probeOffset;
+      break;
+    }
+    fittingOffset = probeOffset;
+    if (fittingOffset === lastOffset) break;
+    distance *= 2;
+  }
+
+  if (firstOverOffset !== -1) {
+    let low = fittingOffset + 1;
+    let high = firstOverOffset - 1;
+    while (low <= high) {
+      const middle = low + Math.floor((high - low) / 2);
+      if (countAt(middle) <= limit) {
+        fittingOffset = middle;
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
     }
   }
 
-  while (fittingIndex >= firstIndex && countAt(fittingIndex) > limit) fittingIndex--;
-  return { index: fittingIndex, counts };
+  const position = positionAt(fittingOffset);
+  return { position, count: countAt(fittingOffset) };
 }
 
 function choosePreferredBoundary(
@@ -484,39 +572,49 @@ function choosePreferredBoundary(
   limit: number,
   countProjected: ProjectedTokenCounter,
   boundaries: readonly Boundary[],
-  firstIndex: number,
-  fittingIndex: number,
   start: number,
-  counts: Map<number, number>,
-): number {
-  const fittingPosition = boundaries[fittingIndex]!.position;
-  const preferredStart = start + Math.floor((fittingPosition - start) * 0.8);
-  const preferredIndex = Math.max(firstIndex, lowerBoundaryIndex(boundaries, preferredStart));
-  let highestPriority: number = BOUNDARY_PRIORITY.CODE_POINT;
-  for (let index = preferredIndex; index <= fittingIndex; index++) {
-    highestPriority = Math.max(highestPriority, boundaries[index]!.priority);
-  }
-
-  for (let priority = highestPriority; priority >= BOUNDARY_PRIORITY.CODE_POINT; priority--) {
-    for (let index = fittingIndex; index >= preferredIndex; index--) {
-      const boundary = boundaries[index]!;
-      if (boundary.priority !== priority) continue;
-      let count = counts.get(boundary.position);
-      if (count === undefined) {
-        const candidate = createSourceChunk(source, start, boundary.position, headingChain);
-        count = countProjected(candidate.text, headingChain);
-        counts.set(boundary.position, count);
-      }
-      if (count <= limit) return index;
+  fitting: FittingBoundary,
+): FittingBoundary {
+  const preferredStart = Math.max(start + 1, start + Math.floor((fitting.position - start) * 0.8));
+  const firstIndex = lowerBoundaryIndex(boundaries, preferredStart);
+  const endIndex = lowerBoundaryIndex(boundaries, fitting.position + 1);
+  let preferred: Boundary | undefined;
+  for (let index = firstIndex; index < endIndex; index++) {
+    const boundary = boundaries[index]!;
+    if (
+      !preferred ||
+      boundary.priority > preferred.priority ||
+      (boundary.priority === preferred.priority && boundary.position > preferred.position)
+    ) {
+      preferred = boundary;
     }
   }
-  return fittingIndex;
+  if (!preferred || preferred.position === fitting.position) return fitting;
+
+  const candidate = createSourceChunk(source, start, preferred.position, headingChain);
+  const count = countProjected(candidate.text, headingChain);
+  return count <= limit ? { position: preferred.position, count } : fitting;
 }
 
-function nextSafeStart(source: string, proposed: number, end: number): number {
-  let position = Math.min(proposed, end);
-  if (position < end && isLowSurrogate(source.charCodeAt(position))) position++;
-  if (position < end && source[position - 1] === '\r' && source[position] === '\n') position++;
+function previousCodePointStart(source: string, position: number): number {
+  let previous = position - 1;
+  if (previous > 0 && isLowSurrogate(source.charCodeAt(previous))) previous--;
+  return previous;
+}
+
+function retreatByTokenBudget(source: string, start: number, end: number, budget: number): number {
+  if (budget <= 0) return end;
+  const minimumStart = start + (source.codePointAt(start)! > 0xffff ? 2 : 1);
+  let position = end;
+  let tokens = 0;
+  while (position > minimumStart) {
+    const previous = previousCodePointStart(source, position);
+    if (previous < minimumStart) break;
+    const nextTokens = tokens + charTokenWeight(source.codePointAt(previous)!);
+    if (Math.ceil(nextTokens) > budget) break;
+    tokens = nextTokens;
+    position = previous;
+  }
   return position;
 }
 
@@ -533,52 +631,41 @@ function refineAlignedChunk(
   const refined: Chunk[] = [];
   let start = chunk.charStart;
   while (start < chunk.charEnd) {
-    const remainder = createSourceChunk(source, start, chunk.charEnd, chunk.headingChain);
-    if (countProjected(remainder.text, chunk.headingChain) <= limit) {
-      if (remainder.text.length > 0) refined.push(remainder);
-      break;
-    }
-
-    const firstIndex = lowerBoundaryIndex(boundaries, start + 1);
-    const endIndex = lowerBoundaryIndex(boundaries, chunk.charEnd);
-    if (firstIndex >= endIndex) {
-      refined.push(remainder);
-      break;
-    }
-    const lastIndex = Math.max(firstIndex, endIndex - 1);
-    const initial = chooseInitialFittingBoundary(
+    const fitting = findFittingBoundary(
       source,
       chunk.headingChain,
       limit,
       countProjected,
       boundaries,
-      firstIndex,
-      lastIndex,
       start,
+      chunk.charEnd,
     );
-    const fittingIndex = initial.index === -1 ? firstIndex : initial.index;
-    const chosenIndex =
-      initial.index === -1
-        ? fittingIndex
+    if (!fitting) {
+      refined.push(createSourceChunk(source, start, chunk.charEnd, chunk.headingChain));
+      break;
+    }
+    const chosen =
+      fitting.position === chunk.charEnd
+        ? fitting
         : choosePreferredBoundary(
             source,
             chunk.headingChain,
             limit,
             countProjected,
             boundaries,
-            firstIndex,
-            fittingIndex,
             start,
-            initial.counts,
+            fitting,
           );
-    const chosenEnd = boundaries[chosenIndex]!.position;
-    const child = createSourceChunk(source, start, chosenEnd, chunk.headingChain);
+    const child = createSourceChunk(source, start, chosen.position, chunk.headingChain);
     if (child.text.length > 0) refined.push(child);
-    if (chosenEnd >= chunk.charEnd) break;
+    if (chosen.position >= chunk.charEnd) break;
 
-    const span = chosenEnd - start;
-    const boundedOverlap = Math.min(Math.max(0, Math.floor(overlap)), Math.max(0, span - 1));
-    const nextStart = nextSafeStart(source, chosenEnd - boundedOverlap, chosenEnd);
+    const nextStart = retreatByTokenBudget(
+      source,
+      start,
+      chosen.position,
+      Math.max(0, Math.floor(overlap)),
+    );
     if (nextStart <= start) throw new Error('Chunk refinement failed to make progress');
     start = nextStart;
   }
@@ -592,7 +679,8 @@ export function refineChunksToFit(
   countProjected: ProjectedTokenCounter,
   overlap: number,
 ): Chunk[] {
-  const boundaries = collectBoundaries(source);
+  const boundaryIndex = createChunkBoundaryIndex(source);
+  const boundaries = getBoundaryIndexState(source, boundaryIndex).boundaries;
   const refined: Chunk[] = [];
   for (const inputChunk of chunks) {
     const aligned = alignExistingChunk(source, inputChunk);
@@ -616,31 +704,41 @@ function validRetrySplit(source: string, chunk: Chunk, position: number): [Chunk
   return [left, right];
 }
 
-export function splitChunkForRetry(source: string, inputChunk: Chunk): [Chunk, Chunk] | null {
+export function splitChunkForRetry(
+  source: string,
+  inputChunk: Chunk,
+  boundaryIndex: ChunkBoundaryIndex = createChunkBoundaryIndex(source),
+): [Chunk, Chunk] | null {
   const aligned = alignExistingChunk(source, inputChunk);
   if (!aligned.aligned) return null;
   const chunk = aligned.chunk;
-  const boundaries = collectBoundaries(source);
+  const state = getBoundaryIndexState(source, boundaryIndex);
+  const boundaries = state.boundaries;
   const firstIndex = lowerBoundaryIndex(boundaries, chunk.charStart + 1);
   const endIndex = lowerBoundaryIndex(boundaries, chunk.charEnd);
   if (firstIndex >= endIndex) return null;
 
   const midpoint = chunk.charStart + (chunk.charEnd - chunk.charStart) / 2;
-  const candidates = boundaries.slice(firstIndex, endIndex).sort((left, right) => {
-    const leftNatural = left.priority > BOUNDARY_PRIORITY.CODE_POINT ? 0 : 1;
-    const rightNatural = right.priority > BOUNDARY_PRIORITY.CODE_POINT ? 0 : 1;
-    return (
-      leftNatural - rightNatural ||
-      Math.abs(left.position - midpoint) - Math.abs(right.position - midpoint) ||
-      right.priority - left.priority
-    );
-  });
-
-  for (const candidate of candidates) {
-    const split = validRetrySplit(source, chunk, candidate.position);
-    if (split) return split;
+  let natural: Boundary | undefined;
+  let fallback: Boundary | undefined;
+  for (let index = firstIndex; index < endIndex; index++) {
+    const candidate = boundaries[index]!;
+    state.boundaryVisits++;
+    const current = candidate.priority > BOUNDARY_PRIORITY.CODE_POINT ? natural : fallback;
+    if (
+      !current ||
+      Math.abs(candidate.position - midpoint) < Math.abs(current.position - midpoint) ||
+      (Math.abs(candidate.position - midpoint) === Math.abs(current.position - midpoint) &&
+        candidate.priority > current.priority)
+    ) {
+      if (candidate.priority > BOUNDARY_PRIORITY.CODE_POINT) natural = candidate;
+      else fallback = candidate;
+    }
   }
-  return null;
+
+  const naturalSplit = natural ? validRetrySplit(source, chunk, natural.position) : null;
+  if (naturalSplit) return naturalSplit;
+  return fallback ? validRetrySplit(source, chunk, fallback.position) : null;
 }
 
 function stripHtmlTags(value: string): string {
