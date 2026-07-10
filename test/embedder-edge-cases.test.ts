@@ -22,7 +22,7 @@ afterEach(() => {
   delete process.env.OPENAI_EMBEDDING_MODEL;
 });
 
-const { embed, clearOllamaSemaphore } = await import('../src/embedder.js');
+const { embed, embedDetailed, clearOllamaSemaphore } = await import('../src/embedder.js');
 
 function mockFetchOk(embeddings: number[][], status = 200): void {
   vi.stubGlobal(
@@ -49,6 +49,130 @@ function mockFetchError(status: number, body: string): void {
     }),
   );
 }
+
+function providerErrorResponse(
+  status: number,
+  error: {
+    code?: string | number;
+    type?: string;
+    message?: string;
+    metadata?: { error_type?: string };
+  },
+): { ok: boolean; status: number; text: () => Promise<string>; json: () => unknown } {
+  const body = { error };
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: () => Promise.resolve(JSON.stringify(body)),
+    json: () => body,
+  };
+}
+
+describe('embedDetailed() — structured provider outcomes', () => {
+  const fakeEmb = Array.from({ length: 384 }, () => 0.1);
+
+  it('classifies OpenRouter HTTP 200 context metadata without transient sleeps', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      providerErrorResponse(200, {
+        code: 400,
+        message: "HTTP 400: Invalid 'input[0]': maximum input length is 8192 tokens.",
+        metadata: { error_type: 'context_length_exceeded' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    const [outcome] = await embedDetailed(['oversized'], 'document');
+
+    assert.ok(outcome && !outcome.ok);
+    assert.equal(outcome.kind, 'input_too_long');
+    assert.equal(outcome.status, 200);
+    assert.equal(outcome.providerCode, 400);
+    assert.match(outcome.message, /maximum input length/i);
+    assert.equal(fetchMock.mock.calls.length, 1);
+    assert.equal(timeoutSpy.mock.calls.length, 0);
+  });
+
+  it('classifies a generic structured HTTP 400 as permanent', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      providerErrorResponse(400, {
+        code: 'invalid_request_error',
+        type: 'invalid_request_error',
+        message: 'Invalid dimensions parameter',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const [outcome] = await embedDetailed(['text'], 'document');
+
+    assert.ok(outcome && !outcome.ok);
+    assert.equal(outcome.kind, 'permanent');
+    assert.equal(outcome.status, 400);
+    assert.equal(outcome.providerCode, 'invalid_request_error');
+    assert.equal(fetchMock.mock.calls.length, 1);
+  });
+
+  for (const scenario of [
+    { name: 'network error', response: new Error('socket closed') },
+    { name: 'HTTP 429', response: providerErrorResponse(429, { message: 'rate limited' }) },
+    { name: 'HTTP 502', response: providerErrorResponse(502, { message: 'bad gateway' }) },
+  ]) {
+    it(`retries a failed batch exactly twice without per-item fanout for ${scenario.name}`, async () => {
+      const fetchMock =
+        scenario.response instanceof Error
+          ? vi.fn().mockRejectedValue(scenario.response)
+          : vi.fn().mockResolvedValue(scenario.response);
+      vi.stubGlobal('fetch', fetchMock);
+      vi.useFakeTimers();
+
+      const outcomePromise = embedDetailed(['first', 'second'], 'document');
+      await vi.runAllTimersAsync();
+      const outcomes = await outcomePromise;
+
+      assert.equal(fetchMock.mock.calls.length, 3);
+      for (const [, init] of fetchMock.mock.calls) {
+        const body = JSON.parse((init as { body: string }).body) as { input: string[] };
+        assert.equal(body.input.length, 2);
+      }
+      assert.equal(outcomes.length, 2);
+      assert.ok(outcomes.every((outcome) => !outcome.ok && outcome.kind === 'transient'));
+    });
+  }
+
+  it('localizes an unidentified batch context error with singleton requests', async () => {
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: { body: string }) => {
+      const { input } = JSON.parse(init.body) as { input: string[] };
+      if (input.length > 1 || input[0] === 'oversized') {
+        return Promise.resolve(
+          providerErrorResponse(400, {
+            message: 'maximum input length exceeded for this embedding model',
+          }),
+        );
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => ({ data: [{ embedding: fakeEmb, index: 0 }] }),
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const outcomes = await embedDetailed(['fits', 'oversized'], 'document');
+
+    assert.equal(fetchMock.mock.calls.length, 3);
+    assert.ok(outcomes[0]?.ok);
+    assert.ok(outcomes[0].embedding instanceof Float32Array);
+    assert.ok(outcomes[1] && !outcomes[1].ok);
+    assert.equal(outcomes[1].kind, 'input_too_long');
+    assert.deepEqual(
+      fetchMock.mock.calls.map(([, init]) => {
+        const body = JSON.parse((init as { body: string }).body) as { input: string[] };
+        return body.input.length;
+      }),
+      [2, 1, 1],
+    );
+  });
+});
 
 describe('embed() — API response validation', () => {
   const fakeEmb = Array.from({ length: 384 }, () => 0.1);
@@ -180,8 +304,6 @@ describe('embed() — API response validation', () => {
 });
 
 describe('embed() — retry and fallback', () => {
-  const fakeEmb = Array.from({ length: 384 }, () => 0.1);
-
   // 429 is transient: embedder retries twice (2s, 4s backoff) then returns [null].
   // Using fake timers avoids the real 6s delay.
   it('returns null for transient error after retries (429)', async () => {
@@ -200,32 +322,13 @@ describe('embed() — retry and fallback', () => {
     assert.equal(result[0], null);
   });
 
-  it('splits batch on failure and returns null for failed item', async () => {
-    // Batch of 2 fails with 500 (transient). Fallback retries each item individually.
-    // Each individual item that keeps failing retries 2 more times (2s/4s backoff) → null.
-    let callCount = 0;
+  it('retries a transient batch without singleton fanout', async () => {
+    const requestSizes: number[] = [];
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) {
-          // Batch of 2 fails with 500 (transient) → triggers per-item fallback
-          return Promise.resolve({
-            ok: false,
-            status: 500,
-            text: () => Promise.resolve('Server error'),
-            json: () => ({ error: { message: 'Server error' } }),
-          });
-        }
-        // Individual call 2 succeeds
-        if (callCount === 2) {
-          return Promise.resolve({
-            ok: true,
-            status: 200,
-            json: () => ({ data: [{ embedding: fakeEmb, index: 0 }] }),
-          });
-        }
-        // Individual call 3 keeps failing with 500 → retries → ultimately null
+      vi.fn().mockImplementation((_url: string, init: { body: string }) => {
+        const body = JSON.parse(init.body) as { input: string[] };
+        requestSizes.push(body.input.length);
         return Promise.resolve({
           ok: false,
           status: 500,
@@ -239,10 +342,8 @@ describe('embed() — retry and fallback', () => {
     await vi.runAllTimersAsync();
     const result = await embedPromise;
     assert.equal(result.length, 2);
-    const hasNull = result.some((r) => r === null);
-    const hasArray = result.some((r) => r instanceof Float32Array);
-    assert.ok(hasNull, 'should have at least one null');
-    assert.ok(hasArray, 'should have at least one embedding');
+    assert.deepEqual(result, [null, null]);
+    assert.deepEqual(requestSizes, [2, 2, 2]);
   });
 
   it('returns all null when all items fail', async () => {

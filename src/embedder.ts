@@ -5,6 +5,24 @@ import { config } from './config.js';
 
 export const LOCAL_MODEL = 'Xenova/multilingual-e5-small';
 
+export type EmbeddingFailureKind = 'input_too_long' | 'transient' | 'permanent';
+
+export type EmbeddingOutcome =
+  | { ok: true; embedding: Float32Array }
+  | {
+      ok: false;
+      kind: EmbeddingFailureKind;
+      status?: number;
+      providerCode?: string | number;
+      message: string;
+    };
+
+type EmbeddingFailure = Extract<EmbeddingOutcome, { ok: false }>;
+
+type EmbeddingBatchAttempt =
+  | { ok: true; embeddings: Float32Array[] }
+  | { ok: false; failure: EmbeddingFailure; localize: boolean };
+
 function getCacheDir(): string {
   return path.join(os.homedir(), '.cache', 'huggingface');
 }
@@ -229,12 +247,6 @@ async function getLocalPipeline() {
   return localPipeline;
 }
 
-function parseHttpStatus(err: unknown): number {
-  if (!(err instanceof Error)) return 0;
-  const match = /Embedding API error (\d{3})/.exec(err.message);
-  return match ? parseInt(match[1]!, 10) : 0;
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -301,38 +313,51 @@ export function clearOllamaSemaphore(): void {
   ollamaWaitQueue.length = 0;
 }
 
-async function embedViaApi(
+async function embedViaApiDetailed(
   texts: string[],
   type: 'query' | 'document',
-): Promise<(Float32Array | null)[]> {
+): Promise<EmbeddingOutcome[]> {
   if (isOllamaEndpoint() && type === 'document') {
     const release = await acquireOllamaSlot();
     try {
-      return await embedViaApiRaw(texts, type);
+      return await embedViaApiRawDetailed(texts, type);
     } finally {
       release();
     }
   }
-  return embedViaApiRaw(texts, type);
+  return embedViaApiRawDetailed(texts, type);
+}
+
+export async function embedDetailed(
+  texts: string[],
+  type: 'query' | 'document' = 'document',
+): Promise<EmbeddingOutcome[]> {
+  if (useApiMode()) {
+    return embedViaApiDetailed(texts, type);
+  }
+  const embeddings = await embedLocal(texts, type);
+  return embeddings.map((embedding) =>
+    embedding
+      ? { ok: true as const, embedding }
+      : { ok: false as const, kind: 'permanent', message: 'Local embedding failed' },
+  );
 }
 
 export async function embed(
   texts: string[],
   type: 'query' | 'document' = 'document',
 ): Promise<(Float32Array | null)[]> {
-  if (useApiMode()) {
-    return embedViaApi(texts, type);
-  }
-  return embedLocal(texts, type);
+  const outcomes = await embedDetailed(texts, type);
+  return outcomes.map((outcome) => (outcome.ok ? outcome.embedding : null));
 }
 
-async function embedViaApiRaw(
+async function embedViaApiRawDetailed(
   texts: string[],
   type: 'query' | 'document',
-): Promise<(Float32Array | null)[]> {
+): Promise<EmbeddingOutcome[]> {
   const prefix = getApiPrefix(type);
   const prefixedTexts = prefix ? texts.map((t) => prefix + t) : texts;
-  const results: (Float32Array | null)[] = [];
+  const results: EmbeddingOutcome[] = [];
 
   // Ollama: send one at a time to avoid the >2KB crash bug in v0.12.5+
   // and because Ollama queues internally anyway (batching gives no speedup)
@@ -347,30 +372,121 @@ async function embedViaApiRaw(
   return results;
 }
 
-async function embedApiBatch(texts: string[]): Promise<Float32Array[]> {
+function failureOutcome(
+  kind: EmbeddingFailureKind,
+  message: string,
+  status?: number,
+  providerCode?: string | number,
+): EmbeddingFailure {
+  return {
+    ok: false,
+    kind,
+    ...(status === undefined ? {} : { status }),
+    ...(providerCode === undefined ? {} : { providerCode }),
+    message,
+  };
+}
+
+function isInputTooLong(
+  message: string,
+  providerCode?: string | number,
+  providerType?: string,
+  metadataType?: string,
+): boolean {
+  const structuredValues = [providerCode, providerType, metadataType]
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.toLowerCase());
+  if (
+    structuredValues.some((value) =>
+      /^(?:context_length_exceeded|input_too_long|context_length_error)$/.test(value),
+    )
+  ) {
+    return true;
+  }
+
+  const normalized = message.toLowerCase();
+  return (
+    /(?:context|input)/.test(normalized) &&
+    /(?:length|token)/.test(normalized) &&
+    /(?:exceed|maximum|max|too long|limit)/.test(normalized)
+  );
+}
+
+function classifyProviderFailure(
+  status: number,
+  error: {
+    code?: string | number;
+    message?: string;
+    type?: string;
+    metadata?: { error_type?: string };
+  },
+): EmbeddingFailure {
+  const message = error.message ?? `Embedding API error ${status}`;
+  const providerCode = error.code ?? error.type ?? error.metadata?.error_type;
+  if (isInputTooLong(message, error.code, error.type, error.metadata?.error_type)) {
+    return failureOutcome('input_too_long', message, status, providerCode);
+  }
+  const transient =
+    status === 0 || status === 429 || status === 502 || status === 503 || status >= 500;
+  return failureOutcome(transient ? 'transient' : 'permanent', message, status, providerCode);
+}
+
+function parseErrorBody(raw: string): {
+  code?: string | number;
+  message?: string;
+  type?: string;
+  metadata?: { error_type?: string };
+} {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const validated = EmbeddingApiResponseSchema.safeParse(parsed);
+    if (validated.success && !('data' in validated.data)) return validated.data.error;
+  } catch {
+    // Plain-text provider errors are retained as their message.
+  }
+  return { message: raw || 'unexpected response format' };
+}
+
+async function embedApiBatch(texts: string[]): Promise<EmbeddingBatchAttempt> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
 
-  const res = await fetch(`${config.apiBaseUrl}/embeddings`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ model: config.apiModel, input: texts }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${config.apiBaseUrl}/embeddings`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model: config.apiModel, input: texts }),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Embedding API network error';
+    return { ok: false, failure: failureOutcome('transient', message), localize: false };
+  }
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Embedding API error ${res.status}: ${text}`);
+    const raw = await res.text();
+    const failure = classifyProviderFailure(res.status, parseErrorBody(raw));
+    return { ok: false, failure, localize: failure.kind === 'input_too_long' };
   }
 
   const response: unknown = await res.json();
   const parsed = EmbeddingApiResponseSchema.safeParse(response);
   if (!parsed.success) {
-    throw new Error(formatValidationError('Embedding API response invalid', parsed.error));
+    return {
+      ok: false,
+      failure: failureOutcome(
+        'permanent',
+        formatValidationError('Embedding API response invalid', parsed.error),
+        res.status,
+      ),
+      localize: true,
+    };
   }
 
   const data = parsed.data;
   if (!('data' in data)) {
-    throw new Error(`Embedding API error: ${data.error.message ?? 'unexpected response format'}`);
+    const failure = classifyProviderFailure(res.status, data.error);
+    return { ok: false, failure, localize: failure.kind === 'input_too_long' };
   }
 
   const seenIndexes = new Set<number>();
@@ -384,43 +500,56 @@ async function embedApiBatch(texts: string[]): Promise<Float32Array[]> {
       return true;
     });
   if (!indexesMatchRequest) {
-    throw new Error('Embedding API error: response indexes do not match requested batch');
+    return {
+      ok: false,
+      failure: failureOutcome(
+        'permanent',
+        'Embedding API error: response indexes do not match requested batch',
+        res.status,
+      ),
+      localize: true,
+    };
   }
 
-  return [...data.data]
-    .sort((a, b) => a.index - b.index)
-    .map((item) => new Float32Array(item.embedding));
+  return {
+    ok: true,
+    embeddings: [...data.data]
+      .sort((a, b) => a.index - b.index)
+      .map((item) => new Float32Array(item.embedding)),
+  };
 }
 
-async function embedApiBatchWithFallback(texts: string[]): Promise<(Float32Array | null)[]> {
-  try {
-    return await embedApiBatch(texts);
-  } catch (batchErr) {
-    if (texts.length === 1) {
-      const status = parseHttpStatus(batchErr);
-      const isTransient =
-        status === 0 || status === 429 || status === 503 || status === 502 || status >= 500;
-      if (isTransient) {
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          const delay = Math.pow(2, attempt) * 1000; // 2s, 4s
-          await sleep(delay);
-          try {
-            return await embedApiBatch(texts);
-          } catch {
-            // try next attempt
-          }
-        }
-      }
-      return [null];
-    }
-    // Batch failed — retry each item individually
-    const results: (Float32Array | null)[] = [];
-    for (const text of texts) {
-      const [emb] = await embedApiBatchWithFallback([text]);
-      results.push(emb ?? null);
-    }
-    return results;
+async function embedApiBatchWithRetries(texts: string[]): Promise<EmbeddingBatchAttempt> {
+  let result = await embedApiBatch(texts);
+  if (result.ok || result.failure.kind !== 'transient') return result;
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    await sleep(Math.pow(2, attempt) * 1000); // 2s, 4s
+    result = await embedApiBatch(texts);
+    if (result.ok || result.failure.kind !== 'transient') return result;
   }
+  return result;
+}
+
+async function embedApiBatchWithFallback(texts: string[]): Promise<EmbeddingOutcome[]> {
+  const result = await embedApiBatchWithRetries(texts);
+  if (result.ok) {
+    return result.embeddings.map((embedding) => ({ ok: true, embedding }));
+  }
+  if (texts.length === 1 || !result.localize) {
+    return texts.map(() => ({ ...result.failure }));
+  }
+
+  const outcomes: EmbeddingOutcome[] = [];
+  for (const text of texts) {
+    const [outcome] = await embedApiBatchWithFallback([text]);
+    if (outcome) {
+      outcomes.push(outcome);
+    } else {
+      outcomes.push(failureOutcome('permanent', 'Embedding API returned no outcome'));
+    }
+  }
+  return outcomes;
 }
 
 async function embedLocal(
