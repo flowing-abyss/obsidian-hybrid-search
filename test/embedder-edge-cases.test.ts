@@ -22,7 +22,8 @@ afterEach(() => {
   delete process.env.OPENAI_EMBEDDING_MODEL;
 });
 
-const { embed, embedDetailed, clearOllamaSemaphore } = await import('../src/embedder.js');
+const { embed, embedDetailed, getContextLength, clearOllamaSemaphore } =
+  await import('../src/embedder.js');
 
 function mockFetchOk(embeddings: number[][], status = 200): void {
   vi.stubGlobal(
@@ -511,25 +512,168 @@ describe('embed() — Ollama throttling', () => {
     process.env.OPENAI_BASE_URL = 'https://api.test/v1';
   });
 
-  it('sends one text at a time to Ollama endpoint (batch size 1)', async () => {
+  for (const baseUrl of [
+    'http://localhost:11434',
+    'http://localhost:11434/',
+    'http://localhost:11434/v1',
+    'http://localhost:11434/v1/',
+  ]) {
+    it(`normalizes ${baseUrl} to native embed with truncation disabled`, async () => {
+      process.env.OPENAI_BASE_URL = baseUrl;
+      process.env.OPENAI_EMBEDDING_MODEL = 'bge-m3:latest';
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => ({ embeddings: [[0.1, 0.2]] }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const [embedding] = await embed(['text'], 'document');
+
+      assert.ok(embedding instanceof Float32Array);
+      assert.equal(fetchMock.mock.calls[0]?.[0], 'http://localhost:11434/api/embed');
+      const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body) as {
+        model: string;
+        input: string[];
+        truncate: boolean;
+      };
+      assert.deepEqual(body, { model: 'bge-m3:latest', input: ['text'], truncate: false });
+    });
+  }
+
+  it('sends one native request per input and preserves positional results', async () => {
     const capturedBodies: string[][] = [];
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation((_url: string, opts: { body: string }) => {
         const body = JSON.parse(opts.body) as { input: string[] };
         capturedBodies.push(body.input);
+        const value = body.input[0] === 'text1' ? 0.1 : body.input[0] === 'text2' ? 0.2 : 0.3;
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: () => ({ data: [{ embedding: fakeEmb, index: 0 }] }),
+          json: () => ({ embeddings: [[value, value]] }),
         });
       }),
     );
-    await embed(['text1', 'text2', 'text3'], 'document');
+    const results = await embed(['text1', 'text2', 'text3'], 'document');
     for (const body of capturedBodies) {
       assert.equal(body.length, 1, `Ollama batch should be 1, got ${body.length}`);
     }
     assert.equal(capturedBodies.length, 3, 'should make 3 requests for 3 texts');
+    assert.deepEqual(
+      results.map((embedding) => (embedding ? Number(embedding[0]!.toFixed(1)) : undefined)),
+      [0.1, 0.2, 0.3],
+    );
+  });
+
+  for (const status of [404, 405]) {
+    it(`falls back once to the compatible endpoint after native HTTP ${status}`, async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status,
+          text: () => Promise.resolve(JSON.stringify({ error: 'not found' })),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => ({ data: [{ embedding: fakeEmb, index: 0 }] }),
+        });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const [outcome] = await embedDetailed(['text'], 'document');
+
+      assert.ok(outcome?.ok);
+      assert.deepEqual(
+        fetchMock.mock.calls.map(([url]) => String(url)),
+        ['http://localhost:11434/api/embed', 'http://localhost:11434/v1/embeddings'],
+      );
+    });
+  }
+
+  it('does not use the compatible endpoint for other native failures', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: () => Promise.resolve(JSON.stringify({ error: 'invalid model' })),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const [outcome] = await embedDetailed(['text'], 'document');
+
+    assert.ok(outcome && !outcome.ok);
+    assert.equal(outcome.kind, 'permanent');
+    assert.equal(fetchMock.mock.calls.length, 1);
+    assert.equal(fetchMock.mock.calls[0]?.[0], 'http://localhost:11434/api/embed');
+  });
+
+  it('retries native 5xx failures without compatible endpoint calls', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 520,
+      text: () => Promise.resolve(JSON.stringify({ error: 'provider unavailable' })),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers();
+
+    const outcomePromise = embedDetailed(['text'], 'document');
+    await vi.runAllTimersAsync();
+    const [outcome] = await outcomePromise;
+
+    assert.ok(outcome && !outcome.ok);
+    assert.equal(outcome.kind, 'transient');
+    assert.deepEqual(
+      fetchMock.mock.calls.map(([url]) => String(url)),
+      Array.from({ length: 3 }, () => 'http://localhost:11434/api/embed'),
+    );
+  });
+
+  it('classifies a native context rejection as input_too_long', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({ error: 'input length exceeds the context token limit' }),
+          ),
+      }),
+    );
+
+    const [outcome] = await embedDetailed(['text'], 'document');
+
+    assert.ok(outcome && !outcome.ok);
+    assert.equal(outcome.kind, 'input_too_long');
+  });
+
+  it('uses the untagged model only for known context lookup', async () => {
+    process.env.OPENAI_EMBEDDING_MODEL = 'bge-m3:latest';
+    clearOllamaSemaphore();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    assert.equal(await getContextLength(), 8192);
+    assert.equal(fetchMock.mock.calls.length, 0);
+  });
+
+  it('does not normalize model tags for non-Ollama context lookup', async () => {
+    process.env.OPENAI_BASE_URL = 'https://api.test/v1';
+    process.env.OPENAI_EMBEDDING_MODEL = 'text-embedding-3-small:latest';
+    clearOllamaSemaphore();
+    const fetchMock = vi.fn().mockResolvedValue({
+      json: () => ({ context_length: 1234 }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    assert.equal(await getContextLength(), 1234);
+    assert.equal(fetchMock.mock.calls.length, 1);
+    assert.equal(
+      fetchMock.mock.calls[0]?.[0],
+      'https://api.test/v1/models/text-embedding-3-small:latest',
+    );
   });
 });
 

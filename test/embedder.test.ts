@@ -3,6 +3,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, it, vi } from 'vitest';
+import { estimateTokens } from '../src/chunker.js';
+
+const huggingFaceMocks = vi.hoisted(() => ({ pipeline: vi.fn() }));
+vi.mock('@huggingface/transformers', () => ({
+  env: {},
+  pipeline: huggingFaceMocks.pipeline,
+}));
 
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-embedder-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
@@ -20,7 +27,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const { embed, LOCAL_MODEL, clearOllamaSemaphore } = await import('../src/embedder.js');
+const { embed, LOCAL_MODEL, clearOllamaSemaphore, getDocumentTokenPolicy, prepareEmbeddingInput } =
+  await import('../src/embedder.js');
 
 describe('LOCAL_MODEL constant', () => {
   it('is Xenova/multilingual-e5-small', () => {
@@ -110,6 +118,54 @@ describe('E5-style prefix for BGE / E5 models via API', () => {
     process.env.OPENAI_EMBEDDING_MODEL = 'voyage-4';
     await embed(['hello world'], 'query');
     assert.equal((capturedBody as { input: string[] }).input[0], 'hello world');
+  });
+});
+
+describe('local document token policy', () => {
+  afterEach(() => {
+    process.env.OPENAI_API_KEY = 'test-key';
+    process.env.OPENAI_BASE_URL = 'https://api.test/v1';
+    delete process.env.LOCAL_EMBEDDING_MODEL;
+    huggingFaceMocks.pipeline.mockReset();
+    clearOllamaSemaphore();
+  });
+
+  it('shares one prepared E5 input and one in-flight pipeline with exact special-token counts', async () => {
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_BASE_URL;
+    process.env.LOCAL_EMBEDDING_MODEL = 'Xenova/multilingual-e5-small';
+    clearOllamaSemaphore();
+
+    let tokenizerFails = false;
+    const encode = vi.fn((text: string, options: { add_special_tokens: boolean }) => {
+      if (tokenizerFails) throw new Error('tokenizer failed');
+      assert.equal(text, 'passage: hello');
+      assert.deepEqual(options, { add_special_tokens: true });
+      return [101, 11, 12, 102];
+    });
+    const pipeline = Object.assign(
+      vi.fn().mockResolvedValue({ data: new Float32Array([0.1, 0.2]) }),
+      { tokenizer: { encode } },
+    );
+    huggingFaceMocks.pipeline.mockResolvedValue(pipeline);
+
+    const [firstPolicy, secondPolicy] = await Promise.all([
+      getDocumentTokenPolicy(),
+      getDocumentTokenPolicy(),
+    ]);
+
+    assert.equal(huggingFaceMocks.pipeline.mock.calls.length, 1);
+    assert.equal(prepareEmbeddingInput('hello', 'document'), 'passage: hello');
+    assert.equal(firstPolicy.count('hello'), 4);
+    assert.equal(secondPolicy.count('hello'), 4);
+
+    tokenizerFails = true;
+    assert.equal(firstPolicy.count('hello'), estimateTokens('passage: hello'));
+    tokenizerFails = false;
+
+    const [embedding] = await embed(['hello'], 'document');
+    assert.ok(embedding instanceof Float32Array);
+    assert.equal(pipeline.mock.calls[0]?.[0], 'passage: hello');
   });
 });
 
@@ -237,7 +293,7 @@ describe('embed() — Ollama semaphore serializes concurrent calls', () => {
             resolve({
               ok: true,
               status: 200,
-              json: () => ({ data: [{ embedding: fakeEmbedding, index: 0 }] }),
+              json: () => ({ embeddings: [fakeEmbedding] }),
             });
           }, 50);
         });
@@ -268,7 +324,7 @@ describe('embed() — Ollama semaphore serializes concurrent calls', () => {
             resolve({
               ok: true,
               status: 200,
-              json: () => ({ data: [{ embedding: fakeEmbedding, index: 0 }] }),
+              json: () => ({ embeddings: [fakeEmbedding] }),
             });
           }, 50);
         });

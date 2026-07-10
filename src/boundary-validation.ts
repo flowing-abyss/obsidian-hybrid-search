@@ -95,6 +95,12 @@ export const EmbeddingApiResponseSchema = z.union([
     .strict(),
 ]);
 
+export const OllamaEmbeddingResponseSchema = z
+  .object({
+    embeddings: z.array(z.array(FiniteNumberSchema)),
+  })
+  .passthrough();
+
 export type SearchOptionsBoundary = z.infer<typeof SearchOptionsBoundarySchema>;
 export type SearchToolArguments = z.infer<typeof SearchToolArgumentsSchema>;
 export type ReadToolArguments = z.infer<typeof ReadToolArgumentsSchema>;

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'vitest';
+import { afterEach, describe, it, vi } from 'vitest';
 import { estimateTokens } from '../src/chunker.js';
 import {
   createEstimatedTokenCounter,
@@ -9,17 +9,19 @@ import {
 } from '../src/token-counter.js';
 
 describe('token counters', () => {
-  it('counts OpenAI embedding tokens exactly for canonical and routed model names', () => {
-    const small = createOpenAiTokenCounter('text-embedding-3-small');
-    const routed = createOpenAiTokenCounter('openai/text-embedding-3-small');
+  afterEach(() => vi.doUnmock('js-tiktoken/ranks/cl100k_base'));
+
+  it('counts OpenAI embedding tokens exactly for canonical and routed model names', async () => {
+    const small = await createOpenAiTokenCounter('text-embedding-3-small');
+    const routed = await createOpenAiTokenCounter('openai/text-embedding-3-small');
 
     assert.ok(small?.exact);
     assert.equal(small.count('tiktoken is great!'), 6);
     assert.equal(routed?.count('tiktoken is great!'), 6);
   });
 
-  it('uses exact tokenization for text that defeats the heuristic', () => {
-    const small = createOpenAiTokenCounter('text-embedding-3-small');
+  it('uses exact tokenization for text that defeats the heuristic', async () => {
+    const small = await createOpenAiTokenCounter('text-embedding-3-small');
     assert.ok(small);
     const url =
       '<https://example.com/?next=' + '%2Fprivate%2Fpath%3Fa%3D1%26b%3D2'.repeat(400) + '>';
@@ -40,9 +42,9 @@ describe('token counters', () => {
     );
   });
 
-  it('does not create an exact counter for unknown models', () => {
-    assert.equal(createOpenAiTokenCounter('bge-m3'), undefined);
-    assert.equal(createOpenAiTokenCounter('text-embedding-3-small:latest'), undefined);
+  it('does not create an exact counter for unknown models', async () => {
+    assert.equal(await createOpenAiTokenCounter('bge-m3'), undefined);
+    assert.equal(await createOpenAiTokenCounter('text-embedding-3-small:latest'), undefined);
   });
 
   it('delegates estimated counts to the existing heuristic', () => {
@@ -51,5 +53,18 @@ describe('token counters', () => {
 
     assert.equal(counter.exact, false);
     assert.equal(counter.count(text), estimateTokens(text));
+  });
+
+  it('does not load cl100k ranks for an unknown model', async () => {
+    let rankLoads = 0;
+    vi.doMock('js-tiktoken/ranks/cl100k_base', () => {
+      rankLoads++;
+      return { default: {} };
+    });
+    vi.resetModules();
+    const fresh = await import('../src/token-counter.js');
+
+    assert.equal(await fresh.createOpenAiTokenCounter('bge-m3'), undefined);
+    assert.equal(rankLoads, 0);
   });
 });

@@ -1,5 +1,3 @@
-import { Tiktoken } from 'js-tiktoken/lite';
-import cl100kBase from 'js-tiktoken/ranks/cl100k_base';
 import { estimateTokens } from './chunker.js';
 
 export interface TokenCounter {
@@ -13,11 +11,18 @@ const OPENAI_EMBEDDING_MODELS = new Set([
   'text-embedding-3-large',
 ]);
 
-let cl100kTokenizer: Tiktoken | undefined;
+interface Encoder {
+  encode(text: string): number[];
+}
 
-function getCl100kTokenizer(): Tiktoken {
-  cl100kTokenizer ??= new Tiktoken(cl100kBase);
-  return cl100kTokenizer;
+let cl100kTokenizerPromise: Promise<Encoder> | undefined;
+
+function getCl100kTokenizer(): Promise<Encoder> {
+  cl100kTokenizerPromise ??= Promise.all([
+    import('js-tiktoken/lite'),
+    import('js-tiktoken/ranks/cl100k_base'),
+  ]).then(([{ Tiktoken }, { default: cl100kBase }]) => new Tiktoken(cl100kBase));
+  return cl100kTokenizerPromise;
 }
 
 export function effectiveTokenLimit(contextLength: number): number {
@@ -38,12 +43,13 @@ function canonicalizeOpenAiEmbeddingModel(model: string): string {
   return OPENAI_EMBEDDING_MODELS.has(unprefixed) ? unprefixed : model;
 }
 
-export function createOpenAiTokenCounter(model: string): TokenCounter | undefined {
+export async function createOpenAiTokenCounter(model: string): Promise<TokenCounter | undefined> {
   if (!OPENAI_EMBEDDING_MODELS.has(canonicalizeOpenAiEmbeddingModel(model))) return undefined;
+  const tokenizer = await getCl100kTokenizer();
 
   return {
     exact: true,
-    count: (text) => getCl100kTokenizer().encode(text).length,
+    count: (text) => tokenizer.encode(text).length,
   };
 }
 

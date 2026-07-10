@@ -1,7 +1,17 @@
 import os from 'node:os';
 import path from 'node:path';
-import { EmbeddingApiResponseSchema, formatValidationError } from './boundary-validation.js';
+import {
+  EmbeddingApiResponseSchema,
+  formatValidationError,
+  OllamaEmbeddingResponseSchema,
+} from './boundary-validation.js';
 import { config } from './config.js';
+import {
+  createEstimatedTokenCounter,
+  createOpenAiTokenCounter,
+  effectiveTokenLimit,
+  normalizeKnownModelName,
+} from './token-counter.js';
 
 export const LOCAL_MODEL = 'Xenova/multilingual-e5-small';
 
@@ -30,6 +40,8 @@ function getCacheDir(): string {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Hugging Face transformers pipeline has no types
 let localPipeline: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Hugging Face transformers pipeline has no types
+let localPipelinePromise: Promise<any> | null = null;
 let cachedContextLength: number | null = null;
 let cachedDim: number | null = null;
 
@@ -151,8 +163,11 @@ export async function getContextLength(): Promise<number> {
 
   if (useApiMode()) {
     // Check known models first — avoids an API roundtrip
-    if (KNOWN_CONTEXT_LENGTHS[config.apiModel]) {
-      cachedContextLength = KNOWN_CONTEXT_LENGTHS[config.apiModel]!;
+    const knownModel = isOllamaEndpoint()
+      ? normalizeKnownModelName(config.apiModel)
+      : config.apiModel;
+    if (KNOWN_CONTEXT_LENGTHS[knownModel]) {
+      cachedContextLength = KNOWN_CONTEXT_LENGTHS[knownModel]!;
       return cachedContextLength;
     }
 
@@ -214,38 +229,49 @@ export function primeEmbeddingDim(dim: number): void {
 }
 
 async function getLocalPipeline() {
-  if (!localPipeline) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- optional dependency, may not be installed
-    let hf: any;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      hf = await import('@huggingface/transformers');
-    } catch {
-      throw new Error(
-        '[embedder] @huggingface/transformers is not installed (optional dependency missing).\n' +
-          'To use the built-in local model, reinstall without --no-optional:\n' +
-          '  npm install -g obsidian-hybrid-search\n' +
-          'To use an external embedding provider instead (Ollama, OpenAI, OpenRouter), set:\n' +
-          '  OPENAI_BASE_URL=http://localhost:11434/v1  # Ollama example\n' +
-          '  OPENAI_EMBEDDING_MODEL=bge-m3',
-      );
-    }
-    // Redirect cache to ~/.cache/huggingface so models survive npm install / node_modules wipes.
-    // @huggingface/transformers v3 does not read HF_HOME — env.cacheDir must be set explicitly.
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- @huggingface/transformers has no TypeScript types
-    hf.env.cacheDir = getCacheDir();
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
-    localPipeline = await hf.pipeline('feature-extraction', config.localModel, {
-      // device:'cpu' avoids silent fp32 fallback that occurs when 'auto' selects
-      // an EP (CoreML/CUDA) that doesn't support the model's ONNX opsets.
-      device: 'cpu',
-      // dtype:'q8' loads model_quantized.onnx (~30 MB) instead of the fp32
-      // model.onnx (~470 MB), halving RSS with no meaningful quality drop.
-      dtype: 'q8',
-    });
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- Hugging Face transformers pipeline has no types
+  if (localPipeline) return localPipeline;
+  if (!localPipelinePromise) {
+    localPipelinePromise = (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- optional dependency, may not be installed
+      let hf: any;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        hf = await import('@huggingface/transformers');
+      } catch {
+        throw new Error(
+          '[embedder] @huggingface/transformers is not installed (optional dependency missing).\n' +
+            'To use the built-in local model, reinstall without --no-optional:\n' +
+            '  npm install -g obsidian-hybrid-search\n' +
+            'To use an external embedding provider instead (Ollama, OpenAI, OpenRouter), set:\n' +
+            '  OPENAI_BASE_URL=http://localhost:11434/v1  # Ollama example\n' +
+            '  OPENAI_EMBEDDING_MODEL=bge-m3',
+        );
+      }
+      // Redirect cache to ~/.cache/huggingface so models survive npm install / node_modules wipes.
+      // @huggingface/transformers v3 does not read HF_HOME — env.cacheDir must be set explicitly.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- @huggingface/transformers has no TypeScript types
+      hf.env.cacheDir = getCacheDir();
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return -- @huggingface/transformers has no TypeScript types
+      return hf.pipeline('feature-extraction', config.localModel, {
+        // device:'cpu' avoids silent fp32 fallback that occurs when 'auto' selects
+        // an EP (CoreML/CUDA) that doesn't support the model's ONNX opsets.
+        device: 'cpu',
+        // dtype:'q8' loads model_quantized.onnx (~30 MB) instead of the fp32
+        // model.onnx (~470 MB), halving RSS with no meaningful quality drop.
+        dtype: 'q8',
+      });
+    })();
   }
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- @huggingface/transformers has no TypeScript types
-  return localPipeline;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- Hugging Face transformers pipeline has no types
+    localPipeline = await localPipelinePromise;
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- @huggingface/transformers has no TypeScript types
+    return localPipeline;
+  } catch (error) {
+    localPipelinePromise = null;
+    throw error;
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -271,18 +297,46 @@ function needsE5Prefix(model: string): boolean {
   return /\/e5|e5[-_]/i.test(model);
 }
 
-function getApiPrefix(type: 'query' | 'document'): string {
-  if (needsE5Prefix(config.apiModel)) {
-    return type === 'query' ? 'query: ' : 'passage: ';
-  }
-  return '';
+export function prepareEmbeddingInput(text: string, type: 'query' | 'document'): string {
+  const model = useApiMode() ? config.apiModel : config.localModel;
+  if (!needsE5Prefix(model)) return text;
+  return `${type === 'query' ? 'query: ' : 'passage: '}${text}`;
 }
 
-function getLocalPrefix(type: 'query' | 'document'): string {
-  if (needsE5Prefix(config.localModel)) {
-    return type === 'query' ? 'query: ' : 'passage: ';
+export async function getDocumentTokenPolicy(): Promise<{
+  limit: number;
+  count(text: string): number;
+}> {
+  const limit = effectiveTokenLimit(await getContextLength());
+  const estimated = createEstimatedTokenCounter();
+  if (useApiMode()) {
+    const counter = (await createOpenAiTokenCounter(config.apiModel)) ?? estimated;
+    return { limit, count: (text) => counter.count(prepareEmbeddingInput(text, 'document')) };
   }
-  return '';
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- Hugging Face transformers pipeline has no types
+    const pipeline = await getLocalPipeline();
+    return {
+      limit,
+      count: (text) => {
+        const prepared = prepareEmbeddingInput(text, 'document');
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment -- tokenizer has no TypeScript types
+          const ids: unknown = pipeline.tokenizer.encode(prepared, { add_special_tokens: true });
+          if (Array.isArray(ids)) return ids.length;
+        } catch {
+          // Fall back to the estimator below.
+        }
+        return estimated.count(prepared);
+      },
+    };
+  } catch {
+    return {
+      limit,
+      count: (text) => estimated.count(prepareEmbeddingInput(text, 'document')),
+    };
+  }
 }
 
 const OLLAMA_MAX_CONCURRENCY = 1;
@@ -312,6 +366,9 @@ function acquireOllamaSlot(): Promise<() => void> {
 export function clearOllamaSemaphore(): void {
   activeOllamaRequests = 0;
   ollamaWaitQueue.length = 0;
+  localPipeline = null;
+  localPipelinePromise = null;
+  cachedContextLength = null;
 }
 
 async function embedViaApiDetailed(
@@ -321,22 +378,23 @@ async function embedViaApiDetailed(
   if (isOllamaEndpoint() && type === 'document') {
     const release = await acquireOllamaSlot();
     try {
-      return await embedViaApiRawDetailed(texts, type);
+      return await embedViaApiRawDetailed(texts);
     } finally {
       release();
     }
   }
-  return embedViaApiRawDetailed(texts, type);
+  return embedViaApiRawDetailed(texts);
 }
 
 export async function embedDetailed(
   texts: string[],
   type: 'query' | 'document' = 'document',
 ): Promise<EmbeddingOutcome[]> {
+  const preparedTexts = texts.map((text) => prepareEmbeddingInput(text, type));
   if (useApiMode()) {
-    return embedViaApiDetailed(texts, type);
+    return embedViaApiDetailed(preparedTexts, type);
   }
-  const embeddings = await embedLocal(texts, type);
+  const embeddings = await embedLocal(preparedTexts);
   return embeddings.map((embedding) =>
     embedding
       ? { ok: true as const, embedding }
@@ -352,21 +410,17 @@ export async function embed(
   return outcomes.map((outcome) => (outcome.ok ? outcome.embedding : null));
 }
 
-async function embedViaApiRawDetailed(
-  texts: string[],
-  type: 'query' | 'document',
-): Promise<EmbeddingOutcome[]> {
-  const prefix = getApiPrefix(type);
-  const prefixedTexts = prefix ? texts.map((t) => prefix + t) : texts;
+async function embedViaApiRawDetailed(texts: string[]): Promise<EmbeddingOutcome[]> {
   const results: EmbeddingOutcome[] = [];
+  const batchTransport = isOllamaEndpoint() ? embedOllamaBatch : embedApiBatch;
 
   // Ollama: send one at a time to avoid the >2KB crash bug in v0.12.5+
   // and because Ollama queues internally anyway (batching gives no speedup)
   const batchSize = isOllamaEndpoint() ? 1 : config.batchSize;
 
-  for (let i = 0; i < prefixedTexts.length; i += batchSize) {
-    const batch = prefixedTexts.slice(i, i + batchSize);
-    const batchResults = await embedApiBatchWithFallback(batch);
+  for (let i = 0; i < texts.length; i += batchSize) {
+    const batch = texts.slice(i, i + batchSize);
+    const batchResults = await embedApiBatchWithFallback(batch, batchTransport);
     results.push(...batchResults);
   }
 
@@ -453,13 +507,16 @@ function parseErrorBody(raw: string): {
   return { message: raw || 'unexpected response format' };
 }
 
-async function embedApiBatch(texts: string[]): Promise<EmbeddingBatchAttempt> {
+async function embedApiBatch(
+  texts: string[],
+  url = `${stripTrailingSlashes(config.apiBaseUrl)}/embeddings`,
+): Promise<EmbeddingBatchAttempt> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
 
   let res: Response;
   try {
-    res = await fetch(`${config.apiBaseUrl}/embeddings`, {
+    res = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify({ model: config.apiModel, input: texts }),
@@ -550,20 +607,145 @@ async function embedApiBatch(texts: string[]): Promise<EmbeddingBatchAttempt> {
   };
 }
 
-async function embedApiBatchWithRetries(texts: string[]): Promise<EmbeddingBatchAttempt> {
-  let result = await embedApiBatch(texts);
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
+}
+
+function getOllamaUrls(): { native: string; compatible: string } {
+  const trimmed = stripTrailingSlashes(config.apiBaseUrl);
+  const root = trimmed.endsWith('/v1') ? trimmed.slice(0, -3) : trimmed;
+  return {
+    native: `${root}/api/embed`,
+    compatible: `${root}/v1/embeddings`,
+  };
+}
+
+function parseOllamaError(raw: string): { message?: string } {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed === 'object' && parsed !== null && 'error' in parsed) {
+      const error = (parsed as { error?: unknown }).error;
+      if (typeof error === 'string') return { message: error };
+      if (typeof error === 'object' && error !== null && 'message' in error) {
+        const message = (error as { message?: unknown }).message;
+        if (typeof message === 'string') return { message };
+      }
+    }
+  } catch {
+    // Plain-text Ollama errors are retained below.
+  }
+  return { message: raw || 'unexpected Ollama response format' };
+}
+
+async function embedOllamaBatch(texts: string[]): Promise<EmbeddingBatchAttempt> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
+  const urls = getOllamaUrls();
+
+  let res: Response;
+  try {
+    res = await fetch(urls.native, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model: config.apiModel, input: texts, truncate: false }),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Ollama network error';
+    return { ok: false, failure: failureOutcome('transient', message), localize: false };
+  }
+
+  if (res.status === 404 || res.status === 405) {
+    return embedApiBatch(texts, urls.compatible);
+  }
+  if (!res.ok) {
+    let raw: string;
+    try {
+      raw = await res.text();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Ollama error body unreadable';
+      return {
+        ok: false,
+        failure: failureOutcome(
+          isRetryableStatus(res.status) ? 'transient' : 'invalid_response',
+          message,
+          res.status,
+        ),
+        localize: false,
+      };
+    }
+    const failure = classifyProviderFailure(res.status, parseOllamaError(raw));
+    return { ok: false, failure, localize: failure.kind === 'input_too_long' };
+  }
+
+  let response: unknown;
+  try {
+    response = await res.json();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Ollama response unreadable';
+    return {
+      ok: false,
+      failure: failureOutcome('invalid_response', message, res.status),
+      localize: false,
+    };
+  }
+  const parsed = OllamaEmbeddingResponseSchema.safeParse(response);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      failure: failureOutcome(
+        'invalid_response',
+        formatValidationError('Ollama embedding response invalid', parsed.error),
+        res.status,
+      ),
+      localize: true,
+    };
+  }
+
+  const embeddings = parsed.data.embeddings;
+  const dimension = embeddings[0]?.length ?? 0;
+  if (
+    embeddings.length !== texts.length ||
+    dimension === 0 ||
+    embeddings.some((embedding) => embedding.length !== dimension)
+  ) {
+    return {
+      ok: false,
+      failure: failureOutcome(
+        'invalid_response',
+        'Ollama embedding response dimensions do not match requested batch',
+        res.status,
+      ),
+      localize: true,
+    };
+  }
+
+  return { ok: true, embeddings: embeddings.map((embedding) => new Float32Array(embedding)) };
+}
+
+type EmbeddingBatchTransport = (texts: string[]) => Promise<EmbeddingBatchAttempt>;
+
+async function embedApiBatchWithRetries(
+  texts: string[],
+  transport: EmbeddingBatchTransport,
+): Promise<EmbeddingBatchAttempt> {
+  let result = await transport(texts);
   if (result.ok || result.failure.kind !== 'transient') return result;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     await sleep(Math.pow(2, attempt) * 1000); // 2s, 4s
-    result = await embedApiBatch(texts);
+    result = await transport(texts);
     if (result.ok || result.failure.kind !== 'transient') return result;
   }
   return result;
 }
 
-async function embedApiBatchWithFallback(texts: string[]): Promise<EmbeddingOutcome[]> {
-  const result = await embedApiBatchWithRetries(texts);
+async function embedApiBatchWithFallback(
+  texts: string[],
+  transport: EmbeddingBatchTransport,
+): Promise<EmbeddingOutcome[]> {
+  const result = await embedApiBatchWithRetries(texts, transport);
   if (result.ok) {
     return result.embeddings.map((embedding) => ({ ok: true, embedding }));
   }
@@ -573,7 +755,7 @@ async function embedApiBatchWithFallback(texts: string[]): Promise<EmbeddingOutc
 
   const outcomes: EmbeddingOutcome[] = [];
   for (const text of texts) {
-    const [outcome] = await embedApiBatchWithFallback([text]);
+    const [outcome] = await embedApiBatchWithFallback([text], transport);
     if (outcome) {
       outcomes.push(outcome);
     } else {
@@ -583,21 +765,17 @@ async function embedApiBatchWithFallback(texts: string[]): Promise<EmbeddingOutc
   return outcomes;
 }
 
-async function embedLocal(
-  texts: string[],
-  type: 'query' | 'document',
-): Promise<(Float32Array | null)[]> {
+async function embedLocal(texts: string[]): Promise<(Float32Array | null)[]> {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
   const pipeline = await getLocalPipeline();
   const results: (Float32Array | null)[] = [];
-  const prefix = getLocalPrefix(type);
 
   for (let i = 0; i < texts.length; i += config.batchSize) {
     const batch = texts.slice(i, i + config.batchSize);
     const batchResults = await Promise.all(
       batch.map(async (text) => {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call -- @huggingface/transformers has no TypeScript types for pipeline output
-        const output = await pipeline(prefix + text, { pooling: 'mean', normalize: true });
+        const output = await pipeline(text, { pooling: 'mean', normalize: true });
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
         return new Float32Array(output.data);
       }),
