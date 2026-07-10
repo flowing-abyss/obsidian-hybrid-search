@@ -138,7 +138,7 @@ describe('slidingWindow', () => {
     assert.equal(chunks.length, 1);
     assert.equal(chunks[0]!.text, text.trim());
     assert.equal(chunks[0]!.charStart, 0);
-    assert.equal(chunks[0]!.charEnd, text.length);
+    assert.equal(chunks[0]!.charEnd, text.trimEnd().length);
   });
 });
 

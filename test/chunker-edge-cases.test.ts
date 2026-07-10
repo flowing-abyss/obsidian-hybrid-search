@@ -20,6 +20,17 @@ describe('chunkNote — empty and boundary content', () => {
     assert.equal(chunks[0]!.charEnd, content.length);
   });
 
+  it('aligns trimmed whole-note offsets to the exact source text', () => {
+    const content = '  Short content.  \r\n';
+    const chunks = chunkNote(content, 512);
+
+    assert.equal(chunks.length, 1);
+    assert.equal(chunks[0]!.text, 'Short content.');
+    assert.equal(chunks[0]!.text, content.slice(chunks[0]!.charStart, chunks[0]!.charEnd));
+    assert.equal(chunks[0]!.charStart, 2);
+    assert.equal(chunks[0]!.charEnd, content.indexOf('  \r\n'));
+  });
+
   it('returns single chunk when estimateTokens equals contextLength exactly', () => {
     // 4 chars * 0.25 = 1 token — use contextLength=1 to hit exact boundary
     const content = 'abcd';
@@ -80,6 +91,19 @@ ${body}`;
 });
 
 describe('slidingWindow — overlap', () => {
+  it('aligns trimmed window offsets to the exact input text', () => {
+    const content = `  ${'alpha beta gamma delta '.repeat(30)}  `;
+    const chunks = slidingWindow(content, 20, 0, ['# Heading'], 40);
+
+    assert.ok(chunks.length > 1);
+    for (const chunk of chunks) {
+      const localStart = chunk.charStart - 40;
+      const localEnd = chunk.charEnd - 40;
+      assert.equal(chunk.text, content.slice(localStart, localEnd));
+      assert.deepEqual(chunk.headingChain, ['# Heading']);
+    }
+  });
+
   it('produces chunks that overlap by config.chunkOverlap', () => {
     // Brief used 100 words (~125 tokens), which fit in contextLength=200 as a
     // single chunk. Use 1000 words (~1250 tokens) to force multiple chunks.
