@@ -86,7 +86,7 @@ describe('embedDetailed() — structured provider outcomes', () => {
 
     assert.ok(outcome && !outcome.ok);
     assert.equal(outcome.kind, 'input_too_long');
-    assert.equal(outcome.status, 400);
+    assert.equal(outcome.status, 200);
     assert.equal(outcome.providerCode, 400);
     assert.match(outcome.message, /maximum input length/i);
     assert.equal(fetchMock.mock.calls.length, 1);
@@ -190,10 +190,33 @@ describe('embedDetailed() — structured provider outcomes', () => {
         (outcome) =>
           !outcome.ok &&
           outcome.kind === 'transient' &&
-          outcome.status === 429 &&
+          outcome.status === 200 &&
           outcome.providerCode === 429,
       ),
     );
+  });
+
+  it('retries a generic HTTP 520 exactly twice without singleton fanout', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(providerErrorResponse(520, { message: 'provider unavailable' }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers();
+
+    const outcomePromise = embedDetailed(['first', 'second'], 'document');
+    await vi.runAllTimersAsync();
+    const outcomes = await outcomePromise;
+
+    assert.equal(fetchMock.mock.calls.length, 3);
+    assert.ok(
+      outcomes.every(
+        (outcome) => !outcome.ok && outcome.kind === 'transient' && outcome.status === 520,
+      ),
+    );
+    for (const [, init] of fetchMock.mock.calls) {
+      const body = JSON.parse((init as { body: string }).body) as { input: string[] };
+      assert.equal(body.input.length, 2);
+    }
   });
 
   it('retries HTTP 408 exactly twice without singleton fanout', async () => {

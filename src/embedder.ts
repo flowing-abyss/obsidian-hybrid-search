@@ -414,7 +414,7 @@ function isInputTooLong(
 }
 
 function isRetryableStatus(status: number): boolean {
-  return [408, 429, 500, 502, 503, 504].includes(status);
+  return status === 408 || status === 429 || (status >= 500 && status <= 599);
 }
 
 function classifyProviderFailure(
@@ -426,20 +426,15 @@ function classifyProviderFailure(
     metadata?: { error_type?: string };
   },
 ): EmbeddingFailure {
-  const effectiveStatus =
+  const classificationStatus =
     status >= 200 && status < 300 && typeof error.code === 'number' ? error.code : status;
-  const message = error.message ?? `Embedding API error ${effectiveStatus}`;
+  const message = error.message ?? `Embedding API error ${classificationStatus}`;
   const providerCode = error.code ?? error.type ?? error.metadata?.error_type;
   if (isInputTooLong(message, error.code, error.type, error.metadata?.error_type)) {
-    return failureOutcome('input_too_long', message, effectiveStatus, providerCode);
+    return failureOutcome('input_too_long', message, status, providerCode);
   }
-  const transient = isRetryableStatus(effectiveStatus);
-  return failureOutcome(
-    transient ? 'transient' : 'permanent',
-    message,
-    effectiveStatus,
-    providerCode,
-  );
+  const transient = isRetryableStatus(classificationStatus);
+  return failureOutcome(transient ? 'transient' : 'permanent', message, status, providerCode);
 }
 
 function parseErrorBody(raw: string): {
