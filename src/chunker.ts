@@ -494,6 +494,8 @@ interface FittingBoundary {
   count: number;
 }
 
+const NON_MONOTONIC_FIT_LOOKAHEAD = 16;
+
 function findFittingBoundary(
   source: string,
   headingChain: string[],
@@ -525,7 +527,8 @@ function findFittingBoundary(
 
   let fittingOffset = countAt(0) <= limit ? 0 : -1;
   if (fittingOffset === -1) {
-    for (let offset = 1; offset <= lastOffset; offset++) {
+    const lookaheadEnd = Math.min(lastOffset, NON_MONOTONIC_FIT_LOOKAHEAD);
+    for (let offset = 1; offset <= lookaheadEnd; offset++) {
       if (countAt(offset) <= limit) {
         fittingOffset = offset;
         break;

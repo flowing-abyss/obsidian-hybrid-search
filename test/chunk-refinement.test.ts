@@ -200,18 +200,25 @@ describe('refineChunksToFit', () => {
     assert.ok(refined.every((chunk) => counter(chunk.text, chunk.headingChain) <= 2));
   });
 
-  it('finds the first exact fit beyond the former bounded lookahead', () => {
+  it('returns a distant fitting island unresolved after bounded local lookahead', () => {
     const source = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    const counter: ProjectedTokenCounter = (text, _headingChain) => (text.length === 18 ? 18 : 100);
+    let calls = 0;
+    let countedCharacters = 0;
+    const counter: ProjectedTokenCounter = (text, _headingChain) => {
+      calls++;
+      countedCharacters += text.length;
+      return text.length === 18 ? 18 : 100;
+    };
 
     const refined = refineChunksToFit(source, [sourceChunk(source)], 18, counter, 0);
 
     assertSourceAligned(source, refined);
-    assert.deepEqual(
-      refined.map((chunk) => chunk.text.length),
-      [18, 18],
+    assert.deepEqual(refined, [sourceChunk(source)]);
+    assert.ok(calls <= 18, `${calls} projected count calls`);
+    assert.ok(
+      countedCharacters <= source.length + 153,
+      `${countedCharacters} counted characters for ${source.length} source characters`,
     );
-    assert.ok(refined.every((chunk) => counter(chunk.text, chunk.headingChain) <= 18));
   });
 
   it('measures overlap in estimated tokens for ASCII and CJK text', () => {
