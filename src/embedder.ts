@@ -182,26 +182,12 @@ export async function getContextLength(): Promise<number> {
       // fall through to default
     }
   } else {
-    // Local model: check known table first (avoids loading the pipeline just for this)
+    // Keep token-policy construction independent of model initialization. Unknown
+    // local models use the configured fallback and are still validated exactly
+    // with their tokenizer immediately before document inference.
     if (KNOWN_CONTEXT_LENGTHS[config.localModel]) {
       cachedContextLength = KNOWN_CONTEXT_LENGTHS[config.localModel]!;
       return cachedContextLength;
-    }
-    // Fallback: read from pipeline config
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
-      const pipeline = await getLocalPipeline();
-      /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- @huggingface/transformers has no TypeScript types */
-      const tokenizerMax: number | undefined = pipeline.tokenizer?.model_max_length;
-      const modelMax: number | undefined = pipeline.model?.config?.max_position_embeddings;
-      const maxLen: number | undefined = tokenizerMax ?? modelMax;
-      /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
-      if (typeof maxLen === 'number' && maxLen > 0) {
-        cachedContextLength = maxLen;
-        return cachedContextLength;
-      }
-    } catch {
-      // fall through
     }
   }
 
@@ -297,6 +283,28 @@ function needsE5Prefix(model: string): boolean {
   return /\/e5|e5[-_]/i.test(model);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Hugging Face transformers pipeline has no types
+function getLocalValidationContextLength(pipeline: any): number {
+  const known = KNOWN_CONTEXT_LENGTHS[config.localModel];
+  if (known) return known;
+
+  /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- Hugging Face transformers pipeline has no types */
+  const tokenizerMax: unknown = pipeline.tokenizer?.model_max_length;
+  const modelMax: unknown = pipeline.model?.config?.max_position_embeddings;
+  /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
+  for (const candidate of [tokenizerMax, modelMax]) {
+    if (
+      typeof candidate === 'number' &&
+      Number.isInteger(candidate) &&
+      candidate > 0 &&
+      candidate <= 1_000_000
+    ) {
+      return candidate;
+    }
+  }
+  return config.chunkContextFallback;
+}
+
 export function prepareEmbeddingInput(text: string, type: 'query' | 'document'): string {
   const model = useApiMode() ? config.apiModel : config.localModel;
   if (!needsE5Prefix(model)) return text;
@@ -320,30 +328,10 @@ export async function getDocumentTokenPolicy(): Promise<{
     }
     return { limit, count: (text) => counter.count(prepareEmbeddingInput(text, 'document')) };
   }
-
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- Hugging Face transformers pipeline has no types
-    const pipeline = await getLocalPipeline();
-    return {
-      limit,
-      count: (text) => {
-        const prepared = prepareEmbeddingInput(text, 'document');
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment -- tokenizer has no TypeScript types
-          const ids: unknown = pipeline.tokenizer.encode(prepared, { add_special_tokens: true });
-          if (Array.isArray(ids)) return ids.length;
-        } catch {
-          // Fall back to the estimator below.
-        }
-        return estimated.count(prepared);
-      },
-    };
-  } catch {
-    return {
-      limit,
-      count: (text) => estimated.count(prepareEmbeddingInput(text, 'document')),
-    };
-  }
+  return {
+    limit,
+    count: (text) => estimated.count(prepareEmbeddingInput(text, 'document')),
+  };
 }
 
 const OLLAMA_MAX_CONCURRENCY = 1;
@@ -401,11 +389,60 @@ export async function embedDetailed(
   if (useApiMode()) {
     return embedViaApiDetailed(preparedTexts, type);
   }
-  const embeddings = await embedLocal(preparedTexts);
+  if (type === 'query') return localEmbeddingOutcomes(await embedLocal(preparedTexts));
+
+  // The feature-extraction pipeline silently truncates. Validate each final
+  // document leaf once so the indexer can split oversized inputs before inference.
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- Hugging Face transformers pipeline has no types
+  const pipeline = await getLocalPipeline();
+  const limit = effectiveTokenLimit(getLocalValidationContextLength(pipeline));
+  const outcomes: Array<EmbeddingOutcome | undefined> = Array.from(
+    { length: preparedTexts.length },
+    () => undefined,
+  );
+  const fittingTexts: string[] = [];
+  const fittingIndexes: number[] = [];
+
+  for (let index = 0; index < preparedTexts.length; index++) {
+    const text = preparedTexts[index]!;
+    let tokenCount: number;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment -- tokenizer has no TypeScript types
+      const ids: unknown = pipeline.tokenizer.encode(text, { add_special_tokens: true });
+      if (!Array.isArray(ids))
+        throw new Error('Local tokenizer returned an invalid token sequence');
+      tokenCount = ids.length;
+    } catch {
+      outcomes[index] = failureOutcome(
+        'invalid_response',
+        'Local tokenizer failed to count prepared input',
+      );
+      continue;
+    }
+
+    if (tokenCount > limit) {
+      outcomes[index] = failureOutcome(
+        'input_too_long',
+        `Local embedding input exceeds the ${limit} token limit (${tokenCount} tokens)`,
+      );
+      continue;
+    }
+    fittingTexts.push(text);
+    fittingIndexes.push(index);
+  }
+
+  const fittingOutcomes = localEmbeddingOutcomes(await embedLocal(fittingTexts, pipeline));
+  for (let index = 0; index < fittingIndexes.length; index++) {
+    outcomes[fittingIndexes[index]!] = fittingOutcomes[index];
+  }
+  return outcomes.map(
+    (outcome) => outcome ?? failureOutcome('permanent', 'Local embedding returned no outcome'),
+  );
+}
+
+function localEmbeddingOutcomes(embeddings: (Float32Array | null)[]): EmbeddingOutcome[] {
   return embeddings.map((embedding) =>
-    embedding
-      ? { ok: true as const, embedding }
-      : { ok: false as const, kind: 'permanent', message: 'Local embedding failed' },
+    embedding ? { ok: true, embedding } : failureOutcome('permanent', 'Local embedding failed'),
   );
 }
 
@@ -847,9 +884,13 @@ async function embedApiBatchWithFallback(
   return outcomes;
 }
 
-async function embedLocal(texts: string[]): Promise<(Float32Array | null)[]> {
+async function embedLocal(
+  texts: string[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @huggingface/transformers has no TypeScript types
+  initializedPipeline?: any,
+): Promise<(Float32Array | null)[]> {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
-  const pipeline = await getLocalPipeline();
+  const pipeline = initializedPipeline ?? (await getLocalPipeline());
   const results: (Float32Array | null)[] = [];
 
   for (let i = 0; i < texts.length; i += config.batchSize) {
