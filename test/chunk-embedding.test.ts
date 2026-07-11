@@ -160,6 +160,24 @@ describe('embedChunksWithRecovery', () => {
 });
 
 describe('createDocumentTextProjector', () => {
+  it('shrinks supplemental context against the exact combined body input', () => {
+    const title = `😀${'T'.repeat(24)}`;
+    const body = 'b'.repeat(90);
+    const policy = {
+      limit: 100,
+      count: (text: string) => Array.from(text).length,
+    };
+    const projector = createDocumentTextProjector(title, policy);
+
+    const projected = projector(body, []);
+    const prefix = projected.slice(0, projected.indexOf('\n'));
+
+    assert.ok(policy.count(projected) <= policy.limit);
+    assert.equal(projected.slice(projected.indexOf('\n') + 1), body);
+    assert.equal(prefix, `😀${'T'.repeat(8)}`);
+    assert.equal(prefix.includes('\ud83d') && !prefix.includes('\ude00'), false);
+  });
+
   it('keeps the canonical separator when the context budget is zero', () => {
     const projector = createDocumentTextProjector('', {
       limit: 3,

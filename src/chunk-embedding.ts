@@ -68,7 +68,17 @@ export function createDocumentTextProjector(
 
       prefixCache.set(cacheKey, prefix);
     }
-    return `${prefix}\n${body}`;
+    const projected = `${prefix}\n${body}`;
+    if (policy.count(projected) <= policy.limit) return projected;
+
+    const bodyOnly = `\n${body}`;
+    if (policy.count(bodyOnly) > policy.limit) return projected;
+
+    const fittedPrefix = truncateToTokenLimit(prefix, policy.limit, (candidate) =>
+      policy.count(`${candidate}\n${body}`),
+    );
+    const fittedProjected = `${fittedPrefix}\n${body}`;
+    return policy.count(fittedProjected) <= policy.limit ? fittedProjected : bodyOnly;
   };
 }
 

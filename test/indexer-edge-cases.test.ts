@@ -46,6 +46,40 @@ vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
 });
 
 describe('indexFile embedding projection failures', () => {
+  it('keeps a fitting body whole by shrinking only its supplemental context', async () => {
+    const title = `😀${'T'.repeat(24)}`;
+    const body = 'b'.repeat(90);
+    writeNote('idx-body-relative-prefix.md', `---\ntitle: ${title}\n---\n${body}`);
+    const detailedSpy = vi.mocked(embedder.embedDetailed);
+    vi.mocked(embedder.getDocumentTokenPolicy).mockResolvedValueOnce({
+      limit: 100,
+      count: (text) => Array.from(text).length,
+    });
+    detailedSpy.mockImplementationOnce(async (texts: string[]) =>
+      texts.map((text) =>
+        Array.from(text).length <= 100
+          ? { ok: true as const, embedding: fakeEmbedding }
+          : { ok: false as const, kind: 'input_too_long', status: 400, message: 'too long' },
+      ),
+    );
+
+    const result = await indexFile(path.join(vaultDir, 'idx-body-relative-prefix.md'), 512);
+
+    assert.equal(result, 'indexed');
+    const note = getDb()
+      .prepare('SELECT id, content FROM notes WHERE path = ?')
+      .get('idx-body-relative-prefix.md') as { id: number; content: string };
+    const rows = getDb()
+      .prepare('SELECT text, embedding_status FROM chunks WHERE note_id = ? ORDER BY chunk_index')
+      .all(note.id) as Array<{ text: string; embedding_status: string }>;
+    assert.equal(note.content, body);
+    assert.deepEqual(rows, [{ text: body, embedding_status: 'ok' }]);
+    const projected = detailedSpy.mock.calls.at(-1)?.[0][0];
+    assert.ok(projected);
+    assert.ok(Array.from(projected).length <= 100);
+    assert.equal(projected.endsWith(`\n${body}`), true);
+  });
+
   it('coerces a numeric frontmatter title before token counting', async () => {
     const body = 'numeric title body';
     writeNote('idx-numeric-title.md', `---\ntitle: 42\n---\n${body}`);
