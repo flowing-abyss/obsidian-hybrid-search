@@ -186,7 +186,7 @@ describe('indexFile embedding projection failures', () => {
         kind: 'permanent',
         status: 400,
         providerCode: 'max_tokens',
-        message: 'The max_tokens parameter is not supported for this input',
+        message: 'The max_tokens parameter must be less than 512 tokens for this input',
       },
     ]);
 

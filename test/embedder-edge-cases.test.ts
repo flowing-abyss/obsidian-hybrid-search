@@ -131,6 +131,64 @@ describe('embedDetailed() — structured provider outcomes', () => {
     assert.equal(fetchMock.mock.calls.length, 1);
   });
 
+  it('keeps a numeric max_tokens parameter bound permanent when input is only trailing context', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      providerErrorResponse(400, {
+        code: 'max_tokens',
+        type: 'invalid_request_error',
+        message: 'The max_tokens parameter must be less than 512 tokens for this input',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const [outcome] = await embedDetailed(['text'], 'document');
+
+    assert.ok(outcome && !outcome.ok);
+    assert.equal(outcome.kind, 'permanent');
+    assert.equal(outcome.providerCode, 'max_tokens');
+    assert.equal(fetchMock.mock.calls.length, 1);
+  });
+
+  for (const message of [
+    'Invalid max_tokens: token budget is 512',
+    'input configuration: max_tokens must be less than 512 tokens',
+    'The input parameter controls a response capped at 512 tokens',
+  ]) {
+    it(`keeps a structured max_tokens parameter error permanent: ${message}`, async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        providerErrorResponse(400, {
+          code: 'max_tokens',
+          type: 'invalid_request_error',
+          message,
+        }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const [outcome] = await embedDetailed(['text'], 'document');
+
+      assert.ok(outcome && !outcome.ok);
+      assert.equal(outcome.kind, 'permanent');
+      assert.equal(outcome.providerCode, 'max_tokens');
+      assert.equal(fetchMock.mock.calls.length, 1);
+    });
+  }
+
+  it('accepts a structured max_tokens code when input owns the numeric token count', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      providerErrorResponse(400, {
+        code: 'max_tokens',
+        message: 'input has 9000 tokens; limit is 8192',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const [outcome] = await embedDetailed(['oversized'], 'document');
+
+    assert.ok(outcome && !outcome.ok);
+    assert.equal(outcome.kind, 'input_too_long');
+    assert.equal(fetchMock.mock.calls.length, 1);
+  });
+
   for (const message of [
     'input has 9000 tokens; limit is 8192',
     'input must have less than 512 tokens',

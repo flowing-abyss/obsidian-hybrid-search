@@ -484,6 +484,23 @@ function isInputTooLong(
   const hasNumericBound =
     /\b(?:limit|maximum|max)\b/.test(normalized) ||
     /\b(?:less|fewer|more|greater)\s+than\b/.test(normalized);
+  const hasInputOwnedNumericTokenCount =
+    /\b(?:input(?:\[\d+\])?|prompt)\s+(?:has|contains|uses|must have)\s+\d[\d,.]*\s+tokens?\b/.test(
+      normalized,
+    ) ||
+    /\b(?:input(?:\[\d+\])?|prompt)\s+(?:has|must have)\s+(?:less|fewer|more|greater)\s+than\s+\d[\d,.]*\s+tokens?\b/.test(
+      normalized,
+    );
+  if (structuredValues.includes('max_tokens')) {
+    const exceedsInputLimit = /(?:exceed|maximum|too long|limit|overflow)/.test(
+      normalized.replaceAll('max_tokens', ''),
+    );
+    return (
+      ((contextLengthSubject || inputLengthSubject) && exceedsInputLimit) ||
+      explicitlyTooLong ||
+      hasInputOwnedNumericTokenCount
+    );
+  }
   return (
     (explicitLengthSubject && exceedsLimit) ||
     explicitlyTooLong ||
