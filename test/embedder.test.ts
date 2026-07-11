@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, it, vi } from 'vitest';
 import { estimateTokens } from '../src/chunker.js';
+import * as tokenCounter from '../src/token-counter.js';
 
 const huggingFaceMocks = vi.hoisted(() => ({ pipeline: vi.fn() }));
 vi.mock('@huggingface/transformers', () => ({
@@ -166,6 +167,28 @@ describe('local document token policy', () => {
     const [embedding] = await embed(['hello'], 'document');
     assert.ok(embedding instanceof Float32Array);
     assert.equal(pipeline.mock.calls[0]?.[0], 'passage: hello');
+  });
+});
+
+describe('Ollama document token policy', () => {
+  afterEach(() => {
+    process.env.OPENAI_BASE_URL = 'https://api.test/v1';
+    delete process.env.OPENAI_EMBEDDING_MODEL;
+    clearOllamaSemaphore();
+    vi.restoreAllMocks();
+  });
+
+  it('uses the estimator without exact-counter construction for an OpenAI-named model', async () => {
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1';
+    process.env.OPENAI_EMBEDDING_MODEL = 'text-embedding-3-small';
+    clearOllamaSemaphore();
+    const exactCounterSpy = vi.spyOn(tokenCounter, 'createOpenAiTokenCounter');
+    const text = '<https://example.com/?next=' + '%2Fprivate%2Fpath%3Fa%3D1'.repeat(40) + '>';
+
+    const policy = await getDocumentTokenPolicy();
+
+    assert.equal(policy.count(text), estimateTokens(text));
+    assert.equal(exactCounterSpy.mock.calls.length, 0);
   });
 });
 

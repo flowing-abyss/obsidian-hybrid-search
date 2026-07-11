@@ -32,7 +32,7 @@ type EmbeddingFailure = Extract<EmbeddingOutcome, { ok: false }>;
 
 type EmbeddingBatchAttempt =
   | { ok: true; embeddings: Float32Array[] }
-  | { ok: false; failure: EmbeddingFailure; localize: boolean };
+  | { ok: false; failure: EmbeddingFailure; localize: boolean; retryable?: boolean };
 
 function getCacheDir(): string {
   return path.join(os.homedir(), '.cache', 'huggingface');
@@ -310,7 +310,9 @@ export async function getDocumentTokenPolicy(): Promise<{
   const limit = effectiveTokenLimit(await getContextLength());
   const estimated = createEstimatedTokenCounter();
   if (useApiMode()) {
-    const counter = (await createOpenAiTokenCounter(config.apiModel)) ?? estimated;
+    const counter = isOllamaEndpoint()
+      ? estimated
+      : ((await createOpenAiTokenCounter(config.apiModel)) ?? estimated);
     return { limit, count: (text) => counter.count(prepareEmbeddingInput(text, 'document')) };
   }
 
@@ -412,7 +414,9 @@ export async function embed(
 
 async function embedViaApiRawDetailed(texts: string[]): Promise<EmbeddingOutcome[]> {
   const results: EmbeddingOutcome[] = [];
-  const batchTransport = isOllamaEndpoint() ? embedOllamaBatch : embedApiBatch;
+  const batchTransport = isOllamaEndpoint()
+    ? embedOllamaBatchWithCompatibleFallback
+    : embedApiBatch;
 
   // Ollama: send one at a time to avoid the >2KB crash bug in v0.12.5+
   // and because Ollama queues internally anyway (batching gives no speedup)
@@ -639,7 +643,9 @@ function parseOllamaError(raw: string): { message?: string } {
   return { message: raw || 'unexpected Ollama response format' };
 }
 
-async function embedOllamaBatch(texts: string[]): Promise<EmbeddingBatchAttempt> {
+async function embedOllamaBatchWithCompatibleFallback(
+  texts: string[],
+): Promise<EmbeddingBatchAttempt> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
   const urls = getOllamaUrls();
@@ -657,7 +663,8 @@ async function embedOllamaBatch(texts: string[]): Promise<EmbeddingBatchAttempt>
   }
 
   if (res.status === 404 || res.status === 405) {
-    return embedApiBatch(texts, urls.compatible);
+    const compatible = await embedApiBatch(texts, urls.compatible);
+    return compatible.ok ? compatible : { ...compatible, retryable: false };
   }
   if (!res.ok) {
     let raw: string;
@@ -731,12 +738,13 @@ async function embedApiBatchWithRetries(
   transport: EmbeddingBatchTransport,
 ): Promise<EmbeddingBatchAttempt> {
   let result = await transport(texts);
-  if (result.ok || result.failure.kind !== 'transient') return result;
+  if (result.ok || result.failure.kind !== 'transient' || result.retryable === false) return result;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     await sleep(Math.pow(2, attempt) * 1000); // 2s, 4s
     result = await transport(texts);
-    if (result.ok || result.failure.kind !== 'transient') return result;
+    if (result.ok || result.failure.kind !== 'transient' || result.retryable === false)
+      return result;
   }
   return result;
 }

@@ -593,6 +593,36 @@ describe('embed() — Ollama throttling', () => {
     });
   }
 
+  it('does not retry a transient compatible failure after one native fallback', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/api/embed')) {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          text: () => Promise.resolve(JSON.stringify({ error: 'not found' })),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 502,
+        text: () => Promise.resolve(JSON.stringify({ error: { message: 'bad gateway' } })),
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers();
+
+    const outcomePromise = embedDetailed(['text'], 'document');
+    await vi.runAllTimersAsync();
+    const [outcome] = await outcomePromise;
+
+    assert.ok(outcome && !outcome.ok);
+    assert.equal(outcome.kind, 'transient');
+    assert.deepEqual(
+      fetchMock.mock.calls.map(([url]) => String(url)),
+      ['http://localhost:11434/api/embed', 'http://localhost:11434/v1/embeddings'],
+    );
+  });
+
   it('does not use the compatible endpoint for other native failures', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
