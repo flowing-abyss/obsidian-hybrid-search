@@ -113,6 +113,24 @@ describe('embedDetailed() — structured provider outcomes', () => {
     assert.equal(fetchMock.mock.calls.length, 1);
   });
 
+  it('keeps a generic max_tokens rejection permanent', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      providerErrorResponse(400, {
+        code: 'max_tokens',
+        type: 'invalid_request_error',
+        message: 'The max_tokens parameter is not supported for this input',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const [outcome] = await embedDetailed(['text'], 'document');
+
+    assert.ok(outcome && !outcome.ok);
+    assert.equal(outcome.kind, 'permanent');
+    assert.equal(outcome.providerCode, 'max_tokens');
+    assert.equal(fetchMock.mock.calls.length, 1);
+  });
+
   for (const scenario of [
     { name: 'network error', response: new Error('socket closed') },
     { name: 'HTTP 429', response: providerErrorResponse(429, { message: 'rate limited' }) },

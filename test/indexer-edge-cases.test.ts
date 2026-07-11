@@ -101,6 +101,36 @@ describe('indexFile embedding projection failures', () => {
     );
   });
 
+  for (const [name, titleLine] of [
+    ['blank', 'title:'],
+    ['null', 'title: null'],
+  ] as const) {
+    it(`uses the filename when the frontmatter title is ${name}`, async () => {
+      const filename = `idx-${name}-title`;
+      writeNote(`${filename}.md`, `---\n${titleLine}\n---\nbody`);
+
+      const result = await indexFile(path.join(vaultDir, `${filename}.md`), 512);
+
+      assert.equal(result, 'indexed');
+      assert.equal(
+        getDb().prepare('SELECT title FROM notes WHERE path = ?').pluck().get(`${filename}.md`),
+        filename,
+      );
+    });
+  }
+
+  it('coerces a boolean frontmatter title to a string', async () => {
+    writeNote('idx-boolean-title.md', '---\ntitle: false\n---\nbody');
+
+    const result = await indexFile(path.join(vaultDir, 'idx-boolean-title.md'), 512);
+
+    assert.equal(result, 'indexed');
+    assert.equal(
+      getDb().prepare('SELECT title FROM notes WHERE path = ?').pluck().get('idx-boolean-title.md'),
+      'false',
+    );
+  });
+
   it('keeps empty-note indexing off the token-policy and embedding paths', async () => {
     writeNote('idx-empty-policy.md', '---\ntags: [empty]\n---\n');
     const policyCalls = vi.mocked(embedder.getDocumentTokenPolicy).mock.calls.length;
@@ -151,7 +181,13 @@ describe('indexFile embedding projection failures', () => {
     writeNote('idx-generic-400.md', body);
     const detailedSpy = vi.mocked(embedder.embedDetailed);
     detailedSpy.mockResolvedValueOnce([
-      { ok: false, kind: 'permanent', status: 400, message: 'bad request' },
+      {
+        ok: false,
+        kind: 'permanent',
+        status: 400,
+        providerCode: 'max_tokens',
+        message: 'The max_tokens parameter is not supported for this input',
+      },
     ]);
 
     const callsBefore = detailedSpy.mock.calls.length;

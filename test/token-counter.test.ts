@@ -9,7 +9,10 @@ import {
 } from '../src/token-counter.js';
 
 describe('token counters', () => {
-  afterEach(() => vi.doUnmock('js-tiktoken/ranks/cl100k_base'));
+  afterEach(() => {
+    vi.doUnmock('js-tiktoken/lite');
+    vi.doUnmock('js-tiktoken/ranks/cl100k_base');
+  });
 
   it('counts OpenAI embedding tokens exactly for canonical and routed model names', async () => {
     const small = await createOpenAiTokenCounter('text-embedding-3-small');
@@ -66,5 +69,33 @@ describe('token counters', () => {
 
     assert.equal(await fresh.createOpenAiTokenCounter('bge-m3'), undefined);
     assert.equal(rankLoads, 0);
+  });
+
+  it('does not cache a failed tokenizer constructor', async () => {
+    let constructorCalls = 0;
+    vi.doMock('js-tiktoken/lite', () => ({
+      Tiktoken: class {
+        constructor() {
+          constructorCalls++;
+          if (constructorCalls === 1) throw new Error('corrupt cl100k ranks');
+        }
+
+        encode(): number[] {
+          return [1, 2, 3];
+        }
+      },
+    }));
+    vi.doMock('js-tiktoken/ranks/cl100k_base', () => ({ default: {} }));
+    vi.resetModules();
+    const fresh = await import('../src/token-counter.js');
+
+    await assert.rejects(
+      fresh.createOpenAiTokenCounter('text-embedding-3-small'),
+      /corrupt cl100k ranks/,
+    );
+    const counter = await fresh.createOpenAiTokenCounter('text-embedding-3-small');
+
+    assert.equal(constructorCalls, 2);
+    assert.equal(counter?.count('retry succeeds'), 3);
   });
 });

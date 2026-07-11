@@ -356,6 +356,20 @@ function createSourceChunk(
   };
 }
 
+function createExactSourceChunk(
+  source: string,
+  start: number,
+  end: number,
+  headingChain: string[],
+): Chunk {
+  return {
+    text: source.slice(start, end),
+    headingChain,
+    charStart: start,
+    charEnd: end,
+  };
+}
+
 function canSplitAt(source: string, position: number): boolean {
   if (position <= 0 || position >= source.length) return false;
   if (isLowSurrogate(source.charCodeAt(position))) return false;
@@ -518,7 +532,7 @@ function findFittingBoundary(
     const position = positionAt(offset);
     const cached = counts.get(position);
     if (cached !== undefined) return cached;
-    const candidate = createSourceChunk(source, start, position, headingChain);
+    const candidate = createExactSourceChunk(source, start, position, headingChain);
     const count = countProjected(candidate.text, headingChain);
     boundaryState.boundaryVisits++;
     counts.set(position, count);
@@ -594,7 +608,7 @@ function choosePreferredBoundary(
   }
   if (!preferred || preferred.position === fitting.position) return fitting;
 
-  const candidate = createSourceChunk(source, start, preferred.position, headingChain);
+  const candidate = createExactSourceChunk(source, start, preferred.position, headingChain);
   const count = countProjected(candidate.text, headingChain);
   boundaryState.boundaryVisits++;
   return count <= limit ? { position: preferred.position, count } : fitting;
@@ -619,6 +633,7 @@ function retreatByTokenBudget(source: string, start: number, end: number, budget
     tokens = nextTokens;
     position = previous;
   }
+  if (position > start && source[position - 1] === '\r' && source[position] === '\n') position--;
   return position;
 }
 
@@ -647,7 +662,7 @@ function refineAlignedChunk(
       chunk.charEnd,
     );
     if (!fitting) {
-      refined.push(createSourceChunk(source, start, chunk.charEnd, chunk.headingChain));
+      refined.push(createExactSourceChunk(source, start, chunk.charEnd, chunk.headingChain));
       break;
     }
     const chosen =
@@ -663,7 +678,7 @@ function refineAlignedChunk(
             start,
             fitting,
           );
-    const child = createSourceChunk(source, start, chosen.position, chunk.headingChain);
+    const child = createExactSourceChunk(source, start, chosen.position, chunk.headingChain);
     if (child.text.length > 0) refined.push(child);
     if (chosen.position >= chunk.charEnd) break;
 
@@ -711,8 +726,8 @@ export function refineChunksToFit(
 }
 
 function validRetrySplit(source: string, chunk: Chunk, position: number): [Chunk, Chunk] | null {
-  const left = createSourceChunk(source, chunk.charStart, position, chunk.headingChain);
-  const right = createSourceChunk(source, position, chunk.charEnd, chunk.headingChain);
+  const left = createExactSourceChunk(source, chunk.charStart, position, chunk.headingChain);
+  const right = createExactSourceChunk(source, position, chunk.charEnd, chunk.headingChain);
   if (left.text.length === 0 || right.text.length === 0) return null;
   if (left.charEnd - left.charStart >= chunk.charEnd - chunk.charStart) return null;
   if (right.charEnd - right.charStart >= chunk.charEnd - chunk.charStart) return null;

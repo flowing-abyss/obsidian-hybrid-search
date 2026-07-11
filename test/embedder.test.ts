@@ -192,6 +192,34 @@ describe('Ollama document token policy', () => {
   });
 });
 
+describe('OpenAI document token policy fallback', () => {
+  afterEach(() => {
+    process.env.OPENAI_API_KEY = 'test-key';
+    process.env.OPENAI_BASE_URL = 'https://api.test/v1';
+    delete process.env.OPENAI_EMBEDDING_MODEL;
+    clearOllamaSemaphore();
+    vi.restoreAllMocks();
+  });
+
+  it('uses the estimator when exact tokenizer initialization fails and retries later', async () => {
+    process.env.OPENAI_EMBEDDING_MODEL = 'text-embedding-3-small';
+    clearOllamaSemaphore();
+    const exactCount = vi.fn(() => 7);
+    const exactCounterSpy = vi
+      .spyOn(tokenCounter, 'createOpenAiTokenCounter')
+      .mockRejectedValueOnce(new Error('corrupt cl100k ranks'))
+      .mockResolvedValueOnce({ exact: true, count: exactCount });
+    const text = 'counting continues after tokenizer initialization failure';
+
+    const fallbackPolicy = await getDocumentTokenPolicy();
+    const exactPolicy = await getDocumentTokenPolicy();
+
+    assert.equal(fallbackPolicy.count(text), estimateTokens(text));
+    assert.equal(exactPolicy.count(text), 7);
+    assert.equal(exactCounterSpy.mock.calls.length, 2);
+  });
+});
+
 describe('embed() — non-retryable failure', () => {
   afterEach(() => vi.restoreAllMocks());
 

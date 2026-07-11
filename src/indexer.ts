@@ -220,7 +220,7 @@ export async function indexFile(
     const { data: frontmatter, content } = parsed;
     const frontmatterRaw: string = parsed.matter;
     const title =
-      frontmatter.title === undefined ? path.basename(fullPath, '.md') : String(frontmatter.title);
+      frontmatter.title == null ? path.basename(fullPath, '.md') : String(frontmatter.title);
     const frontmatterTags: string[] = Array.isArray(frontmatter.tags)
       ? frontmatter.tags.map(String)
       : typeof frontmatter.tags === 'string'

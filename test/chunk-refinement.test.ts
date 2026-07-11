@@ -110,9 +110,45 @@ describe('refineChunksToFit', () => {
     const refined = refineChunksToFit(source, [sourceChunk(source)], 90, counter, 0);
 
     assert.ok(refined.length > 1);
-    assert.equal(refined[0]!.text, prefix);
+    assert.equal(refined[0]!.text, `${prefix}\n\n`);
     assert.equal(refined[1]!.charStart, source.indexOf('[alpha]'));
+    assert.equal(refined[1]!.text.startsWith('[alpha]'), true);
+    assert.equal(refined[0]!.charEnd, refined[1]!.charStart);
     assertSourceAligned(source, refined);
+  });
+
+  it('assigns blank-line separators to exact children without gaps at overlap zero', () => {
+    const source = `Alpha 😀 e\u0301 paragraph.\r\n\r\nBeta paragraph with enough text to split.`;
+    const counter: ProjectedTokenCounter = (text) => Array.from(text).length;
+
+    const refined = refineChunksToFit(source, [sourceChunk(source)], 28, counter, 0);
+
+    assert.ok(refined.length > 1);
+    assertSourceAligned(source, refined);
+    assert.equal(refined[0]!.charStart, 0);
+    assert.equal(refined.at(-1)!.charEnd, source.length);
+    for (let index = 1; index < refined.length; index++) {
+      assert.equal(refined[index - 1]!.charEnd, refined[index]!.charStart);
+    }
+    assert.equal(refined.map((chunk) => chunk.text).join(''), source);
+    assert.ok(refined.every((chunk) => Array.from(chunk.text).length <= 28));
+  });
+
+  it('does not widen gaps between separate fitting semantic siblings', () => {
+    const source = 'first sibling\n\nsecond sibling';
+    const initial = [
+      sourceChunk(source.slice(0, 13)),
+      {
+        text: 'second sibling',
+        headingChain: ['## Second'],
+        charStart: source.indexOf('second sibling'),
+        charEnd: source.length,
+      },
+    ];
+
+    const refined = refineChunksToFit(source, initial, 100, countChars, 0);
+
+    assert.deepEqual(refined, initial);
   });
 
   it('hard-splits percent-encoded URLs without gaps or broken surrogate pairs', () => {
@@ -330,10 +366,10 @@ describe('splitChunkForRetry', () => {
 
     assert.ok(split);
     const [left, right] = split;
-    assert.equal(left.text, 'A'.repeat(25));
-    assert.equal(right.text, 'B'.repeat(25));
+    assert.equal(left.text, `${'A'.repeat(25)}\n`);
+    assert.equal(right.text, `\n${'B'.repeat(25)}`);
     assert.ok(left.charStart < left.charEnd);
-    assert.ok(left.charEnd <= right.charStart);
+    assert.equal(left.charEnd, right.charStart);
     assert.ok(left.text.length < chunk.text.length);
     assert.ok(right.text.length < chunk.text.length);
     assert.deepEqual(left.headingChain, chunk.headingChain);

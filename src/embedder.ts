@@ -310,9 +310,14 @@ export async function getDocumentTokenPolicy(): Promise<{
   const limit = effectiveTokenLimit(await getContextLength());
   const estimated = createEstimatedTokenCounter();
   if (useApiMode()) {
-    const counter = isOllamaEndpoint()
-      ? estimated
-      : ((await createOpenAiTokenCounter(config.apiModel)) ?? estimated);
+    let counter = estimated;
+    if (!isOllamaEndpoint()) {
+      try {
+        counter = (await createOpenAiTokenCounter(config.apiModel)) ?? estimated;
+      } catch {
+        // A missing or corrupt bundled tokenizer must not prevent indexing.
+      }
+    }
     return { limit, count: (text) => counter.count(prepareEmbeddingInput(text, 'document')) };
   }
 
@@ -464,10 +469,20 @@ function isInputTooLong(
   }
 
   const normalized = message.toLowerCase();
+  const exceedsLimit = /(?:exceed|maximum|max|too long|limit|overflow)/.test(normalized);
+  const contextLengthSubject = /\bcontext\s+(?:length|window|size|limit|token\s+limit)\b/.test(
+    normalized,
+  );
+  const inputLengthSubject = /\b(?:input(?:\[\d+\])?|prompt)\s+(?:length|size)\b/.test(normalized);
+  const tokenSizeSubject = /\btoken\s+(?:count|length|limit|budget)\b/.test(normalized);
+  const explicitLengthSubject = contextLengthSubject || inputLengthSubject || tokenSizeSubject;
+  const explicitlyTooLong = /\b(?:input|prompt)(?:\[\d+\])?\s+(?:is\s+)?too\s+long\b/.test(
+    normalized,
+  );
   return (
-    /(?:context|input)/.test(normalized) &&
-    /(?:length|token)/.test(normalized) &&
-    /(?:exceed|maximum|max|too long|limit)/.test(normalized)
+    (explicitLengthSubject && exceedsLimit) ||
+    explicitlyTooLong ||
+    /\btoo many tokens\b/.test(normalized)
   );
 }
 

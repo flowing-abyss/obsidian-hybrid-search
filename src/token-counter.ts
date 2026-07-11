@@ -18,10 +18,16 @@ interface Encoder {
 let cl100kTokenizerPromise: Promise<Encoder> | undefined;
 
 function getCl100kTokenizer(): Promise<Encoder> {
-  cl100kTokenizerPromise ??= Promise.all([
-    import('js-tiktoken/lite'),
-    import('js-tiktoken/ranks/cl100k_base'),
-  ]).then(([{ Tiktoken }, { default: cl100kBase }]) => new Tiktoken(cl100kBase));
+  if (!cl100kTokenizerPromise) {
+    const initialization = Promise.all([
+      import('js-tiktoken/lite'),
+      import('js-tiktoken/ranks/cl100k_base'),
+    ]).then(([{ Tiktoken }, { default: cl100kBase }]) => new Tiktoken(cl100kBase));
+    cl100kTokenizerPromise = initialization;
+    void initialization.catch(() => {
+      if (cl100kTokenizerPromise === initialization) cl100kTokenizerPromise = undefined;
+    });
+  }
   return cl100kTokenizerPromise;
 }
 
