@@ -3,7 +3,12 @@ import { createHash } from 'node:crypto';
 import { readdirSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { chunkNote } from './chunker.js';
+import {
+  createDocumentTextProjector,
+  embedChunksWithRecovery,
+  type EmbeddedChunk,
+} from './chunk-embedding.js';
+import { chunkNote, createChunkBoundaryIndex, refineChunksToFit } from './chunker.js';
 import { config } from './config.js';
 import {
   deleteNote,
@@ -21,7 +26,7 @@ import {
   upsertNoteUrls,
   wipeDatabaseSidecars,
 } from './db.js';
-import { embed, getContextLength } from './embedder.js';
+import { embedDetailed, getContextLength, getDocumentTokenPolicy } from './embedder.js';
 import { createIgnorePolicy, type IgnorePolicy } from './ignore.js';
 import { extractMarkdownReferences, resolveMarkdownNoteLinks } from './markdown-references.js';
 import { bumpIndexVersion } from './searcher.js';
@@ -214,7 +219,8 @@ export async function indexFile(
     const parsed = matter(raw);
     const { data: frontmatter, content } = parsed;
     const frontmatterRaw: string = parsed.matter;
-    const title = (frontmatter.title as string | undefined) ?? path.basename(fullPath, '.md');
+    const title =
+      frontmatter.title === undefined ? path.basename(fullPath, '.md') : String(frontmatter.title);
     const frontmatterTags: string[] = Array.isArray(frontmatter.tags)
       ? frontmatter.tags.map(String)
       : typeof frontmatter.tags === 'string'
@@ -225,20 +231,30 @@ export async function indexFile(
     const aliases = parseAliasField(frontmatter.aliases as unknown);
 
     const ctxLen = contextLength ?? (await getContextLength());
-    const chunks = chunkNote(content, ctxLen).filter((c) => c.text.trim().length > 0);
-
-    // Prepend title + heading chain to every chunk so embeddings carry document context.
-    // Heading markers (# / ## / ###) are stripped for readability in the prefix.
-    // Chunks with no headings get just the title. This improves semantic recall for
-    // non-first chunks that would otherwise be context-free.
-    const textsToEmbed = chunks.map((c) => {
-      const cleanChain = c.headingChain.map((h) => h.replace(/^#{1,6}\s+/, ''));
-      const prefix = cleanChain.length > 0 ? `${title} > ${cleanChain.join(' > ')}` : title;
-      return prefix ? `${prefix}\n${c.text}` : c.text;
-    });
+    const semanticChunks = chunkNote(content, ctxLen).filter((c) => c.text.trim().length > 0);
+    let embeddedChunks: EmbeddedChunk[] = [];
     // Notes with no body content (only frontmatter) still get indexed so that
     // tag/frontmatter filters and title search can find them.
-    const embeddings = chunks.length > 0 ? await embed(textsToEmbed, 'document') : [];
+    if (semanticChunks.length > 0) {
+      const tokenPolicy = await getDocumentTokenPolicy();
+      const boundaryIndex = createChunkBoundaryIndex(content);
+      const project = createDocumentTextProjector(title, tokenPolicy);
+      const chunks = refineChunksToFit(
+        content,
+        semanticChunks,
+        tokenPolicy.limit,
+        (body, headingChain) => tokenPolicy.count(project(body, headingChain)),
+        config.chunkOverlap,
+        boundaryIndex,
+      );
+      embeddedChunks = await embedChunksWithRecovery({
+        source: content,
+        chunks,
+        boundaryIndex,
+        project,
+        embed: (texts) => embedDetailed(texts, 'document'),
+      });
+    }
 
     upsertNote({
       path: relPath,
@@ -249,12 +265,12 @@ export async function indexFile(
       frontmatter: frontmatter,
       mtime: stat.mtimeMs,
       hash,
-      chunks: chunks.map((c, i) => ({
-        text: c.text,
-        headingPath: c.headingChain.length > 0 ? c.headingChain.join(' > ') : null,
-        embedding: embeddings[i] ?? null,
-        charStart: c.charStart,
-        charEnd: c.charEnd,
+      chunks: embeddedChunks.map(({ chunk, embedding }) => ({
+        text: chunk.text,
+        headingPath: chunk.headingChain.length > 0 ? chunk.headingChain.join(' > ') : null,
+        embedding,
+        charStart: chunk.charStart,
+        charEnd: chunk.charEnd,
       })),
     });
 

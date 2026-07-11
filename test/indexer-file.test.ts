@@ -20,7 +20,98 @@ const { closeDb, openDb, wipeDatabaseFiles, getNoteByPath, getDb, initVecTable }
 // Spy on embedder *before* importing indexer so live bindings pick up the mocks
 const embedder = await import('../src/embedder.js');
 vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
+vi.spyOn(embedder, 'embedDetailed').mockImplementation(async (texts: string[]) =>
+  texts.map(() => ({
+    ok: true as const,
+    embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
+  })),
+);
 vi.spyOn(embedder, 'getContextLength').mockResolvedValue(512);
+vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
+  limit: 508,
+  count: (text) => Math.ceil(Array.from(text).length / 4),
+});
+
+describe('indexFile oversized embedding recovery', () => {
+  it('persists issue-derived URL and reference content only as accepted source-aligned leaves', async () => {
+    const filePath = path.join(vaultDir, 'issue-33.md');
+    const body = [
+      '# Asset Catalog',
+      '',
+      '![wrapped image](https://example.com/image%20with%20spaces%2Fand%3Fquery%3Dvalue.png)',
+      'Asset description keeps the image section source-aligned.',
+      '',
+      '## References',
+      '- [encoded](https://example.com/a%20very%20long%2Freference%3Fone%3Dtwo%26three%3Dfour)',
+      '- [second](https://example.com/another%2Freally%2Flong%2Freference%3Ffive%3Dsix)',
+    ].join('\n');
+    writeFileSync(filePath, `---\ntitle: ${'Issue Prefix '.repeat(8)}\n---\n${body}`);
+    const detailedSpy = vi.mocked(embedder.embedDetailed);
+    vi.mocked(embedder.getDocumentTokenPolicy).mockResolvedValueOnce({
+      limit: 48,
+      count: (text) => Array.from(text).length,
+    });
+    detailedSpy.mockImplementation(async (texts: string[]) =>
+      texts.map((text) =>
+        Array.from(text).length <= 36
+          ? { ok: true as const, embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]) }
+          : { ok: false as const, kind: 'input_too_long', status: 400, message: 'too long' },
+      ),
+    );
+
+    try {
+      const result = await indexFile(filePath, 32);
+      assert.equal(result, 'indexed');
+      const note = getNoteByPath('issue-33.md');
+      assert.ok(note);
+      assert.equal(note.content, body);
+      const rows = getDb()
+        .prepare(
+          `SELECT chunk_index, text, heading_path, embedding_status, char_start, char_end
+           FROM chunks WHERE note_id = ? ORDER BY chunk_index`,
+        )
+        .all(note.id) as Array<{
+        chunk_index: number;
+        text: string;
+        heading_path: string | null;
+        embedding_status: string;
+        char_start: number;
+        char_end: number;
+      }>;
+      assert.ok(rows.length > 3, 'expected provider rejection to produce multiple leaves');
+      assert.deepEqual(
+        rows.map((row) => row.chunk_index),
+        rows.map((_, index) => index),
+      );
+      for (const row of rows) {
+        assert.equal(row.embedding_status, 'ok');
+        assert.equal(row.text, body.slice(row.char_start, row.char_end));
+      }
+      for (let index = 1; index < rows.length; index++) {
+        assert.ok(rows[index - 1]!.char_start <= rows[index]!.char_start);
+      }
+      for (let index = 0; index < body.length; index++) {
+        if (/\s/.test(body[index]!)) continue;
+        assert.ok(
+          rows.some((row) => row.char_start <= index && row.char_end > index),
+          `source character at ${index} was not covered by an accepted leaf`,
+        );
+      }
+      assert.ok(
+        rows.some((row) => row.heading_path?.includes('## References')),
+        JSON.stringify(rows.map((row) => [row.text, row.heading_path])),
+      );
+      assert.ok(detailedSpy.mock.calls.length > 1);
+    } finally {
+      detailedSpy.mockImplementation(async (texts: string[]) =>
+        texts.map(() => ({
+          ok: true as const,
+          embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
+        })),
+      );
+    }
+  });
+});
 
 const {
   indexFile,
@@ -283,7 +374,7 @@ describe('indexFile', () => {
     openDb();
     initVecTable(4);
 
-    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    const embedSpy = embedder.embedDetailed as ReturnType<typeof vi.fn>;
     embedSpy.mockRejectedValueOnce(new Error('database disk image is malformed'));
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     let recoveries = 0;
@@ -571,7 +662,7 @@ describe('startBackgroundIndexing', () => {
     initVecTable(4);
     resetIndexingState();
 
-    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    const embedSpy = embedder.embedDetailed as ReturnType<typeof vi.fn>;
     embedSpy.mockRejectedValueOnce(new Error('database disk image is malformed'));
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -655,7 +746,7 @@ describe('indexVaultSync', () => {
     resetIndexingState();
 
     // Make the next embed call fail
-    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    const embedSpy = embedder.embedDetailed as ReturnType<typeof vi.fn>;
     embedSpy.mockRejectedValueOnce(new Error('embed failure'));
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
@@ -678,7 +769,7 @@ describe('indexVaultSync', () => {
     initVecTable(4);
     resetIndexingState();
 
-    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    const embedSpy = embedder.embedDetailed as ReturnType<typeof vi.fn>;
     embedSpy.mockRejectedValueOnce(new Error('database disk image is malformed'));
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
@@ -707,7 +798,7 @@ describe('indexVaultSync', () => {
     initVecTable(4);
     resetIndexingState();
 
-    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    const embedSpy = embedder.embedDetailed as ReturnType<typeof vi.fn>;
     const embeddedTexts: string[] = [];
     let hasThrownMalformed = false;
     embedSpy.mockImplementation((texts: string[]) => {
@@ -717,7 +808,10 @@ describe('indexVaultSync', () => {
         hasThrownMalformed = true;
         throw new Error('database disk image is malformed');
       }
-      return texts.map(() => new Float32Array([0.1, 0.2, 0.3, 0.4]));
+      return texts.map(() => ({
+        ok: true as const,
+        embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
+      }));
     });
     let recoveries = 0;
 
@@ -752,7 +846,12 @@ describe('indexVaultSync', () => {
       assert.ok(lastIndexed);
     } finally {
       embedSpy.mockReset();
-      embedSpy.mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
+      embedSpy.mockImplementation((texts: string[]) =>
+        texts.map(() => ({
+          ok: true as const,
+          embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
+        })),
+      );
       stderrSpy.mockRestore();
     }
   });
@@ -766,12 +865,15 @@ describe('indexVaultSync', () => {
     initVecTable(4);
     resetIndexingState();
 
-    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    const embedSpy = embedder.embedDetailed as ReturnType<typeof vi.fn>;
     embedSpy.mockImplementation((texts: string[]) => {
       if (texts.join('\n').includes('Repeats malformed marker')) {
         throw new Error('database disk image is malformed');
       }
-      return texts.map(() => new Float32Array([0.1, 0.2, 0.3, 0.4]));
+      return texts.map(() => ({
+        ok: true as const,
+        embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
+      }));
     });
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     let recoveries = 0;
@@ -796,7 +898,12 @@ describe('indexVaultSync', () => {
       assert.equal(lastIndexed, undefined);
     } finally {
       embedSpy.mockReset();
-      embedSpy.mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
+      embedSpy.mockImplementation((texts: string[]) =>
+        texts.map(() => ({
+          ok: true as const,
+          embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
+        })),
+      );
       stderrSpy.mockRestore();
     }
   });
@@ -810,7 +917,7 @@ describe('indexVaultSync', () => {
     initVecTable(4);
     resetIndexingState();
 
-    const embedSpy = embedder.embed as ReturnType<typeof vi.fn>;
+    const embedSpy = embedder.embedDetailed as ReturnType<typeof vi.fn>;
     embedSpy.mockRejectedValueOnce(new Error('embedding API unavailable'));
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);

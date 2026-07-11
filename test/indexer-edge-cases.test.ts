@@ -33,7 +33,108 @@ const { bumpIndexVersion } = await import('../src/searcher.js');
 // the real embedder module, leaking the real (384-dim) local model through.
 const embedder = await import('../src/embedder.js');
 vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
+vi.spyOn(embedder, 'embedDetailed').mockImplementation(async (texts: string[]) =>
+  texts.map(() => ({
+    ok: true as const,
+    embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
+  })),
+);
 vi.spyOn(embedder, 'getContextLength').mockResolvedValue(512);
+vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
+  limit: 508,
+  count: (text) => Math.ceil(Array.from(text).length / 4),
+});
+
+describe('indexFile embedding projection failures', () => {
+  it('coerces a numeric frontmatter title before token counting', async () => {
+    const body = 'numeric title body';
+    writeNote('idx-numeric-title.md', `---\ntitle: 42\n---\n${body}`);
+    vi.mocked(embedder.getDocumentTokenPolicy).mockResolvedValueOnce({
+      limit: 64,
+      count: (text) => {
+        let count = 0;
+        for (const _char of text) count++;
+        return count;
+      },
+    });
+
+    const result = await indexFile(path.join(vaultDir, 'idx-numeric-title.md'), 512);
+
+    assert.equal(result, 'indexed');
+    assert.equal(
+      getDb().prepare('SELECT title FROM notes WHERE path = ?').pluck().get('idx-numeric-title.md'),
+      '42',
+    );
+  });
+
+  it('keeps empty-note indexing off the token-policy and embedding paths', async () => {
+    writeNote('idx-empty-policy.md', '---\ntags: [empty]\n---\n');
+    const policyCalls = vi.mocked(embedder.getDocumentTokenPolicy).mock.calls.length;
+    const embedCalls = vi.mocked(embedder.embedDetailed).mock.calls.length;
+
+    const result = await indexFile(path.join(vaultDir, 'idx-empty-policy.md'), 512);
+
+    assert.equal(result, 'indexed');
+    assert.equal(vi.mocked(embedder.getDocumentTokenPolicy).mock.calls.length, policyCalls);
+    assert.equal(vi.mocked(embedder.embedDetailed).mock.calls.length, embedCalls);
+  });
+
+  it('resolves prefix-only overflow by truncating only the projected note context', async () => {
+    const title = `Prefix 😀 ${'very-long-title '.repeat(8)}`;
+    const body = 'raw body intact';
+    writeNote('idx-prefix-overflow.md', `---\ntitle: ${title}\n---\n${body}`);
+    const detailedSpy = vi.mocked(embedder.embedDetailed);
+    vi.mocked(embedder.getDocumentTokenPolicy).mockResolvedValueOnce({
+      limit: 24,
+      count: (text) => Array.from(text).length,
+    });
+    detailedSpy.mockImplementationOnce(async (texts: string[]) =>
+      texts.map((text) =>
+        Array.from(text).length <= 24
+          ? { ok: true as const, embedding: fakeEmbedding }
+          : { ok: false as const, kind: 'input_too_long', status: 400, message: 'too long' },
+      ),
+    );
+
+    const result = await indexFile(path.join(vaultDir, 'idx-prefix-overflow.md'), 512);
+    assert.equal(result, 'indexed');
+    const note = getDb()
+      .prepare('SELECT id, content FROM notes WHERE path = ?')
+      .get('idx-prefix-overflow.md') as { id: number; content: string };
+    const rows = getDb()
+      .prepare('SELECT text, embedding_status FROM chunks WHERE note_id = ? ORDER BY chunk_index')
+      .all(note.id) as Array<{ text: string; embedding_status: string }>;
+    assert.equal(note.content, body);
+    assert.deepEqual(rows, [{ text: body, embedding_status: 'ok' }]);
+    const projected = detailedSpy.mock.calls.at(-1)?.[0][0];
+    assert.ok(projected);
+    assert.equal(projected?.endsWith(`\n${body}`), true);
+    assert.ok(Array.from(projected).length <= 24);
+  });
+
+  it('does not split a generic provider 400 failure', async () => {
+    const body = 'generic provider bad request remains one failed chunk';
+    writeNote('idx-generic-400.md', body);
+    const detailedSpy = vi.mocked(embedder.embedDetailed);
+    detailedSpy.mockResolvedValueOnce([
+      { ok: false, kind: 'permanent', status: 400, message: 'bad request' },
+    ]);
+
+    const callsBefore = detailedSpy.mock.calls.length;
+    const result = await indexFile(path.join(vaultDir, 'idx-generic-400.md'), 512);
+    assert.equal(result, 'indexed');
+    const note = getDb()
+      .prepare('SELECT id FROM notes WHERE path = ?')
+      .get('idx-generic-400.md') as {
+      id: number;
+    };
+    const rows = getDb()
+      .prepare('SELECT text, embedding_status FROM chunks WHERE note_id = ? ORDER BY chunk_index')
+      .all(note.id) as Array<{ text: string; embedding_status: string }>;
+    assert.deepEqual(rows, [{ text: body, embedding_status: 'failed' }]);
+    assert.equal(detailedSpy.mock.calls.length - callsBefore, 1);
+  });
+});
 
 const fakeEmbedding = new Float32Array([0.1, 0.2, 0.3, 0.4]);
 
@@ -50,7 +151,9 @@ beforeAll(() => {
 
 afterAll(() => {
   vi.mocked(embedder.embed).mockRestore();
+  vi.mocked(embedder.embedDetailed).mockRestore();
   vi.mocked(embedder.getContextLength).mockRestore();
+  vi.mocked(embedder.getDocumentTokenPolicy).mockRestore();
   closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
 });
