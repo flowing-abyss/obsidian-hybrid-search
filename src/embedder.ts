@@ -292,6 +292,7 @@ function getLocalValidationContextLength(pipeline: any): number {
   const tokenizerMax: unknown = pipeline.tokenizer?.model_max_length;
   const modelMax: unknown = pipeline.model?.config?.max_position_embeddings;
   /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
+  const saneLimits: number[] = [];
   for (const candidate of [tokenizerMax, modelMax]) {
     if (
       typeof candidate === 'number' &&
@@ -299,10 +300,10 @@ function getLocalValidationContextLength(pipeline: any): number {
       candidate > 0 &&
       candidate <= 1_000_000
     ) {
-      return candidate;
+      saneLimits.push(candidate);
     }
   }
-  return config.chunkContextFallback;
+  return saneLimits.length > 0 ? Math.min(...saneLimits) : config.chunkContextFallback;
 }
 
 export function prepareEmbeddingInput(text: string, type: 'query' | 'document'): string {

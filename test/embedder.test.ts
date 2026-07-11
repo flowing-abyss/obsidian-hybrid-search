@@ -191,6 +191,31 @@ describe('local document token policy', () => {
     assert.equal(pipeline.mock.calls[0]?.[0], 'passage: fits');
   });
 
+  it('uses the smaller sane limit when unknown-model tokenizer and model metadata conflict', async () => {
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_BASE_URL;
+    process.env.LOCAL_EMBEDDING_MODEL = 'custom/local-e5-model';
+    clearOllamaSemaphore();
+    const encode = vi.fn(() => new Array<number>(253).fill(1));
+    const pipeline = Object.assign(
+      vi.fn().mockResolvedValue({ data: new Float32Array([0.1, 0.2]) }),
+      {
+        tokenizer: { encode, model_max_length: 8192 },
+        model: { config: { max_position_embeddings: 256 } },
+      },
+    );
+    huggingFaceMocks.pipeline.mockResolvedValue(pipeline);
+
+    const [outcome] = await embedDetailed(['oversized'], 'document');
+
+    assert.deepEqual(outcome, {
+      ok: false,
+      kind: 'input_too_long',
+      message: 'Local embedding input exceeds the 252 token limit (253 tokens)',
+    });
+    assert.equal(pipeline.mock.calls.length, 0);
+  });
+
   it('initializes one pipeline for concurrent detailed embedding calls', async () => {
     delete process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_BASE_URL;
