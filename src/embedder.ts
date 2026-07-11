@@ -451,6 +451,42 @@ function failureOutcome(
   };
 }
 
+const INPUT_TOKEN_COUNT_PATTERNS = [
+  /\b(?:input|prompt)\s+(?:has|contains|uses)\s+(\d[\d,.]*)\s+tokens?\b/,
+  /\b(?:input|prompt)\s+tokens?\s+(?:count|length)\s+(?:is|was|of)\s+(\d[\d,.]*)\b/,
+  /\b(?:input|prompt)\s+tokens?\s+(?:count|length)\s*[=:]\s*(\d[\d,.]*)\b/,
+  /\btoken\s+(?:count|length)\s+of\s+(?:the\s+)?(?:input|prompt)\s+(?:is|was)\s+(\d[\d,.]*)\b/,
+  /\btoken\s+(?:count|length)\s+of\s+(?:the\s+)?(?:input|prompt)\s*[=:]\s*(\d[\d,.]*)\b/,
+];
+
+const TOKEN_LIMIT_PATTERNS = [
+  /\b(?:limit|maximum|max)\s+(?:is|of)\s+(\d[\d,.]*)\b/,
+  /\b(?:limit|maximum|max)\s*[=:]\s*(\d[\d,.]*)\b/,
+  /\b(?:limit|maximum|max)\s+(\d[\d,.]*)\b/,
+  /\b(\d[\d,.]*)\s+(?:token\s+)?(?:limit|maximum|max)\b/,
+];
+
+function parseTokenNumber(value: string): number {
+  return Number(value.replace(/[^\d]/g, ''));
+}
+
+function findFirstTokenNumber(message: string, patterns: readonly RegExp[]): number | undefined {
+  for (const pattern of patterns) {
+    const raw = pattern.exec(message)?.[1];
+    if (raw) return parseTokenNumber(raw);
+  }
+  return undefined;
+}
+
+function findNonOutputTokenLimit(message: string): number | undefined {
+  for (const clause of message.split(/[.;\n]/)) {
+    if (/\b(?:response|output|completion)\b/.test(clause)) continue;
+    const limit = findFirstTokenNumber(clause, TOKEN_LIMIT_PATTERNS);
+    if (limit !== undefined) return limit;
+  }
+  return undefined;
+}
+
 function isInputTooLong(
   message: string,
   providerCode?: string | number,
@@ -484,34 +520,21 @@ function isInputTooLong(
   const hasNumericBound =
     /\b(?:limit|maximum|max)\b/.test(normalized) ||
     /\b(?:less|fewer|more|greater)\s+than\b/.test(normalized);
-  const hasInputOwnedNumericTokenCount =
-    /\b(?:input(?:\[\d+\])?|prompt)\s+(?:has|contains|uses|must have)\s+\d[\d,.]*\s+tokens?\b/.test(
-      normalized,
-    ) ||
-    /\b(?:input(?:\[\d+\])?|prompt)\s+(?:has|must have)\s+(?:less|fewer|more|greater)\s+than\s+\d[\d,.]*\s+tokens?\b/.test(
-      normalized,
-    );
-  const subjectOwnsTokenMetric =
-    /\b(?:input|prompt)\s+tokens?\s+(?:count|length)\s+(?:is|was|of)\s+\d[\d,.]*\b/.test(
-      normalized,
-    ) || /\b(?:input|prompt)\s+tokens?\s+(?:count|length)\s*[=:]\s*\d[\d,.]*\b/.test(normalized);
-  const tokenMetricNamesSubject =
-    /\btoken\s+(?:count|length)\s+of\s+(?:the\s+)?(?:input|prompt)\s+(?:is|was)\s+\d[\d,.]*\b/.test(
-      normalized,
-    ) ||
-    /\btoken\s+(?:count|length)\s+of\s+(?:the\s+)?(?:input|prompt)\s*[=:]\s*\d[\d,.]*\b/.test(
-      normalized,
-    );
-  const hasInputOwnedTokenMetricValue = subjectOwnsTokenMetric || tokenMetricNamesSubject;
   if (structuredValues.includes('max_tokens')) {
     const exceedsInputLimit = /(?:exceed|maximum|too long|limit|overflow)/.test(
       normalized.replaceAll('max_tokens', ''),
     );
+    const hasDirectInputBound =
+      /\b(?:input|prompt)\s+(?:must have|has)\s+(?:less|fewer)\s+than\s+\d[\d,.]*\s+tokens?\b/.test(
+        normalized,
+      );
+    const inputCount = findFirstTokenNumber(normalized, INPUT_TOKEN_COUNT_PATTERNS);
+    const inputLimit = findNonOutputTokenLimit(normalized);
     return (
       ((contextLengthSubject || inputLengthSubject) && exceedsInputLimit) ||
       explicitlyTooLong ||
-      hasInputOwnedNumericTokenCount ||
-      (hasInputOwnedTokenMetricValue && hasNumericBound)
+      hasDirectInputBound ||
+      (inputCount !== undefined && inputLimit !== undefined && inputCount > inputLimit)
     );
   }
   return (

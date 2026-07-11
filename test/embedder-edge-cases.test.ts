@@ -155,6 +155,8 @@ describe('embedDetailed() — structured provider outcomes', () => {
     'The input parameter controls a response capped at 512 tokens',
     'The input token count parameter controls a response limit of 512 tokens',
     'The prompt token length setting limits output to 512 tokens',
+    'input token count is 100; the response limit is 512 tokens, but max_tokens is invalid',
+    'prompt token length: 100. Output has a maximum of 512 tokens.',
   ]) {
     it(`keeps a structured max_tokens parameter error permanent: ${message}`, async () => {
       const fetchMock = vi.fn().mockResolvedValue(
