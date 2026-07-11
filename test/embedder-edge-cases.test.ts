@@ -131,6 +131,22 @@ describe('embedDetailed() — structured provider outcomes', () => {
     assert.equal(fetchMock.mock.calls.length, 1);
   });
 
+  for (const message of [
+    'input has 9000 tokens; limit is 8192',
+    'input must have less than 512 tokens',
+  ]) {
+    it(`classifies a numeric input token bound as too long: ${message}`, async () => {
+      const fetchMock = vi.fn().mockResolvedValue(providerErrorResponse(400, { message }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const [outcome] = await embedDetailed(['oversized'], 'document');
+
+      assert.ok(outcome && !outcome.ok);
+      assert.equal(outcome.kind, 'input_too_long');
+      assert.equal(fetchMock.mock.calls.length, 1);
+    });
+  }
+
   for (const scenario of [
     { name: 'network error', response: new Error('socket closed') },
     { name: 'HTTP 429', response: providerErrorResponse(429, { message: 'rate limited' }) },

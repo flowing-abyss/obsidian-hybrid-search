@@ -479,9 +479,15 @@ function isInputTooLong(
   const explicitlyTooLong = /\b(?:input|prompt)(?:\[\d+\])?\s+(?:is\s+)?too\s+long\b/.test(
     normalized,
   );
+  const hasInputSubject = /\b(?:input|context|prompt)\b/.test(normalized);
+  const hasNumericTokenCount = /\b\d[\d,.]*\s+tokens?\b/.test(normalized);
+  const hasNumericBound =
+    /\b(?:limit|maximum|max)\b/.test(normalized) ||
+    /\b(?:less|fewer|more|greater)\s+than\b/.test(normalized);
   return (
     (explicitLengthSubject && exceedsLimit) ||
     explicitlyTooLong ||
+    (hasInputSubject && hasNumericTokenCount && hasNumericBound) ||
     /\btoo many tokens\b/.test(normalized)
   );
 }

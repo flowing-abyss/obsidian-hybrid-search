@@ -183,6 +183,29 @@ describe('refineChunksToFit', () => {
     }
   });
 
+  it('drops overlap safely when retreat lands between an initial CRLF pair', () => {
+    const source = `\r\nabc${'x'.repeat(24)}`;
+    const counter: ProjectedTokenCounter = (text) => text.length;
+
+    const refined = refineChunksToFit(source, [sourceChunk(source)], 5, counter, 1);
+
+    assert.ok(refined.length > 1);
+    assertSourceAligned(source, refined);
+    assert.equal(refined[0]!.charStart, 0);
+    assert.equal(refined.at(-1)!.charEnd, source.length);
+    assert.ok(refined.every((chunk) => chunk.text.length <= 5));
+    for (let index = 1; index < refined.length; index++) {
+      const previous = refined[index - 1]!;
+      const current = refined[index]!;
+      assert.ok(current.charStart > previous.charStart);
+      assert.ok(current.charStart <= previous.charEnd);
+      assert.equal(
+        source[current.charStart - 1] === '\r' && source[current.charStart] === '\n',
+        false,
+      );
+    }
+  });
+
   it('bounds overlap so it can never prevent strict progress', () => {
     const source = 'abcdefghij'.repeat(20);
     const counter: ProjectedTokenCounter = (text) => text.length;

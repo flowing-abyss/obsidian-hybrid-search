@@ -633,7 +633,7 @@ function retreatByTokenBudget(source: string, start: number, end: number, budget
     tokens = nextTokens;
     position = previous;
   }
-  if (position > start && source[position - 1] === '\r' && source[position] === '\n') position--;
+  if (position > start && source[position - 1] === '\r' && source[position] === '\n') position++;
   return position;
 }
 
