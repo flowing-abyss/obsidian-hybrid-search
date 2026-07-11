@@ -491,6 +491,18 @@ function isInputTooLong(
     /\b(?:input(?:\[\d+\])?|prompt)\s+(?:has|must have)\s+(?:less|fewer|more|greater)\s+than\s+\d[\d,.]*\s+tokens?\b/.test(
       normalized,
     );
+  const subjectOwnsTokenMetric =
+    /\b(?:input|prompt)\s+tokens?\s+(?:count|length)\s+(?:is|was|of)\s+\d[\d,.]*\b/.test(
+      normalized,
+    ) || /\b(?:input|prompt)\s+tokens?\s+(?:count|length)\s*[=:]\s*\d[\d,.]*\b/.test(normalized);
+  const tokenMetricNamesSubject =
+    /\btoken\s+(?:count|length)\s+of\s+(?:the\s+)?(?:input|prompt)\s+(?:is|was)\s+\d[\d,.]*\b/.test(
+      normalized,
+    ) ||
+    /\btoken\s+(?:count|length)\s+of\s+(?:the\s+)?(?:input|prompt)\s*[=:]\s*\d[\d,.]*\b/.test(
+      normalized,
+    );
+  const hasInputOwnedTokenMetricValue = subjectOwnsTokenMetric || tokenMetricNamesSubject;
   if (structuredValues.includes('max_tokens')) {
     const exceedsInputLimit = /(?:exceed|maximum|too long|limit|overflow)/.test(
       normalized.replaceAll('max_tokens', ''),
@@ -498,7 +510,8 @@ function isInputTooLong(
     return (
       ((contextLengthSubject || inputLengthSubject) && exceedsInputLimit) ||
       explicitlyTooLong ||
-      hasInputOwnedNumericTokenCount
+      hasInputOwnedNumericTokenCount ||
+      (hasInputOwnedTokenMetricValue && hasNumericBound)
     );
   }
   return (

@@ -153,6 +153,8 @@ describe('embedDetailed() — structured provider outcomes', () => {
     'Invalid max_tokens: token budget is 512',
     'input configuration: max_tokens must be less than 512 tokens',
     'The input parameter controls a response capped at 512 tokens',
+    'The input token count parameter controls a response limit of 512 tokens',
+    'The prompt token length setting limits output to 512 tokens',
   ]) {
     it(`keeps a structured max_tokens parameter error permanent: ${message}`, async () => {
       const fetchMock = vi.fn().mockResolvedValue(
@@ -188,6 +190,30 @@ describe('embedDetailed() — structured provider outcomes', () => {
     assert.equal(outcome.kind, 'input_too_long');
     assert.equal(fetchMock.mock.calls.length, 1);
   });
+
+  for (const message of [
+    'input token count is 9000; limit is 8192',
+    'prompt token count of 9000 exceeds the 8192 limit',
+    'token length of the input is 9000; maximum is 8192',
+  ]) {
+    it(`accepts structured max_tokens when an input token metric owns the bound: ${message}`, async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        providerErrorResponse(400, {
+          code: 'max_tokens',
+          type: 'invalid_request_error',
+          message,
+        }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const [outcome] = await embedDetailed(['oversized'], 'document');
+
+      assert.ok(outcome && !outcome.ok);
+      assert.equal(outcome.kind, 'input_too_long');
+      assert.equal(outcome.providerCode, 'max_tokens');
+      assert.equal(fetchMock.mock.calls.length, 1);
+    });
+  }
 
   for (const message of [
     'input has 9000 tokens; limit is 8192',
