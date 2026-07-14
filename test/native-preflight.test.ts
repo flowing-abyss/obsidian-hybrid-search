@@ -20,7 +20,6 @@ function deps(overrides: Partial<NativePreflightDeps> = {}): NativePreflightDeps
     runtimeAbi: '127',
     platform: 'darwin',
     arch: 'arm64',
-    markerScope: 'darwin-arm64-test-install',
     modules: ['better-sqlite3', 'sqlite-vec'],
     loadNativeModule: () => {},
     writeStderrSync: (message) => {
@@ -31,7 +30,7 @@ function deps(overrides: Partial<NativePreflightDeps> = {}): NativePreflightDeps
       throw new Error(`exit ${code}`);
     },
     handleAbiFailure: () => {
-      throw new Error('rebuild started');
+      throw new Error('native recovery failed');
     },
     ...overrides,
   };
@@ -48,18 +47,61 @@ afterEach(() => {
 });
 
 describe('runNativeModulePreflight', () => {
-  it('stays quiet and clears stale heal markers after successful loads', () => {
-    const marker = path.join(
-      cacheDir,
-      'abi-heal-attempted-better-sqlite3-127-darwin-arm64-test-install',
-    );
+  it('stays quiet and leaves existing recovery state untouched after successful loads', () => {
+    const marker = path.join(cacheDir, 'abi-heal-attempted-better-sqlite3-127-undefined');
     writeFileSync(marker, 'old failure');
 
     runNativeModulePreflight(deps());
 
     assert.equal(stderr, '');
-    assert.equal(existsSync(marker), false);
+    assert.equal(existsSync(marker), true);
     assert.deepEqual(exits, []);
+  });
+
+  it('loads healthy modules without creating or consulting recovery state', () => {
+    rmSync(cacheDir, { recursive: true, force: true });
+    const loadCalls: string[] = [];
+
+    runNativeModulePreflight(
+      deps({
+        loadNativeModule: (moduleName) => loadCalls.push(moduleName),
+        handleAbiFailure: () => {
+          throw new Error('healthy preflight called recovery');
+        },
+      }),
+    );
+
+    assert.deepEqual(loadCalls, ['better-sqlite3', 'sqlite-vec']);
+    assert.equal(stderr, '');
+    assert.deepEqual(exits, []);
+    assert.equal(existsSync(cacheDir), false);
+  });
+
+  it('retries a repaired native module and continues in the same process', () => {
+    const loadCalls: string[] = [];
+    const healCalls: Array<{ message: string; moduleName: string }> = [];
+
+    runNativeModulePreflight(
+      deps({
+        loadNativeModule: (moduleName) => {
+          loadCalls.push(moduleName);
+          if (moduleName === 'better-sqlite3' && loadCalls.length === 1) {
+            throw new Error('Could not locate the bindings file');
+          }
+        },
+        handleAbiFailure: (message, moduleName) => {
+          healCalls.push({ message, moduleName });
+        },
+      }),
+    );
+
+    assert.deepEqual(loadCalls, ['better-sqlite3', 'better-sqlite3', 'sqlite-vec']);
+    assert.deepEqual(healCalls, [
+      { message: 'Could not locate the bindings file', moduleName: 'better-sqlite3' },
+    ]);
+    assert.deepEqual(exits, []);
+    assert.equal(stderr, '');
+    assert.equal(existsSync(path.join(cacheDir, 'last-startup-error.log')), false);
   });
 
   it('records native module failures, runs ABI handler, and exits with code 1', () => {
@@ -80,13 +122,48 @@ describe('runNativeModulePreflight', () => {
     assert.deepEqual(exits, [1]);
     assert.match(stderr, /Native module failed: better-sqlite3/);
     assert.match(stderr, /NODE_MODULE_VERSION mismatch/);
-    assert.match(stderr, /rebuild started/);
+    assert.match(stderr, /native recovery failed/);
 
     const log = readFileSync(path.join(cacheDir, 'last-startup-error.log'), 'utf-8');
     assert.match(log, /module: better-sqlite3/);
     assert.match(log, /abi: 127/);
     assert.match(log, /NODE_MODULE_VERSION mismatch/);
-    assert.match(log, /rebuild started/);
+    assert.match(log, /native recovery failed/);
+  });
+
+  it('records a failed reload after the repair command succeeds', () => {
+    let loadAttempts = 0;
+    const marker = path.join(cacheDir, 'abi-heal-attempted-better-sqlite3-127-reload-test');
+
+    assert.throws(
+      () =>
+        runNativeModulePreflight(
+          deps({
+            loadNativeModule: (moduleName) => {
+              if (moduleName !== 'better-sqlite3') return;
+              loadAttempts++;
+              throw new Error(
+                loadAttempts === 1
+                  ? 'Could not locate the bindings file'
+                  : 'binding still missing after install',
+              );
+            },
+            handleAbiFailure: () => {
+              writeFileSync(marker, 'attempt consumed');
+            },
+          }),
+        ),
+      /exit 1/,
+    );
+
+    assert.equal(loadAttempts, 2);
+    assert.deepEqual(exits, [1]);
+    assert.match(stderr, /Could not locate the bindings file/);
+    assert.match(stderr, /binding still missing after install/);
+    const log = readFileSync(path.join(cacheDir, 'last-startup-error.log'), 'utf-8');
+    assert.match(log, /Could not locate the bindings file/);
+    assert.match(log, /binding still missing after install/);
+    assert.equal(existsSync(marker), true);
   });
 
   it('writes manual recovery for sqlite-vec failures even when they are not ABI-shaped', () => {

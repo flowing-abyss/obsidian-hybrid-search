@@ -1,9 +1,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  clearNativeHealMarkers,
   getNativeHealCacheDir,
-  getNativeHealMarkerScope,
   isLikelyAbiFailure,
   tryAutoHealAbiMismatch,
   type NativeModule,
@@ -20,12 +18,11 @@ export interface NativePreflightDeps {
   runtimeAbi: string;
   platform: string;
   arch: string;
-  markerScope: string;
   modules: readonly NativeModule[];
   loadNativeModule(moduleName: NativeModule): void;
   writeStderrSync(message: string): void;
   exit(code: number): never;
-  handleAbiFailure(message: string, moduleName: NativeModule): never;
+  handleAbiFailure(message: string, moduleName: NativeModule): void;
 }
 
 function errorMessage(err: unknown): string {
@@ -98,27 +95,32 @@ export function runNativeModulePreflight(deps: NativePreflightDeps): void {
     try {
       deps.loadNativeModule(moduleName);
     } catch (err) {
-      const logPath = recordStartupFailure(moduleName, err, deps);
+      let recoveryError: unknown;
 
       if (moduleName === 'sqlite-vec' || isLikelyAbiFailure(String(err))) {
         try {
           deps.handleAbiFailure(shortErrorMessage(err), moduleName);
+          deps.loadNativeModule(moduleName);
+          continue;
         } catch (healErr) {
-          const healMessage = healErr instanceof Error ? healErr.message : String(healErr);
-          try {
-            deps.writeStderrSync(`\n${healMessage}\n`);
-          } catch {
-            // Ignore secondary logging failures.
-          }
-          appendStartupFailureLog(logPath, healMessage);
+          recoveryError = healErr;
         }
+      }
+
+      const logPath = recordStartupFailure(moduleName, err, deps);
+      if (recoveryError !== undefined) {
+        const recoveryMessage = shortErrorMessage(recoveryError);
+        try {
+          deps.writeStderrSync(`\n${recoveryMessage}\n`);
+        } catch {
+          // Ignore secondary logging failures.
+        }
+        appendStartupFailureLog(logPath, recoveryMessage);
       }
 
       deps.exit(1);
     }
   }
-
-  clearNativeHealMarkers(deps.modules, deps.runtimeAbi, deps.markerScope, deps.cacheDir);
 }
 
 export function defaultNativePreflightDeps(
@@ -132,7 +134,6 @@ export function defaultNativePreflightDeps(
     runtimeAbi: process.versions.modules,
     platform: process.platform,
     arch: process.arch,
-    markerScope: getNativeHealMarkerScope(),
     modules: ['better-sqlite3', 'sqlite-vec'],
     loadNativeModule,
     writeStderrSync,

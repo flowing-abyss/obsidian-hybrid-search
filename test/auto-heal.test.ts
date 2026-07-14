@@ -1,33 +1,42 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'vitest';
 import {
   getNativeHealMarkerScope,
+  getOrCreateInstallInstanceId,
   isLikelyAbiFailure,
   tryAutoHealAbiMismatch,
   type AutoHealDeps,
 } from '../src/auto-heal';
 
+const INSTALL_INSTANCE_ID = '11111111-1111-4111-8111-111111111111';
+
 let cacheDir: string;
 let projectRoot: string;
-let spawnCalls: Array<{ command: string; args: readonly string[]; cwd: string }> = [];
+let nativeModuleRoot: string;
+let installCalls: Array<{
+  command: string;
+  args: readonly string[];
+  cwd: string;
+  logPath: string;
+  shell: boolean;
+}> = [];
 
 function deps(overrides: Partial<AutoHealDeps> = {}): AutoHealDeps {
   return {
     cacheDir,
     platform: 'darwin',
-    arch: 'arm64',
     runtimeAbi: '127',
-    markerScope: 'darwin-arm64-test-install',
     now: () => 12345,
     pid: 999,
-    resolveProjectRoot: () => projectRoot,
+    resolveInstallInstanceId: () => INSTALL_INSTANCE_ID,
+    resolveNativeModuleRoot: () => nativeModuleRoot,
     removeStaleBinary: () => {},
-    spawnDetached: (command, args, options) => {
-      spawnCalls.push({ command, args, cwd: options.cwd });
-      return { pid: 4242 };
+    runInstallScript: (options) => {
+      installCalls.push(options);
+      return { status: 0 };
     },
     ...overrides,
   };
@@ -36,7 +45,8 @@ function deps(overrides: Partial<AutoHealDeps> = {}): AutoHealDeps {
 beforeEach(() => {
   cacheDir = mkdtempSync(path.join(tmpdir(), 'ohs-auto-heal-cache-'));
   projectRoot = mkdtempSync(path.join(tmpdir(), 'ohs-auto-heal-project-'));
-  spawnCalls = [];
+  nativeModuleRoot = path.join(projectRoot, 'node_modules', 'better-sqlite3');
+  installCalls = [];
 });
 
 afterEach(() => {
@@ -56,76 +66,108 @@ describe('isLikelyAbiFailure', () => {
 });
 
 describe('getNativeHealMarkerScope', () => {
-  it('includes install path, app version, and native package versions', () => {
-    const scopeA = getNativeHealMarkerScope('/app', 'darwin', 'arm64', {
-      appVersion: '1.0.0',
-      nativeVersions: {
-        'better-sqlite3': '12.0.0',
-        'sqlite-vec': '0.1.0',
-      },
-    });
-    const scopeB = getNativeHealMarkerScope('/app', 'darwin', 'arm64', {
-      appVersion: '1.0.1',
-      nativeVersions: {
-        'better-sqlite3': '12.0.0',
-        'sqlite-vec': '0.1.0',
-      },
-    });
+  it('is deterministic for one installation UUID and changes for another UUID', () => {
+    const idA = '11111111-1111-4111-8111-111111111111';
+    const idB = '22222222-2222-4222-8222-222222222222';
 
-    assert.notEqual(scopeA, scopeB);
-    assert.match(scopeA, /^darwin-arm64-[a-f0-9]{16}$/);
+    assert.equal(getNativeHealMarkerScope(idA), getNativeHealMarkerScope(idA));
+    assert.notEqual(getNativeHealMarkerScope(idA), getNativeHealMarkerScope(idB));
+    assert.match(getNativeHealMarkerScope(idA), /^[a-f0-9]{16}$/);
+  });
+});
+
+describe('getOrCreateInstallInstanceId', () => {
+  it('publishes one canonical UUID and returns it on repeated reads', () => {
+    const first = getOrCreateInstallInstanceId(projectRoot);
+    const second = getOrCreateInstallInstanceId(projectRoot);
+    const sentinel = path.join(projectRoot, '.obsidian-hybrid-search-install-instance');
+
+    assert.match(
+      first,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    assert.equal(second, first);
+    assert.equal(readFileSync(sentinel, 'utf-8'), first);
+  });
+
+  it('publishes a new UUID after the sentinel is deleted', () => {
+    const sentinel = path.join(projectRoot, '.obsidian-hybrid-search-install-instance');
+    const first = getOrCreateInstallInstanceId(projectRoot);
+
+    unlinkSync(sentinel);
+
+    const second = getOrCreateInstallInstanceId(projectRoot);
+    assert.notEqual(second, first);
+    assert.equal(readFileSync(sentinel, 'utf-8'), second);
   });
 });
 
 describe('tryAutoHealAbiMismatch', () => {
-  it('starts one detached npm rebuild for better-sqlite3 and writes a retry marker first', () => {
-    assert.throws(
-      () => tryAutoHealAbiMismatch('NODE_MODULE_VERSION mismatch', 'better-sqlite3', deps()),
-      /rebuild started.*PID 4242.*restart your MCP client/i,
+  it('runs the dependency install synchronously and keeps its marker permanently', () => {
+    assert.doesNotThrow(() =>
+      tryAutoHealAbiMismatch(
+        'NODE_MODULE_VERSION mismatch',
+        'better-sqlite3',
+        deps({
+          runInstallScript: (options) => {
+            installCalls.push(options);
+            writeFileSync(options.logPath, 'successful install output');
+            return { status: 0 };
+          },
+        }),
+      ),
     );
 
-    assert.deepEqual(spawnCalls, [
-      {
-        command: 'npm',
-        args: ['rebuild', 'better-sqlite3'],
-        cwd: projectRoot,
-      },
-    ]);
+    assert.equal(installCalls.length, 1);
+    assert.equal(installCalls[0]?.command, 'npm');
+    assert.deepEqual(installCalls[0]?.args, ['run', 'install']);
+    assert.equal(installCalls[0]?.cwd, nativeModuleRoot);
+    assert.match(installCalls[0]?.logPath ?? '', /better-sqlite3-install-12345-999\.log$/);
+    assert.equal(existsSync(installCalls[0]?.logPath ?? ''), false);
     const marker = path.join(
       cacheDir,
-      'abi-heal-attempted-better-sqlite3-127-darwin-arm64-test-install',
+      `abi-heal-attempted-better-sqlite3-127-${getNativeHealMarkerScope(INSTALL_INSTANCE_ID)}`,
     );
     assert.equal(existsSync(marker), true);
-    assert.match(readFileSync(marker, 'utf-8'), /NODE_MODULE_VERSION mismatch/);
   });
 
-  it('does not retry better-sqlite3 rebuild when the marker already exists', () => {
-    assert.throws(() =>
-      tryAutoHealAbiMismatch('NODE_MODULE_VERSION mismatch', 'better-sqlite3', deps()),
-    );
-    spawnCalls = [];
-
+  it('leaves the marker and reports the install log when install fails', () => {
     assert.throws(
-      () => tryAutoHealAbiMismatch('NODE_MODULE_VERSION mismatch', 'better-sqlite3', deps()),
-      /already attempted.*npm rebuild better-sqlite3/i,
+      () =>
+        tryAutoHealAbiMismatch(
+          'NODE_MODULE_VERSION mismatch',
+          'better-sqlite3',
+          deps({
+            runInstallScript: (options) => {
+              installCalls.push(options);
+              return { status: 1 };
+            },
+          }),
+        ),
+      /native install failed.*status 1.*Install log:/is,
     );
 
-    assert.deepEqual(spawnCalls, []);
+    const marker = path.join(
+      cacheDir,
+      `abi-heal-attempted-better-sqlite3-127-${getNativeHealMarkerScope(INSTALL_INSTANCE_ID)}`,
+    );
+    assert.equal(existsSync(marker), true);
+    assert.equal(installCalls.length, 1);
   });
 
   it('treats an existing marker as already attempted without spawning', () => {
     const marker = path.join(
       cacheDir,
-      'abi-heal-attempted-better-sqlite3-127-darwin-arm64-test-install',
+      `abi-heal-attempted-better-sqlite3-127-${getNativeHealMarkerScope(INSTALL_INSTANCE_ID)}`,
     );
     writeFileSync(marker, 'already here');
 
     assert.throws(
       () => tryAutoHealAbiMismatch('NODE_MODULE_VERSION mismatch', 'better-sqlite3', deps()),
-      /already attempted.*npm rebuild better-sqlite3/i,
+      /already attempted.*npm run install/i,
     );
 
-    assert.deepEqual(spawnCalls, []);
+    assert.deepEqual(installCalls, []);
   });
 
   it('does not auto-install sqlite-vec and returns manual instructions', () => {
@@ -134,19 +176,19 @@ describe('tryAutoHealAbiMismatch', () => {
       /sqlite-vec.*manual.*npm install/i,
     );
 
-    assert.deepEqual(spawnCalls, []);
+    assert.deepEqual(installCalls, []);
   });
 
-  it('does not auto-heal on Windows', () => {
-    assert.throws(
-      () =>
-        tryAutoHealAbiMismatch('NODE_MODULE_VERSION mismatch', 'better-sqlite3', {
-          ...deps(),
-          platform: 'win32',
-        }),
-      /automatic rebuild is disabled on Windows/i,
+  it('uses the synchronous install runner on Windows', () => {
+    assert.doesNotThrow(() =>
+      tryAutoHealAbiMismatch('NODE_MODULE_VERSION mismatch', 'better-sqlite3', {
+        ...deps(),
+        platform: 'win32',
+      }),
     );
 
-    assert.deepEqual(spawnCalls, []);
+    assert.equal(installCalls.length, 1);
+    assert.equal(installCalls[0]?.cwd, nativeModuleRoot);
+    assert.equal(installCalls[0]?.shell, true);
   });
 });
