@@ -13,6 +13,7 @@
     "dev": "tsx src/server.ts",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:native-recovery-smoke": "node scripts/smoke-native-recovery.mjs",
     "test:e2e-watcher": "vitest run --config vitest.e2e-watcher.config.ts",
     "coverage": "vitest run --coverage",
     "eval": "tsx eval/evaluate.ts",

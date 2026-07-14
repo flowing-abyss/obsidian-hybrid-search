@@ -48,6 +48,12 @@ jobs:
       - name: Coverage
         run: npm run coverage
 
+      - name: Install npm 12 for packaged recovery smoke
+        run: npm install -g npm@12
+
+      - name: Native recovery packaged smoke
+        run: npm run test:native-recovery-smoke
+
       - name: Integration tests
         run: npm run test:integration
         env:
