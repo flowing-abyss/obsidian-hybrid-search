@@ -252,6 +252,21 @@ export function slidingWindow(
     : [createSourceChunk(text, 0, text.length, headingChain, sectionOffset)];
 }
 
+/** Strip markdown syntax from a single line so it matches the textContent of a rendered DOM block. */
+function normalizeMatchLine(line: string): string {
+  const stripped = stripMarkdownImages(
+    stripHtmlTags(stripLeadingBlockquoteCallout(line)) // blockquote/callout markers and HTML tags
+      .replace(/\[\^[^\]]+\]/g, '') // footnote references ([^1])
+      .replace(/!\[\[[^\]]+\]\]/g, ''), // embed wikilinks ![[Note]] → strip entirely
+  );
+  return replaceMarkdownInlineLinks(replaceWikilinkLabels(stripped))
+    .replace(/[*_]{1,2}([^*_]+)[*_]{1,2}/g, '$1') // bold / italic
+    .replace(/`([^`]+)`/g, '$1') // inline code
+    .replace(/^(?:[-*+]|\d+[.)]) \s*/m, '') // list markers
+    .replace(/^\[[xX ]\]\s*/m, '') // task checkboxes
+    .trim();
+}
+
 /**
  * Build a DOM-matchable string from chunk text.
  * Strips heading lines and markdown syntax so the result matches
@@ -277,20 +292,42 @@ export function buildMatchText(chunkText: string): string {
   // This skips e.g. callout type-only lines ("> [!quote]" strips to "").
   for (const line of [...bodyLines, fallback]) {
     if (!line.trim()) continue;
-    const stripped = stripMarkdownImages(
-      stripHtmlTags(stripLeadingBlockquoteCallout(line)) // blockquote/callout markers and HTML tags
-        .replace(/\[\^[^\]]+\]/g, '') // footnote references ([^1])
-        .replace(/!\[\[[^\]]+\]\]/g, ''), // embed wikilinks ![[Note]] → strip entirely
-    );
-    const result = replaceMarkdownInlineLinks(replaceWikilinkLabels(stripped))
-      .replace(/[*_]{1,2}([^*_]+)[*_]{1,2}/g, '$1') // bold / italic
-      .replace(/`([^`]+)`/g, '$1') // inline code
-      .replace(/^(?:[-*+]|\d+[.)]) \s*/m, '') // list markers
-      .replace(/^\[[xX ]\]\s*/m, '') // task checkboxes
-      .trim();
+    const result = normalizeMatchLine(line);
     if (result) return result.slice(0, 80);
   }
   return '';
+}
+
+/** Remove sentinel markers from a snippet returned by SQLite's snippet() function. */
+export function stripSnippetMarkers(text: string, markStart: string, markEnd: string): string {
+  return text.split(markStart).join('').split(markEnd).join('');
+}
+
+/**
+ * Build matchText from a BM25 snippet whose real FTS match is wrapped in sentinel
+ * markers (see searchBm25's snippet() call). A multi-line snippet window doesn't
+ * necessarily have the match on its first line, so — unlike buildMatchText, which
+ * assumes the chunk text itself starts at the relevant content — this picks the
+ * line that actually contains the marked match.
+ */
+export function buildMatchTextFromMarkedSnippet(
+  markedSnippet: string,
+  markStart: string,
+  markEnd: string,
+): string {
+  const markIndex = markedSnippet.indexOf(markStart);
+  if (markIndex === -1) {
+    return buildMatchText(stripSnippetMarkers(markedSnippet, markStart, markEnd));
+  }
+  const lineStart = markedSnippet.lastIndexOf('\n', markIndex) + 1;
+  const lineEndRaw = markedSnippet.indexOf('\n', markIndex);
+  const lineEnd = lineEndRaw === -1 ? markedSnippet.length : lineEndRaw;
+  const line = stripSnippetMarkers(markedSnippet.slice(lineStart, lineEnd), markStart, markEnd);
+  const result = normalizeMatchLine(line);
+  if (result) return result.slice(0, 80);
+  // Marked line stripped to nothing (e.g. a callout-type-only line) — fall back to
+  // the ordinary first-usable-line heuristic over the whole (unmarked) snippet.
+  return buildMatchText(stripSnippetMarkers(markedSnippet, markStart, markEnd));
 }
 
 function stripLeadingBlockquoteCallout(value: string): string {

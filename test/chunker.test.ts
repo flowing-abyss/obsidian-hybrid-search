@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 import {
   buildMatchText,
+  buildMatchTextFromMarkedSnippet,
   chunkNote,
   estimateTokens,
   slidingWindow,
   splitBySections,
+  stripSnippetMarkers,
 } from '../src/chunker.js';
 
 describe('estimateTokens', () => {
@@ -486,5 +488,58 @@ describe('buildMatchText', () => {
 
   it('returns empty string when all lines strip to nothing', () => {
     assert.equal(buildMatchText('![image](url)'), '');
+  });
+});
+
+describe('stripSnippetMarkers', () => {
+  it('removes both markers wherever they appear', () => {
+    assert.equal(stripSnippetMarkers('abcd', '', ''), 'abcd');
+  });
+
+  it('is a no-op when no markers are present', () => {
+    assert.equal(stripSnippetMarkers('plain text', '', ''), 'plain text');
+  });
+});
+
+describe('buildMatchTextFromMarkedSnippet', () => {
+  const MARK_START = '';
+  const MARK_END = '';
+
+  it('picks the line containing the mark, not the first line', () => {
+    // Regression: a real FTS5 snippet() window can span several sentences with the
+    // actual match on a later line — the old code (buildMatchText) always took the
+    // first non-empty line, highlighting the wrong part of the note.
+    const snippet =
+      'This is the intro sentence before the real match.\n\n' +
+      `Green — this is the ${MARK_START}working area${MARK_END} or a useful signal.`;
+    assert.equal(
+      buildMatchTextFromMarkedSnippet(snippet, MARK_START, MARK_END),
+      'Green — this is the working area or a useful signal.',
+    );
+  });
+
+  it('falls back to buildMatchText when no marker is present', () => {
+    const snippet = 'No markers here at all, just plain text.';
+    assert.equal(
+      buildMatchTextFromMarkedSnippet(snippet, MARK_START, MARK_END),
+      buildMatchText(snippet),
+    );
+  });
+
+  it('falls back to the ordinary heuristic when the marked line strips to nothing', () => {
+    // Marked line is a callout type-only line ("> [!quote]"), which normalizes to ''.
+    const snippet = `> [!${MARK_START}quote${MARK_END}]\n> Real content on the next line.`;
+    assert.equal(
+      buildMatchTextFromMarkedSnippet(snippet, MARK_START, MARK_END),
+      'Real content on the next line.',
+    );
+  });
+
+  it('strips markdown from the marked line same as buildMatchText would', () => {
+    const snippet = `Some **${MARK_START}bold match${MARK_END}** text here.`;
+    assert.equal(
+      buildMatchTextFromMarkedSnippet(snippet, MARK_START, MARK_END),
+      'Some bold match text here.',
+    );
   });
 });

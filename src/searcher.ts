@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { buildMatchText } from './chunker.js';
+import { buildMatchText, buildMatchTextFromMarkedSnippet, stripSnippetMarkers } from './chunker.js';
 import { config } from './config.js';
 import {
   filterNotePathsByFrontmatter,
@@ -250,6 +250,13 @@ type FtsRow = {
   rank: number;
 };
 
+// Sentinel markers bracketing the actual FTS match inside snippet() output. A snippet
+// window spans several sentences, so the true match isn't necessarily on its first
+// line — these let buildMatchTextFromMarkedSnippet find the right one. Stripped from
+// every snippet before it's exposed on RawResult; control chars won't appear in notes.
+const SNIPPET_MARK_START = '';
+const SNIPPET_MARK_END = '';
+
 export function searchBm25(
   query: string,
   limit: number,
@@ -258,10 +265,10 @@ export function searchBm25(
 ): RawResult[] {
   const db = getDb();
   const numTokens = Math.max(10, Math.ceil(snippetLength / 4));
-  const stmt = db.prepare<[number, string, number], FtsRow>(
+  const stmt = db.prepare<[string, string, number, string, number], FtsRow>(
     `
       SELECT n.path, n.title, n.tags, n.aliases,
-             snippet(notes_fts_bm25, 2, '', '', '...', ?) AS snippet,
+             snippet(notes_fts_bm25, 2, ?, ?, '...', ?) AS snippet,
              bm25(notes_fts_bm25, 10.0, 5.0, 1.0) AS rank
       FROM notes_fts_bm25
       JOIN notes n ON n.id = notes_fts_bm25.rowid
@@ -277,14 +284,20 @@ export function searchBm25(
     // relevant documents whenever a single query word (e.g. "between", "organize")
     // was absent from the document—even if that document was the best conceptual
     // match for every other term in the query.
-    const rows = stmt.all(numTokens, toFtsQuery(query, 'OR'), limit);
+    const rows = stmt.all(
+      SNIPPET_MARK_START,
+      SNIPPET_MARK_END,
+      numTokens,
+      toFtsQuery(query, 'OR'),
+      limit,
+    );
 
     const results: RawResult[] = rows.map((row) => ({
       path: row.path,
       title: row.title ?? '',
       tags: row.tags ?? '[]',
       aliases: row.aliases,
-      snippet: row.snippet ?? '',
+      snippet: stripSnippetMarkers(row.snippet ?? '', SNIPPET_MARK_START, SNIPPET_MARK_END),
       score: Math.max(0, Math.abs(row.rank) / (1 + Math.abs(row.rank))),
       scores: {
         bm25: Math.max(0, Math.abs(row.rank) / (1 + Math.abs(row.rank))),
@@ -294,21 +307,25 @@ export function searchBm25(
     // Skip when neither is needed (snippetLength=0 and buildAnchors=false).
     if (snippetLength > 0 || buildAnchors) {
       const chunkDataMap = getChunkDataForBm25Results(results);
-      for (const result of results) {
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i]!;
         const data = chunkDataMap.get(result.path);
         if (data) {
           if (snippetLength > 0 && data.headingPath) {
             result.snippet = `${data.headingPath}\n${result.snippet}`;
           }
           if (buildAnchors) {
-            // Use the BM25 snippet (positioned near the match) for matchText, not the full chunk.
-            // Strip SQLite snippet ellipsis markers and HTML tags before extracting match text.
-            // Remove all SQLite snippet ellipsis markers (may appear anywhere in the text)
-            const snippetForMatch = result.snippet.replace(/\.\.\./g, '');
+            // Use the still-marked raw snippet (positioned near the match) for matchText,
+            // not the full chunk — the sentinel markers pin down which line is the real hit.
+            const rawSnippet = (rows[i]!.snippet ?? '').replace(/\.\.\./g, '');
             result.bm25Anchor = {
               kind: 'bm25',
               headingPath: data.headingPath,
-              matchText: buildMatchText(snippetForMatch),
+              matchText: buildMatchTextFromMarkedSnippet(
+                rawSnippet,
+                SNIPPET_MARK_START,
+                SNIPPET_MARK_END,
+              ),
               charStart: data.charStart,
               charEnd: data.charEnd,
             };
