@@ -183,57 +183,47 @@ describe('resolveWikilinks', () => {
     rmSync(vaultDir, { recursive: true, force: true });
   });
 
-  // ── exact path ──────────────────────────────────────────────────────────────
+  // ── exact path / partial path / case-insensitive basename ──────────────────
 
-  it('resolves plain note name (exact basename without extension)', () => {
-    const result = resolveWikilinks('[[alpha]]', 'source.md');
-    assert.ok(result.includes('alpha.md'), `expected alpha.md in ${JSON.stringify(result)}`);
-  });
-
-  it('resolves exact vault-relative path [[notes/beta]]', () => {
-    const result = resolveWikilinks('[[notes/beta]]', 'source.md');
-    assert.ok(
-      result.includes('notes/beta.md'),
-      `expected notes/beta.md in ${JSON.stringify(result)}`,
-    );
-  });
-
-  it('resolves note with .md extension explicit in wikilink', () => {
-    const result = resolveWikilinks('[[alpha.md]]', 'source.md');
-    assert.ok(result.includes('alpha.md'), `expected alpha.md in ${JSON.stringify(result)}`);
-  });
-
-  // ── suffix / partial path ───────────────────────────────────────────────────
-
-  it('resolves partial path [[sub/gamma]] → notes/sub/gamma.md', () => {
-    const result = resolveWikilinks('[[sub/gamma]]', 'source.md');
-    assert.ok(
-      result.includes('notes/sub/gamma.md'),
-      `expected notes/sub/gamma.md in ${JSON.stringify(result)}`,
-    );
-  });
-
-  it('resolves longer partial path [[notes/sub/gamma]] → notes/sub/gamma.md', () => {
-    const result = resolveWikilinks('[[notes/sub/gamma]]', 'source.md');
-    assert.ok(
-      result.includes('notes/sub/gamma.md'),
-      `expected notes/sub/gamma.md in ${JSON.stringify(result)}`,
-    );
-  });
-
-  // ── case-insensitive basename ────────────────────────────────────────────────
-
-  it('resolves [[Alpha]] case-insensitively to alpha.md', () => {
-    const result = resolveWikilinks('[[Alpha]]', 'source.md');
-    assert.ok(result.includes('alpha.md'), `expected alpha.md in ${JSON.stringify(result)}`);
-  });
-
-  it('resolves [[MIXED-CASE]] case-insensitively to mixed-case.md', () => {
-    const result = resolveWikilinks('[[MIXED-CASE]]', 'source.md');
-    assert.ok(
-      result.includes('mixed-case.md'),
-      `expected mixed-case.md in ${JSON.stringify(result)}`,
-    );
+  it.each([
+    {
+      name: 'resolves plain note name (exact basename without extension)',
+      wikilink: '[[alpha]]',
+      expected: 'alpha.md',
+    },
+    {
+      name: 'resolves exact vault-relative path [[notes/beta]]',
+      wikilink: '[[notes/beta]]',
+      expected: 'notes/beta.md',
+    },
+    {
+      name: 'resolves note with .md extension explicit in wikilink',
+      wikilink: '[[alpha.md]]',
+      expected: 'alpha.md',
+    },
+    {
+      name: 'resolves partial path [[sub/gamma]] → notes/sub/gamma.md',
+      wikilink: '[[sub/gamma]]',
+      expected: 'notes/sub/gamma.md',
+    },
+    {
+      name: 'resolves longer partial path [[notes/sub/gamma]] → notes/sub/gamma.md',
+      wikilink: '[[notes/sub/gamma]]',
+      expected: 'notes/sub/gamma.md',
+    },
+    {
+      name: 'resolves [[Alpha]] case-insensitively to alpha.md',
+      wikilink: '[[Alpha]]',
+      expected: 'alpha.md',
+    },
+    {
+      name: 'resolves [[MIXED-CASE]] case-insensitively to mixed-case.md',
+      wikilink: '[[MIXED-CASE]]',
+      expected: 'mixed-case.md',
+    },
+  ])('$name', ({ wikilink, expected }) => {
+    const result = resolveWikilinks(wikilink, 'source.md');
+    assert.ok(result.includes(expected), `expected ${expected} in ${JSON.stringify(result)}`);
   });
 
   // ── alias matching ───────────────────────────────────────────────────────────

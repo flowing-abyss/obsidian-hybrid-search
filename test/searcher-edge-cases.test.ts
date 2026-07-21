@@ -67,60 +67,69 @@ describe('search — scope filtering edge cases', () => {
     });
   });
 
-  it('single include scope matches path prefix', async () => {
-    const results = await search('content', { mode: 'fulltext', scope: 'notes', limit: 100 });
-    assert.ok(results.some((r) => r.path === 'notes/foo.md'));
-    assert.ok(!results.some((r) => r.path === 'daily/bar.md'));
-  });
-
-  it('scope with trailing slash works same as without', async () => {
-    const results = await search('content', { mode: 'fulltext', scope: 'notes/', limit: 100 });
-    assert.ok(results.some((r) => r.path === 'notes/foo.md'));
-  });
-
-  it('multiple includes use OR logic', async () => {
-    const results = await search('content', {
-      mode: 'fulltext',
+  const scopeCases: {
+    name: string;
+    scope: string | string[];
+    present: string[];
+    absent: string[];
+  }[] = [
+    {
+      name: 'single include scope matches path prefix',
+      scope: 'notes',
+      present: ['notes/foo.md'],
+      absent: ['daily/bar.md'],
+    },
+    {
+      name: 'scope with trailing slash works same as without',
+      scope: 'notes/',
+      present: ['notes/foo.md'],
+      absent: [],
+    },
+    {
+      name: 'multiple includes use OR logic',
       scope: ['notes', 'daily'],
-      limit: 100,
-    });
-    assert.ok(results.some((r) => r.path === 'notes/foo.md'));
-    assert.ok(results.some((r) => r.path === 'daily/bar.md'));
-  });
-
-  it('exclude scope removes matching paths', async () => {
-    const results = await search('content', {
-      mode: 'fulltext',
+      present: ['notes/foo.md', 'daily/bar.md'],
+      absent: [],
+    },
+    {
+      name: 'exclude scope removes matching paths',
       scope: '-notes-old',
-      limit: 100,
-    });
-    assert.ok(!results.some((r) => r.path === 'notes-old/baz.md'));
-  });
-
-  it('scope with trailing slash enforces directory boundary', async () => {
-    const results = await search('content', { mode: 'fulltext', scope: 'notes/', limit: 100 });
-    assert.ok(results.some((r) => r.path === 'notes/foo.md'));
-    assert.ok(!results.some((r) => r.path === 'notes-old/baz.md'));
-  });
-
-  it('bare scope prefix enforces directory boundary (no false match on sibling dirs)', async () => {
-    // 'notes' (no trailing slash) should match 'notes/foo.md' but NOT 'notes-old/baz.md'.
-    // The scope filter treats a bare prefix as a directory name, so 'notes' must not
-    // match 'notes-old' — only paths that are exactly 'notes' or begin with 'notes/'.
-    const results = await search('content', { mode: 'fulltext', scope: 'notes', limit: 100 });
-    assert.ok(results.some((r) => r.path === 'notes/foo.md'));
-    assert.ok(!results.some((r) => r.path === 'notes-old/baz.md'));
-  });
-
-  it('nested scope prefix matches only notes under that subdirectory', async () => {
-    const results = await search('content', {
-      mode: 'fulltext',
+      present: [],
+      absent: ['notes-old/baz.md'],
+    },
+    {
+      name: 'scope with trailing slash enforces directory boundary',
+      scope: 'notes/',
+      present: ['notes/foo.md'],
+      absent: ['notes-old/baz.md'],
+    },
+    // A bare prefix is treated as a directory name, so 'notes' must not match
+    // 'notes-old' — only paths that are exactly 'notes' or begin with 'notes/'.
+    {
+      name: 'bare scope prefix enforces directory boundary (no false match on sibling dirs)',
+      scope: 'notes',
+      present: ['notes/foo.md'],
+      absent: ['notes-old/baz.md'],
+    },
+    {
+      name: 'nested scope prefix matches only notes under that subdirectory',
       scope: 'notes/deep',
-      limit: 100,
-    });
-    assert.ok(results.some((r) => r.path === 'notes/deep/scoped.md'));
-    assert.ok(!results.some((r) => r.path === 'notes/foo.md'));
-    assert.ok(!results.some((r) => r.path === 'notes-old/baz.md'));
+      present: ['notes/deep/scoped.md'],
+      absent: ['notes/foo.md', 'notes-old/baz.md'],
+    },
+  ];
+
+  it.each(scopeCases)('$name', async ({ scope, present, absent }) => {
+    const results = await search('content', { mode: 'fulltext', scope, limit: 100 });
+    for (const path of present) {
+      assert.ok(
+        results.some((r) => r.path === path),
+        `expected ${path} in results`,
+      );
+    }
+    for (const path of absent) {
+      assert.ok(!results.some((r) => r.path === path), `did not expect ${path} in results`);
+    }
   });
 });
 

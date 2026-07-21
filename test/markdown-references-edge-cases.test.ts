@@ -132,18 +132,12 @@ describe('resolveMarkdownNoteLinks — edge cases', () => {
     assert.deepEqual(resolved, ['folder/child.md']);
   });
 
-  it('does not append .md to .png links', () => {
-    const resolved = resolveMarkdownNoteLinks('folder/source.md', ['./file.txt'], existing);
-    assert.deepEqual(resolved, []);
-  });
-
-  it('rejects paths escaping vault root', () => {
-    const resolved = resolveMarkdownNoteLinks('folder/source.md', ['../../outside.md'], existing);
-    assert.deepEqual(resolved, []);
-  });
-
-  it('rejects path resolving to .', () => {
-    const resolved = resolveMarkdownNoteLinks('folder/source.md', ['./'], existing);
+  it.each([
+    { name: 'does not append .md to non-note extensions', link: './file.txt' },
+    { name: 'rejects paths escaping vault root', link: '../../outside.md' },
+    { name: 'rejects path resolving to .', link: './' },
+  ])('$name', ({ link }) => {
+    const resolved = resolveMarkdownNoteLinks('folder/source.md', [link], existing);
     assert.deepEqual(resolved, []);
   });
 

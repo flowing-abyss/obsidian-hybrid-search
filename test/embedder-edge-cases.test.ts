@@ -845,27 +845,46 @@ describe('embed() — prefix logic', () => {
     );
   });
 
-  it('adds "passage: " prefix for E5 model document embedding', async () => {
-    process.env.OPENAI_EMBEDDING_MODEL = 'intfloat/multilingual-e5-large';
-    await embed(['hello'], 'document');
-    assert.equal(capturedBody.input[0], 'passage: hello');
-  });
+  const prefixCases: {
+    name: string;
+    model: string;
+    type: 'document' | 'query';
+    input: string;
+    expected: string;
+  }[] = [
+    {
+      name: 'adds "passage: " prefix for E5 model document embedding',
+      model: 'intfloat/multilingual-e5-large',
+      type: 'document',
+      input: 'hello',
+      expected: 'passage: hello',
+    },
+    {
+      name: 'adds "query: " prefix for E5 model query embedding',
+      model: 'intfloat/multilingual-e5-large',
+      type: 'query',
+      input: 'search',
+      expected: 'query: search',
+    },
+    {
+      name: 'does NOT add prefix for non-E5 model (text-embedding-3-small)',
+      model: 'text-embedding-3-small',
+      type: 'document',
+      input: 'hello',
+      expected: 'hello',
+    },
+    {
+      name: 'does NOT add prefix for BGE model',
+      model: 'baai/bge-m3',
+      type: 'document',
+      input: 'hello',
+      expected: 'hello',
+    },
+  ];
 
-  it('adds "query: " prefix for E5 model query embedding', async () => {
-    process.env.OPENAI_EMBEDDING_MODEL = 'intfloat/multilingual-e5-large';
-    await embed(['search'], 'query');
-    assert.equal(capturedBody.input[0], 'query: search');
-  });
-
-  it('does NOT add prefix for non-E5 model (text-embedding-3-small)', async () => {
-    process.env.OPENAI_EMBEDDING_MODEL = 'text-embedding-3-small';
-    await embed(['hello'], 'document');
-    assert.equal(capturedBody.input[0], 'hello');
-  });
-
-  it('does NOT add prefix for BGE model', async () => {
-    process.env.OPENAI_EMBEDDING_MODEL = 'baai/bge-m3';
-    await embed(['hello'], 'document');
-    assert.equal(capturedBody.input[0], 'hello');
+  it.each(prefixCases)('$name', async ({ model, type, input, expected }) => {
+    process.env.OPENAI_EMBEDDING_MODEL = model;
+    await embed([input], type);
+    assert.equal(capturedBody.input[0], expected);
   });
 });

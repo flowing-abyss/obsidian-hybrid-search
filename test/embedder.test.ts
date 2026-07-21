@@ -98,34 +98,54 @@ describe('E5-style prefix for BGE / E5 models via API', () => {
     delete process.env.OPENAI_EMBEDDING_MODEL;
   });
 
-  it('does NOT add prefix for BGE model document embedding', async () => {
-    process.env.OPENAI_EMBEDDING_MODEL = 'bge-m3';
-    await embed(['hello world'], 'document');
-    assert.equal((capturedBody as { input: string[] }).input[0], 'hello world');
-  });
+  const prefixCases: {
+    name: string;
+    model: string;
+    type: 'document' | 'query';
+    input: string;
+    expected: string;
+  }[] = [
+    {
+      name: 'does NOT add prefix for BGE model document embedding',
+      model: 'bge-m3',
+      type: 'document',
+      input: 'hello world',
+      expected: 'hello world',
+    },
+    {
+      name: 'does NOT add prefix for BGE model query embedding',
+      model: 'baai/bge-m3',
+      type: 'query',
+      input: 'backlinks',
+      expected: 'backlinks',
+    },
+    {
+      name: 'adds "passage: " prefix for E5 model',
+      model: 'intfloat/multilingual-e5-large',
+      type: 'document',
+      input: 'hello',
+      expected: 'passage: hello',
+    },
+    {
+      name: 'does NOT add prefix for OpenAI model',
+      model: 'text-embedding-3-small',
+      type: 'document',
+      input: 'hello world',
+      expected: 'hello world',
+    },
+    {
+      name: 'does NOT add prefix for Voyage model',
+      model: 'voyage-4',
+      type: 'query',
+      input: 'hello world',
+      expected: 'hello world',
+    },
+  ];
 
-  it('does NOT add prefix for BGE model query embedding', async () => {
-    process.env.OPENAI_EMBEDDING_MODEL = 'baai/bge-m3';
-    await embed(['backlinks'], 'query');
-    assert.equal((capturedBody as { input: string[] }).input[0], 'backlinks');
-  });
-
-  it('adds "passage: " prefix for E5 model', async () => {
-    process.env.OPENAI_EMBEDDING_MODEL = 'intfloat/multilingual-e5-large';
-    await embed(['hello'], 'document');
-    assert.equal((capturedBody as { input: string[] }).input[0], 'passage: hello');
-  });
-
-  it('does NOT add prefix for OpenAI model', async () => {
-    process.env.OPENAI_EMBEDDING_MODEL = 'text-embedding-3-small';
-    await embed(['hello world'], 'document');
-    assert.equal((capturedBody as { input: string[] }).input[0], 'hello world');
-  });
-
-  it('does NOT add prefix for Voyage model', async () => {
-    process.env.OPENAI_EMBEDDING_MODEL = 'voyage-4';
-    await embed(['hello world'], 'query');
-    assert.equal((capturedBody as { input: string[] }).input[0], 'hello world');
+  it.each(prefixCases)('$name', async ({ model, type, input, expected }) => {
+    process.env.OPENAI_EMBEDDING_MODEL = model;
+    await embed([input], type);
+    assert.equal((capturedBody as { input: string[] }).input[0], expected);
   });
 });
 
