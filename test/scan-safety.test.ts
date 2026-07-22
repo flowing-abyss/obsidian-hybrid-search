@@ -128,4 +128,47 @@ describe('cleanupStaleNotes mass-delete guard', () => {
       closeDb();
     }
   });
+
+  // The two tests above sit under the 50-note floor of
+  // Math.max(50, ceil(total * fraction)), so they only exercise the floor. With
+  // 600 notes and the default 0.1 fraction the limit is ceil(600 * 0.1) = 60,
+  // above the 50 floor, so the fraction is the binding limit. 55 stale (above
+  // the floor, below the fraction limit) must be allowed; 65 (above it) blocked.
+  it.each([
+    {
+      label: 'blocks cleanup above the fractional limit once it exceeds the floor',
+      present: 535, // 65 stale > 60 limit -> refused
+      expected: 600,
+    },
+    {
+      label: 'allows cleanup below the fractional limit even above the 50-note floor',
+      present: 545, // 55 stale: > 50 floor but <= 60 limit -> deleted
+      expected: 545,
+    },
+  ])('$label', async ({ present, expected }) => {
+    const { openDb, initVecTable, upsertNote, getDb, closeDb } = await import('../src/db.js');
+    const { cleanupStaleNotes } = await import('../src/indexer.js');
+    openDb();
+    initVecTable(4);
+    try {
+      const db = getDb();
+      for (let i = 0; i < 600; i++) {
+        upsertNote({
+          path: `note-${i}.md`,
+          title: `Note ${i}`,
+          tags: [],
+          content: `content ${i}`,
+          mtime: Date.now(),
+          hash: `hash${i}`,
+          chunks: [],
+        });
+      }
+      const fsPaths = new Set(Array.from({ length: present }, (_, i) => `note-${i}.md`));
+      cleanupStaleNotes(fsPaths);
+      const count = (db.prepare('SELECT COUNT(*) AS c FROM notes').get() as { c: number }).c;
+      expect(count).toBe(expected);
+    } finally {
+      closeDb();
+    }
+  });
 });
