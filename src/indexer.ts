@@ -155,14 +155,26 @@ function resolveMarkdownReferencesForNote(
   return { links, urls: references.urls };
 }
 
-function* walkDir(dir: string, policy: IgnorePolicy): Generator<string> {
+export interface ScanResult {
+  files: string[];
+  /** Directories whose readdir failed; non-empty means the scan is PARTIAL. */
+  readErrors: string[];
+}
+
+function* walkDir(dir: string, policy: IgnorePolicy, readErrors: string[]): Generator<string> {
   let entries: { name: string; isDirectory(): boolean; isFile(): boolean }[];
   try {
     entries = readdirSync(dir, {
       withFileTypes: true,
       encoding: 'utf-8',
     });
-  } catch {
+  } catch (err) {
+    // A failed readdir (cloud FS hiccup) must NOT silently vanish a subtree:
+    // downstream stale-note cleanup would interpret it as mass deletion.
+    readErrors.push(dir);
+    console.warn(
+      `[scan] readdir failed for ${dir}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return;
   }
   for (const entry of entries) {
@@ -170,7 +182,7 @@ function* walkDir(dir: string, policy: IgnorePolicy): Generator<string> {
     if (entry.isDirectory()) {
       const rel = toVaultRelativePath(full);
       if (!policy.isIgnored(rel + '/')) {
-        yield* walkDir(full, policy);
+        yield* walkDir(full, policy, readErrors);
       }
     } else if (entry.isFile() && entry.name.endsWith('.md')) {
       yield full;
@@ -178,16 +190,17 @@ function* walkDir(dir: string, policy: IgnorePolicy): Generator<string> {
   }
 }
 
-export function scanVault(): string[] {
+export function scanVault(): ScanResult {
   const files: string[] = [];
+  const readErrors: string[] = [];
   const policy = createIgnorePolicy();
-  for (const fullPath of walkDir(config.vaultPath, policy)) {
+  for (const fullPath of walkDir(config.vaultPath, policy, readErrors)) {
     const rel = toVaultRelativePath(fullPath);
     if (!policy.isIgnored(rel)) {
       files.push(fullPath);
     }
   }
-  return files;
+  return { files, readErrors };
 }
 
 export async function indexFile(
@@ -475,11 +488,17 @@ export async function indexVaultSync(
   header = 'Indexing vault...',
   options: { requireClean?: boolean; recoverDatabase?: () => void } = {},
 ): Promise<IndexResult> {
-  const files = scanVault();
+  const { files, readErrors } = scanVault();
+  const scanComplete = readErrors.length === 0;
   const fsPaths = new Set(files.map(toVaultRelativePath));
+  if (!scanComplete) {
+    console.warn(
+      `[scan] PARTIAL scan (${readErrors.length} unreadable dirs) - skipping stale-note cleanup`,
+    );
+  }
   await runWithDatabaseRecovery(
     'stale-note cleanup',
-    () => cleanupStaleNotes(fsPaths),
+    () => cleanupStaleNotes(scanComplete ? fsPaths : undefined),
     options.recoverDatabase,
   );
 
@@ -677,12 +696,18 @@ async function processQueue(contextLength: number): Promise<void> {
 }
 
 export async function startBackgroundIndexing(contextLength: number): Promise<void> {
-  const files = scanVault();
+  const { files, readErrors } = scanVault();
+  const scanComplete = readErrors.length === 0;
   const fsPaths = new Set(files.map(toVaultRelativePath));
+  if (!scanComplete) {
+    console.warn(
+      `[scan] PARTIAL scan (${readErrors.length} unreadable dirs) - skipping stale-note cleanup`,
+    );
+  }
   await withIndexingDbLock(() => {
     return runWithDatabaseRecovery(
       'background stale-note cleanup',
-      () => cleanupStaleNotes(fsPaths),
+      () => cleanupStaleNotes(scanComplete ? fsPaths : undefined),
       recoverDatabaseSidecarsForIndexing,
     );
   });
@@ -749,11 +774,17 @@ export function startWatcher(contextLength: number): void {
         void withIndexingDbLock(async () => {
           try {
             watcherPolicy = createIgnorePolicy();
-            const files = scanVault();
+            const { files, readErrors } = scanVault();
+            const scanComplete = readErrors.length === 0;
             const fsPaths = new Set(files.map(toVaultRelativePath));
+            if (!scanComplete) {
+              console.warn(
+                `[scan] PARTIAL scan (${readErrors.length} unreadable dirs) - skipping stale-note cleanup`,
+              );
+            }
             await runWithDatabaseRecovery(
               'watcher gitignore cleanup',
-              () => cleanupStaleNotes(fsPaths),
+              () => cleanupStaleNotes(scanComplete ? fsPaths : undefined),
               recoverDatabaseSidecarsForIndexing,
             );
             for (const file of files) {

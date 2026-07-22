@@ -66,7 +66,7 @@ beforeAll(async () => {
   const options = watchMock.mock.calls.at(-1)?.[1] as { ignored: (p: string) => boolean };
   ignored = options.ignored;
 
-  scanSet = new Set(scanVault().map(toRel));
+  scanSet = new Set(scanVault().files.map(toRel));
 });
 
 afterAll(() => {

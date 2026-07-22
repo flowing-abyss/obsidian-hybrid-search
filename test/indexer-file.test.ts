@@ -187,31 +187,31 @@ describe('renderProgressLine', () => {
 
 describe('scanVault', () => {
   const scanVaultRelPaths = (): string[] =>
-    scanVault().map((file) => path.relative(vaultDir, file).split(path.sep).join('/'));
+    scanVault().files.map((file) => path.relative(vaultDir, file).split(path.sep).join('/'));
 
   it('finds markdown files in the vault', () => {
     writeFileSync(path.join(vaultDir, 'found.md'), '# Found');
-    const files = scanVault();
+    const { files } = scanVault();
     assert.ok(files.some((f) => f.endsWith('found.md')));
   });
 
   it('ignores non-markdown files', () => {
     writeFileSync(path.join(vaultDir, 'readme.txt'), 'text');
-    const files = scanVault();
+    const { files } = scanVault();
     assert.ok(!files.some((f) => f.endsWith('readme.txt')));
   });
 
   it('recurses into subdirectories', () => {
     mkdirSync(path.join(vaultDir, 'sub'), { recursive: true });
     writeFileSync(path.join(vaultDir, 'sub', 'nested.md'), '# Nested');
-    const files = scanVault();
+    const { files } = scanVault();
     assert.ok(files.some((f) => f.endsWith('nested.md')));
   });
 
   it('skips ignored directories', () => {
     mkdirSync(path.join(vaultDir, 'templates'), { recursive: true });
     writeFileSync(path.join(vaultDir, 'templates', 't.md'), '# T');
-    const files = scanVault();
+    const { files } = scanVault();
     assert.ok(!files.some((f) => f.includes('templates')));
   });
 
@@ -224,7 +224,7 @@ describe('scanVault', () => {
     writeFileSync(visiblePath, '# Visible');
 
     try {
-      const files = scanVault();
+      const { files } = scanVault();
 
       assert.ok(!files.some((f) => f.endsWith('ignored-by-git.md')));
       assert.ok(files.some((f) => f.endsWith('visible-after-gitignore.md')));
