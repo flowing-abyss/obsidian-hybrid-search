@@ -41,6 +41,11 @@ export const config = {
     return process.env.RERANKER_MODEL ?? 'onnx-community/bge-reranker-v2-m3-ONNX';
   },
   get dbPath(): string {
+    // Allow relocating the DB off a cloud-synced vault (e.g. Google Drive).
+    // OBSIDIAN_DB_PATH is the documented name; OBSIDIAN_HYBRID_DB_PATH is a
+    // legacy alias kept for existing deployments. -wal/-shm follow the file.
+    const override = process.env.OBSIDIAN_DB_PATH ?? process.env.OBSIDIAN_HYBRID_DB_PATH;
+    if (override) return override;
     const v = process.env.OBSIDIAN_VAULT_PATH;
     if (!v) throw new Error('OBSIDIAN_VAULT_PATH environment variable is required');
     return path.join(v, '.obsidian-hybrid-search.db');
