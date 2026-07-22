@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const SOURCE_REPO = 'https://github.com/obsidianmd/obsidian-help.git';
-const GIT_EXECUTABLE = '/usr/bin/git';
+const GIT_EXECUTABLE = process.env.GIT_EXECUTABLE ?? 'git';
 
 interface PrepareObsidianHelpOptions {
   vault: string;
