@@ -6,9 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 let vault: string;
 let originalVaultPath: string | undefined;
 let originalDbPath: string | undefined;
+let originalCleanupForce: string | undefined;
+let originalCleanupMaxDeleteFraction: string | undefined;
 beforeEach(() => {
   originalVaultPath = process.env.OBSIDIAN_VAULT_PATH;
   originalDbPath = process.env.OBSIDIAN_DB_PATH;
+  originalCleanupForce = process.env.OBSIDIAN_CLEANUP_FORCE;
+  originalCleanupMaxDeleteFraction = process.env.OBSIDIAN_CLEANUP_MAX_DELETE_FRACTION;
   vault = mkdtempSync(path.join(tmpdir(), 'ohs-scan-'));
   mkdirSync(path.join(vault, 'a'));
   writeFileSync(path.join(vault, 'a', 'one.md'), '# one');
@@ -23,6 +27,13 @@ afterEach(() => {
   else process.env.OBSIDIAN_VAULT_PATH = originalVaultPath;
   if (originalDbPath === undefined) delete process.env.OBSIDIAN_DB_PATH;
   else process.env.OBSIDIAN_DB_PATH = originalDbPath;
+  if (originalCleanupForce === undefined) delete process.env.OBSIDIAN_CLEANUP_FORCE;
+  else process.env.OBSIDIAN_CLEANUP_FORCE = originalCleanupForce;
+  if (originalCleanupMaxDeleteFraction === undefined) {
+    delete process.env.OBSIDIAN_CLEANUP_MAX_DELETE_FRACTION;
+  } else {
+    process.env.OBSIDIAN_CLEANUP_MAX_DELETE_FRACTION = originalCleanupMaxDeleteFraction;
+  }
   rmSync(vault, { recursive: true, force: true });
 });
 
@@ -57,6 +68,64 @@ describe('scanVault read-error reporting', () => {
     } finally {
       vi.doUnmock('node:fs');
       vi.resetModules();
+    }
+  });
+});
+
+describe('cleanupStaleNotes mass-delete guard', () => {
+  it('refuses to delete more than the configured fraction of the index', async () => {
+    const { openDb, initVecTable, upsertNote, getDb, closeDb } = await import('../src/db.js');
+    const { cleanupStaleNotes } = await import('../src/indexer.js');
+    openDb();
+    initVecTable(4);
+    try {
+      const db = getDb();
+      for (let i = 0; i < 100; i++) {
+        upsertNote({
+          path: `note-${i}.md`,
+          title: `Note ${i}`,
+          tags: [],
+          content: `content ${i}`,
+          mtime: Date.now(),
+          hash: `hash${i}`,
+          chunks: [],
+        });
+      }
+      // fsPaths claims 89 of 100 notes vanished
+      const fsPaths = new Set(Array.from({ length: 11 }, (_, i) => `note-${i}.md`));
+      cleanupStaleNotes(fsPaths);
+      const count = (db.prepare('SELECT COUNT(*) AS c FROM notes').get() as { c: number }).c;
+      expect(count).toBe(100); // guard tripped, nothing deleted
+    } finally {
+      closeDb();
+    }
+  });
+
+  it('allows the same cleanup when OBSIDIAN_CLEANUP_FORCE=1', async () => {
+    const { openDb, initVecTable, upsertNote, getDb, closeDb } = await import('../src/db.js');
+    const { cleanupStaleNotes } = await import('../src/indexer.js');
+    openDb();
+    initVecTable(4);
+    try {
+      const db = getDb();
+      for (let i = 0; i < 100; i++) {
+        upsertNote({
+          path: `note-${i}.md`,
+          title: `Note ${i}`,
+          tags: [],
+          content: `content ${i}`,
+          mtime: Date.now(),
+          hash: `hash${i}`,
+          chunks: [],
+        });
+      }
+      process.env.OBSIDIAN_CLEANUP_FORCE = '1';
+      const fsPaths = new Set(Array.from({ length: 11 }, (_, i) => `note-${i}.md`));
+      cleanupStaleNotes(fsPaths);
+      const count = (db.prepare('SELECT COUNT(*) AS c FROM notes').get() as { c: number }).c;
+      expect(count).toBe(11);
+    } finally {
+      closeDb();
     }
   });
 });

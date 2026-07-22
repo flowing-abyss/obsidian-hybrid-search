@@ -452,8 +452,16 @@ export function cleanupStaleNotes(fsPaths?: Set<string>): void {
     const dbPaths = (db.prepare('SELECT path FROM notes').all() as { path: string }[]).map(
       (r) => r.path,
     );
-    for (const dbPath of dbPaths) {
-      if (!fsPaths.has(dbPath)) {
+    const stale = dbPaths.filter((p) => !fsPaths.has(p));
+    const limit = Math.max(50, Math.ceil(dbPaths.length * config.cleanupMaxDeleteFraction));
+    if (stale.length > limit && !config.cleanupForce) {
+      console.warn(
+        `[cleanup] REFUSING to delete ${stale.length}/${dbPaths.length} notes ` +
+          `(> ${config.cleanupMaxDeleteFraction * 100}% guard). ` +
+          `If this is intentional, set OBSIDIAN_CLEANUP_FORCE=1 for one run.`,
+      );
+    } else {
+      for (const dbPath of stale) {
         deleteNote(dbPath); // keepLinks=false
         deleted++;
       }

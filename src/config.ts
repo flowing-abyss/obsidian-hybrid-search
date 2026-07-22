@@ -45,6 +45,14 @@ export const config = {
     if (!v) throw new Error('OBSIDIAN_VAULT_PATH environment variable is required');
     return path.join(v, '.obsidian-hybrid-search.db');
   },
+  get cleanupMaxDeleteFraction(): number {
+    const raw = Number(process.env.OBSIDIAN_CLEANUP_MAX_DELETE_FRACTION);
+    return Number.isFinite(raw) && raw > 0 && raw <= 1 ? raw : 0.1;
+  },
+  get cleanupForce(): boolean {
+    const raw = process.env.OBSIDIAN_CLEANUP_FORCE?.trim().toLowerCase();
+    return raw === '1' || raw === 'true' || raw === 'yes';
+  },
   // internal defaults
   chunkContextFallback: 512,
   chunkOverlap: 64,
