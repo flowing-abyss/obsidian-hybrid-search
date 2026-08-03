@@ -1,6 +1,6 @@
 {
   "name": "obsidian-hybrid-search",
-  "version": "0.13.24",
+  "version": "0.13.25",
   "mcpName": "io.github.flowing-abyss/obsidian-hybrid-search",
   "type": "module",
   "bin": {
@@ -64,7 +64,7 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "better-sqlite3": "^12.11.1",
     "chokidar": "^5.0.0",
     "cli-table3": "^0.6.5",
@@ -95,11 +95,11 @@
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-sonarjs": "^4.2.0",
     "husky": "^9.1.7",
-    "knip": "^6.29.0",
+    "knip": "^6.31.0",
     "lint-staged": "^16.4.0",
     "prettier": "^3.9.6",
     "prettier-plugin-organize-imports": "^4.3.0",
-    "tsx": "^4.23.1",
+    "tsx": "^4.23.5",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.65.0",
     "vitest": "^4.1.5"
