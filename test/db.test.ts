@@ -59,6 +59,9 @@ const {
   wipeDatabaseSidecars,
   isLikelyDatabaseCorruption,
   closeDb,
+  getChunksWithEmbeddingsForPaths,
+  countChunksForPaths,
+  getAllNotePaths,
 } = await import('../src/db.js');
 const { searchBm25, searchFuzzyTitle, search } = await import('../src/searcher.js');
 const { isIgnored } = await import('../src/ignore.js');
@@ -1560,5 +1563,60 @@ describe('initVecTable', () => {
     // Old data should be gone
     const after = db.prepare('SELECT chunk_id FROM vec_chunks LIMIT 1').get();
     assert.equal(after, undefined, 'vec_chunks should be empty after dimension change');
+  });
+});
+
+// ─── getChunksWithEmbeddingsForPaths ─────────────────────────────────────────
+
+describe('getChunksWithEmbeddingsForPaths', () => {
+  beforeAll(() => {
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+    upsertNote({
+      path: 'target.md',
+      title: 'Target Note',
+      tags: [],
+      content: 'This is target content about knowledge management.',
+      mtime: Date.now(),
+      hash: 'hash-target',
+      chunks: [
+        {
+          text: 'This is target content about knowledge management.',
+          embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
+        },
+      ],
+    });
+  });
+
+  it('returns chunks with embeddings for the requested paths only', () => {
+    const rows = getChunksWithEmbeddingsForPaths(['target.md']);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.path, 'target.md');
+    assert.equal(rows[0]!.chunkIndex, 0);
+    assert.equal(rows[0]!.embedding.length, 4);
+    assert.ok(Math.abs(rows[0]!.embedding[0]! - 0.1) < 1e-6);
+  });
+
+  it('returns [] for an empty path list', () => {
+    assert.deepEqual(getChunksWithEmbeddingsForPaths([]), []);
+  });
+
+  it('batches without hitting the bind-parameter limit', () => {
+    const many = Array.from({ length: 5000 }, (_, i) => `missing-${i}.md`);
+    many.push('target.md');
+    const rows = getChunksWithEmbeddingsForPaths(many);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.path, 'target.md');
+  });
+
+  it('counts chunks for a path set', () => {
+    assert.equal(countChunksForPaths(['target.md']), 1);
+    assert.equal(countChunksForPaths([]), 0);
+  });
+
+  it('lists all note paths', () => {
+    const all = getAllNotePaths();
+    assert.ok(all.includes('target.md'));
   });
 });

@@ -651,6 +651,129 @@ export function getChunkEmbeddingsByPath(notePath: string): Float32Array[] {
   );
 }
 
+/** SQLite caps bound parameters per statement; batch path lists well under it. */
+const PATH_BATCH_SIZE = 500;
+
+function batchPaths(paths: string[]): string[][] {
+  const batches: string[][] = [];
+  for (let i = 0; i < paths.length; i += PATH_BATCH_SIZE) {
+    batches.push(paths.slice(i, i + PATH_BATCH_SIZE));
+  }
+  return batches;
+}
+
+export interface ChunkWithEmbedding {
+  chunkId: number;
+  noteId: number;
+  chunkIndex: number;
+  chunkText: string;
+  headingPath: string | null;
+  charStart: number | null;
+  charEnd: number | null;
+  path: string;
+  title: string;
+  tags: string;
+  aliases: string | null;
+  embedding: Float32Array;
+}
+
+interface ChunkWithEmbeddingRow {
+  chunk_id: number;
+  note_id: number;
+  chunk_index: number;
+  chunk_text: string;
+  heading_path: string | null;
+  char_start: number | null;
+  char_end: number | null;
+  path: string;
+  title: string;
+  tags: string;
+  aliases: string | null;
+  embedding: Buffer;
+}
+
+/**
+ * Return every indexed chunk (with its stored embedding) for the given note paths.
+ * Paths must already be NFD-normalized. Batched so large path sets stay within
+ * SQLite's bound-parameter limit. Returns [] when the vector table is absent.
+ */
+export function getChunksWithEmbeddingsForPaths(paths: string[]): ChunkWithEmbedding[] {
+  if (paths.length === 0 || !hasVecTable()) return [];
+  const db = getDb();
+  const out: ChunkWithEmbedding[] = [];
+
+  for (const batch of batchPaths(paths)) {
+    const placeholders = batch.map(() => '?').join(',');
+    const rows = db
+      .prepare(
+        `SELECT vc.embedding,
+                c.id AS chunk_id, c.note_id, c.chunk_index, c.text AS chunk_text,
+                c.heading_path, c.char_start, c.char_end,
+                n.path, n.title, n.tags, n.aliases
+         FROM vec_chunks vc
+         JOIN chunks c ON c.id = vc.chunk_id
+         JOIN notes n ON n.id = c.note_id
+         WHERE n.path IN (${placeholders})
+         ORDER BY n.path, c.chunk_index`,
+      )
+      .all(...batch) as ChunkWithEmbeddingRow[];
+
+    for (const row of rows) {
+      out.push({
+        chunkId: row.chunk_id,
+        noteId: row.note_id,
+        chunkIndex: row.chunk_index,
+        chunkText: row.chunk_text,
+        headingPath: row.heading_path,
+        charStart: row.char_start,
+        charEnd: row.char_end,
+        path: row.path,
+        title: row.title ?? '',
+        tags: row.tags ?? '[]',
+        aliases: row.aliases,
+        embedding: new Float32Array(
+          row.embedding.buffer,
+          row.embedding.byteOffset,
+          row.embedding.byteLength / 4,
+        ),
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Count indexed chunks across the given note paths without loading embeddings.
+ * Used to size the work estimate before choosing exact scan vs oversampled KNN.
+ */
+export function countChunksForPaths(paths: string[]): number {
+  if (paths.length === 0 || !hasVecTable()) return 0;
+  const db = getDb();
+  let total = 0;
+  for (const batch of batchPaths(paths)) {
+    const placeholders = batch.map(() => '?').join(',');
+    const row = db
+      .prepare(
+        `SELECT COUNT(*) AS n
+         FROM vec_chunks vc
+         JOIN chunks c ON c.id = vc.chunk_id
+         JOIN notes n ON n.id = c.note_id
+         WHERE n.path IN (${placeholders})`,
+      )
+      .get(...batch) as { n: number };
+    total += row.n;
+  }
+  return total;
+}
+
+/** Every indexed note path, unordered. Used as the candidate universe when a
+ *  filter set has no frontmatter component to seed it. */
+export function getAllNotePaths(): string[] {
+  const db = getDb();
+  const rows = db.prepare('SELECT path FROM notes').all() as Array<{ path: string }>;
+  return rows.map((r) => r.path);
+}
+
 interface NoteMeta {
   mtime: number;
   hash: string;
