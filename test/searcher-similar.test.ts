@@ -289,6 +289,22 @@ describe('scan work budget', () => {
         embedding: i === EXACT_AT ? exact : far,
       })),
     });
+
+    // Same shape, but the ONLY exact-matching chunk is the LAST one. Under the old
+    // `floor(i * n / max)` stride the final chunk was unreachable for every max < n,
+    // so this note scored 0.55 no matter the cap.
+    upsertNote({
+      path: 'multi-last.md',
+      title: 'Multi Chunk Note (match at the end)',
+      tags: [],
+      content: 'Multi chunk source note whose match sits in the tail.',
+      mtime: Date.now(),
+      hash: 'hash-multi-last',
+      chunks: Array.from({ length: SOURCE_CHUNKS }, (_, i) => ({
+        text: `Tail chunk ${i}.`,
+        embedding: i === SOURCE_CHUNKS - 1 ? exact : far,
+      })),
+    });
   });
 
   afterAll(() => {
@@ -329,15 +345,31 @@ describe('scan work budget', () => {
   });
 
   it('spreads the subsample across the note instead of taking the first N', async () => {
-    // Cap 9 over 40 chunks: an even stride selects [0,4,8,13,...] and reaches the
-    // exact match at 13; slice(0,9) would select [0..8] and score 0.55.
-    setStoredDim(dimForMaxSourceChunks(9));
+    // Cap 10 over 40 chunks: the stride selects [0,4,8,13,17,21,26,30,34,39] and
+    // reaches the exact match at 13; slice(0,10) would select [0..9] and score 0.55.
+    setStoredDim(dimForMaxSourceChunks(10));
     const meta = await findMeta();
     assert.ok(meta, 'expected meta-note.md');
     assert.ok(
       Math.abs(meta.score - 1) < 1e-5,
       `expected 1.0 from the strided sample reaching chunk ${EXACT_AT}, got ${meta.score} ` +
         '(0.55 means the subsample truncated to the head of the note)',
+    );
+  });
+
+  it('includes the final source chunk in the subsample', async () => {
+    // multi-last.md matches meta-note.md ONLY at chunk 39, the last one. The stride
+    // must span [0, n-1] inclusive to reach it: `floor(i * n / max)` peaks at
+    // floor((max-1) * n / max) < n - 1, so under the old formula the tail of every
+    // long note was unreachable and this scores 0.55. Cap 8 -> [0,5,11,16,22,27,33,39].
+    setStoredDim(dimForMaxSourceChunks(8));
+    const results = await search('', { notePath: 'multi-last.md', tag: 'system/meta', limit: 5 });
+    const meta = results.find((r) => r.path === 'meta-note.md');
+    assert.ok(meta, 'expected meta-note.md');
+    assert.ok(
+      Math.abs(meta.score - 1) < 1e-5,
+      `expected 1.0 from a subsample reaching the final chunk ${SOURCE_CHUNKS - 1}, ` +
+        `got ${meta.score} (0.55 means the stride never sampled the note's tail)`,
     );
   });
 

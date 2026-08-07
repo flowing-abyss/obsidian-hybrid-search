@@ -1916,10 +1916,15 @@ const OVERSAMPLE_MAX = 500;
  */
 function subsampleEvenly<T>(items: T[], max: number): T[] {
   if (items.length <= max) return items;
+  if (max === 1) return [items[0]!];
   const out: T[] = [];
+  const last = items.length - 1;
   for (let i = 0; i < max; i++) {
-    // i < max, so (i * items.length) / max < items.length — index is always in bounds.
-    out.push(items[Math.floor((i * items.length) / max)]!);
+    // Stride over [0, last] INCLUSIVE. The earlier `i * length / max` form peaked at
+    // floor((max-1) * length / max) < length - 1, so the tail of the note was
+    // unreachable — a 132-chunk note capped at 8 never sampled its final ~16 chunks.
+    // i <= max - 1, so (i * last) / (max - 1) <= last — index is always in bounds.
+    out.push(items[Math.floor((i * last) / (max - 1))]!);
   }
   return out;
 }
