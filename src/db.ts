@@ -1154,7 +1154,6 @@ export function filterNotePathsByTag(paths: string[], tag: string | string[]): S
   const filters = Array.isArray(tag) ? tag : [tag];
   const includes = filters.filter((t) => !t.startsWith('-')).map(normalizeTag);
   const excludes = filters.filter((t) => t.startsWith('-')).map((t) => normalizeTag(t.slice(1)));
-  const pathPlaceholders = paths.map(() => '?').join(', ');
 
   // Multiple include tags = AND logic (note must have ALL specified tags)
   const includeExistsClauses: string[] = [];
@@ -1179,19 +1178,26 @@ export function filterNotePathsByTag(paths: string[], tag: string | string[]): S
   const excludeClause =
     excludeNotExistsClauses.length > 0 ? excludeNotExistsClauses.join(' AND ') : '1';
 
-  const rows = db
-    .prepare(
-      `SELECT n.path
+  // Batched: callers may pass the entire vault (resolveFilteredPaths does), and one
+  // bound parameter per path would blow SQLITE_MAX_VARIABLE_NUMBER on a large vault.
+  const matched = new Set<string>();
+  for (const batch of batchPaths(paths)) {
+    const pathPlaceholders = batch.map(() => '?').join(', ');
+    const rows = db
+      .prepare(
+        `SELECT n.path
        FROM notes n
        WHERE n.path IN (${pathPlaceholders})
          AND ${excludeClause}
          AND ${includeClause}`,
-    )
-    .all(...paths, ...excludeNotExistsParams, ...includeExistsParams) as Array<{
-    path: string;
-  }>;
+      )
+      .all(...batch, ...excludeNotExistsParams, ...includeExistsParams) as Array<{
+      path: string;
+    }>;
+    for (const row of rows) matched.add(row.path);
+  }
 
-  return new Set(rows.map((row) => row.path));
+  return matched;
 }
 
 export function filterNotePathsByFrontmatter(
@@ -1204,7 +1210,6 @@ export function filterNotePathsByFrontmatter(
   const filters = Array.isArray(frontmatter) ? frontmatter : [frontmatter];
   const includes = filters.filter((f) => !f.startsWith('-'));
   const excludes = filters.filter((f) => f.startsWith('-')).map((f) => f.slice(1));
-  const pathPlaceholders = paths.map(() => '?').join(', ');
 
   // Multiple include filters = AND logic (note must have ALL specified field values)
   const includeExistsClauses: string[] = [];
@@ -1242,19 +1247,26 @@ export function filterNotePathsByFrontmatter(
   const excludeClause =
     excludeNotExistsClauses.length > 0 ? excludeNotExistsClauses.join(' AND ') : '1';
 
-  const rows = db
-    .prepare(
-      `SELECT n.path
+  // Batched for the same reason as filterNotePathsByTag: the path set may be the
+  // whole vault, which would otherwise exceed SQLite's bound-parameter limit.
+  const matched = new Set<string>();
+  for (const batch of batchPaths(paths)) {
+    const pathPlaceholders = batch.map(() => '?').join(', ');
+    const rows = db
+      .prepare(
+        `SELECT n.path
        FROM notes n
        WHERE n.path IN (${pathPlaceholders})
          AND ${excludeClause}
          AND ${includeClause}`,
-    )
-    .all(...paths, ...excludeNotExistsParams, ...includeExistsParams) as Array<{
-    path: string;
-  }>;
+      )
+      .all(...batch, ...excludeNotExistsParams, ...includeExistsParams) as Array<{
+      path: string;
+    }>;
+    for (const row of rows) matched.add(row.path);
+  }
 
-  return new Set(rows.map((row) => row.path));
+  return matched;
 }
 
 export function getMatchingNotesByFrontmatter(

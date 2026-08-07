@@ -8,13 +8,13 @@ const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-searcher-similar-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 vi.resetModules();
 
-const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/db.js');
+const { closeDb, openDb, initVecTable, upsertNote, getDb } = await import('../src/db.js');
 
 // Mock embedder before importing searcher so live bindings pick up the mock
 const embedder = await import('../src/embedder.js');
 vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
 
-const { search } = await import('../src/searcher.js');
+const { search, bumpIndexVersion } = await import('../src/searcher.js');
 
 beforeAll(() => {
   openDb();
@@ -151,5 +151,108 @@ describe('exact scan scoring parity', () => {
       );
     }
     assert.ok(compared > 0, 'expected overlapping notes between the two paths');
+  });
+});
+
+describe('scan work budget', () => {
+  // Mirrors SCAN_WORK_BUDGET in src/searcher.ts. The budget is module-private by
+  // design (knip), so the test drives it through the one input it can control:
+  // the stored embedding dimension, which is a real DB setting and only ever
+  // feeds the work ESTIMATE — the vectors themselves stay 4-dimensional.
+  const SCAN_WORK_BUDGET = 150_000_000;
+
+  // The tag filter resolves to exactly meta-note.md, which has exactly 1 chunk,
+  // so workPerSourceChunk === storedDim. Setting storedDim relative to the budget
+  // therefore selects the branch precisely.
+  const setStoredDim = (dim: number): void => {
+    getDb()
+      .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_dim', ?)")
+      .run(String(dim));
+    bumpIndexVersion();
+  };
+
+  const clearStoredDim = (): void => {
+    getDb().prepare("DELETE FROM settings WHERE key = 'embedding_dim'").run();
+    bumpIndexVersion();
+  };
+
+  beforeAll(() => {
+    // 8 chunks, all far from meta-note.md EXCEPT index 4, which matches it exactly.
+    // Index 4 is chosen so the score discriminates the sampling strategy:
+    //   full scan (all 8)          -> 1.0
+    //   subsample to 1  -> [0]     -> 0.55
+    //   subsample to 2, stride     -> [0, 4] -> 1.0
+    //   subsample to 2, slice(0,2) -> [0, 1] -> 0.55  (would fail the stride test)
+    const far = new Float32Array([0.1, 0.2, 0.3, 0.4]);
+    const exact = new Float32Array([0.9, 0.1, 0.0, 0.0]);
+    upsertNote({
+      path: 'multi.md',
+      title: 'Multi Chunk Note',
+      tags: [],
+      content: 'Multi chunk source note.',
+      mtime: Date.now(),
+      hash: 'hash-multi',
+      chunks: Array.from({ length: 8 }, (_, i) => ({
+        text: `Multi chunk ${i}.`,
+        embedding: i === 4 ? exact : far,
+      })),
+    });
+  });
+
+  afterAll(() => {
+    clearStoredDim();
+  });
+
+  it('scans every source chunk when the work fits the budget', async () => {
+    clearStoredDim();
+    const results = await search('', { notePath: 'multi.md', tag: 'system/meta', limit: 5 });
+    const meta = results.find((r) => r.path === 'meta-note.md');
+    assert.ok(meta, 'expected meta-note.md');
+    // Chunk 4 matches meta-note.md exactly, so the best-over-chunks score is 1.0.
+    assert.ok(Math.abs(meta.score - 1) < 1e-5, `expected full-scan score 1.0, got ${meta.score}`);
+  });
+
+  it('subsamples source chunks instead of dropping candidates when over budget', async () => {
+    // workPerSourceChunk === budget → maxSourceChunks = 1 → only chunk 0 survives.
+    setStoredDim(SCAN_WORK_BUDGET);
+    const results = await search('', { notePath: 'multi.md', tag: 'system/meta', limit: 5 });
+
+    // The candidate is still returned — that is what the restructure protects.
+    const meta = results.find((r) => r.path === 'meta-note.md');
+    assert.ok(
+      meta,
+      'expected meta-note.md — subsampling must reduce SOURCE chunks, not candidates',
+    );
+    // Fidelity degrades gracefully: chunk 4 was subsampled away, so we see chunk 0's
+    // score. This also proves the subsample actually happened.
+    assert.ok(
+      Math.abs(meta.score - 0.55) < 1e-5,
+      `expected subsampled score 0.55 (chunk 0 only), got ${meta.score}`,
+    );
+  });
+
+  it('spreads the subsample across the note instead of taking the first N', async () => {
+    // workPerSourceChunk === budget/2 → maxSourceChunks = 2. An even stride over 8
+    // chunks selects [0, 4] and finds the exact match; slice(0, 2) would select
+    // [0, 1] and score 0.55, so this test fails for a head-truncating subsample.
+    setStoredDim(SCAN_WORK_BUDGET / 2);
+    const results = await search('', { notePath: 'multi.md', tag: 'system/meta', limit: 5 });
+    const meta = results.find((r) => r.path === 'meta-note.md');
+    assert.ok(meta, 'expected meta-note.md');
+    assert.ok(
+      Math.abs(meta.score - 1) < 1e-5,
+      `expected 1.0 from the strided sample reaching chunk 4, got ${meta.score} ` +
+        '(0.55 means the subsample truncated to the head of the note)',
+    );
+  });
+
+  it('falls back to oversampled KNN only when one source chunk exceeds the budget', async () => {
+    setStoredDim(SCAN_WORK_BUDGET + 1);
+    const results = await search('', { notePath: 'multi.md', tag: 'system/meta', limit: 5 });
+    // The fixture vault is far smaller than the oversampled pool, so KNN still
+    // surfaces the tagged note at full fidelity.
+    const meta = results.find((r) => r.path === 'meta-note.md');
+    assert.ok(meta, 'expected meta-note.md via the KNN fallback');
+    assert.ok(Math.abs(meta.score - 1) < 1e-5, `expected KNN score 1.0, got ${meta.score}`);
   });
 });

@@ -1663,4 +1663,54 @@ describe('getChunksWithEmbeddingsForPaths', () => {
     const all = getAllNotePaths();
     assert.ok(all.includes('target.md'));
   });
+
+  // resolveFilteredPaths hands these two the entire vault, so an unbatched
+  // `IN (?, ?, ...)` would exceed SQLITE_MAX_VARIABLE_NUMBER on a large vault.
+  it('filterNotePathsByTag batches without hitting the bind-parameter limit', () => {
+    const many = Array.from({ length: 5000 }, (_, i) => `missing-${i}.md`);
+    many.push('target.md');
+    const expectedBatches = Math.ceil(many.length / PATH_BATCH_SIZE);
+
+    const db = getDb();
+    const prepareSpy = vi.spyOn(db, 'prepare');
+    try {
+      // Exclude-only filter: every existing note matches, so the result isolates
+      // batching behavior rather than tag semantics.
+      const matched = filterNotePathsByTag(many, '-no-such-tag');
+      assert.deepEqual([...matched], ['target.md']);
+      const batchQueryCalls = prepareSpy.mock.calls.filter((call) =>
+        String(call[0]).includes('FROM notes n'),
+      );
+      assert.equal(
+        batchQueryCalls.length,
+        expectedBatches,
+        `expected ${expectedBatches} prepared statements (one per batch of ${PATH_BATCH_SIZE} paths), got ${batchQueryCalls.length}`,
+      );
+    } finally {
+      prepareSpy.mockRestore();
+    }
+  });
+
+  it('filterNotePathsByFrontmatter batches without hitting the bind-parameter limit', () => {
+    const many = Array.from({ length: 5000 }, (_, i) => `missing-${i}.md`);
+    many.push('target.md');
+    const expectedBatches = Math.ceil(many.length / PATH_BATCH_SIZE);
+
+    const db = getDb();
+    const prepareSpy = vi.spyOn(db, 'prepare');
+    try {
+      const matched = filterNotePathsByFrontmatter(many, '-status:archived');
+      assert.deepEqual([...matched], ['target.md']);
+      const batchQueryCalls = prepareSpy.mock.calls.filter((call) =>
+        String(call[0]).includes('FROM notes n'),
+      );
+      assert.equal(
+        batchQueryCalls.length,
+        expectedBatches,
+        `expected ${expectedBatches} prepared statements (one per batch of ${PATH_BATCH_SIZE} paths), got ${batchQueryCalls.length}`,
+      );
+    } finally {
+      prepareSpy.mockRestore();
+    }
+  });
 });
