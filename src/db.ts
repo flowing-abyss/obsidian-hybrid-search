@@ -652,7 +652,7 @@ export function getChunkEmbeddingsByPath(notePath: string): Float32Array[] {
 }
 
 /** SQLite caps bound parameters per statement; batch path lists well under it. */
-const PATH_BATCH_SIZE = 500;
+export const PATH_BATCH_SIZE = 500;
 
 function batchPaths(paths: string[]): string[][] {
   const batches: string[][] = [];

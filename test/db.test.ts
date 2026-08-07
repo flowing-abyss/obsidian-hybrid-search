@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, it } from 'vitest';
+import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 
 // ─── Vault setup (before any imports that read OBSIDIAN_VAULT_PATH) ──────────
 
@@ -62,6 +62,7 @@ const {
   getChunksWithEmbeddingsForPaths,
   countChunksForPaths,
   getAllNotePaths,
+  PATH_BATCH_SIZE,
 } = await import('../src/db.js');
 const { searchBm25, searchFuzzyTitle, search } = await import('../src/searcher.js');
 const { isIgnored } = await import('../src/ignore.js');
@@ -1605,14 +1606,57 @@ describe('getChunksWithEmbeddingsForPaths', () => {
   it('batches without hitting the bind-parameter limit', () => {
     const many = Array.from({ length: 5000 }, (_, i) => `missing-${i}.md`);
     many.push('target.md');
-    const rows = getChunksWithEmbeddingsForPaths(many);
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0]!.path, 'target.md');
+    const expectedBatches = Math.ceil(many.length / PATH_BATCH_SIZE);
+
+    const db = getDb();
+    const prepareSpy = vi.spyOn(db, 'prepare');
+    try {
+      const rows = getChunksWithEmbeddingsForPaths(many);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0]!.path, 'target.md');
+      // Exclude the hasVecTable() sqlite_master probe — only count the actual
+      // per-batch SELECT so the assertion reflects batching, not unrelated calls.
+      const batchQueryCalls = prepareSpy.mock.calls.filter((call) =>
+        String(call[0]).includes('FROM vec_chunks vc'),
+      );
+      assert.equal(
+        batchQueryCalls.length,
+        expectedBatches,
+        `expected ${expectedBatches} prepared statements (one per batch of ${PATH_BATCH_SIZE} paths), got ${batchQueryCalls.length}`,
+      );
+    } finally {
+      prepareSpy.mockRestore();
+    }
   });
 
   it('counts chunks for a path set', () => {
     assert.equal(countChunksForPaths(['target.md']), 1);
     assert.equal(countChunksForPaths([]), 0);
+  });
+
+  it('countChunksForPaths batches without hitting the bind-parameter limit', () => {
+    const many = Array.from({ length: 5000 }, (_, i) => `missing-${i}.md`);
+    many.push('target.md');
+    const expectedBatches = Math.ceil(many.length / PATH_BATCH_SIZE);
+
+    const db = getDb();
+    const prepareSpy = vi.spyOn(db, 'prepare');
+    try {
+      const count = countChunksForPaths(many);
+      assert.equal(count, 1);
+      // Exclude the hasVecTable() sqlite_master probe — only count the actual
+      // per-batch COUNT(*) query so the assertion reflects batching, not unrelated calls.
+      const batchQueryCalls = prepareSpy.mock.calls.filter((call) =>
+        String(call[0]).includes('FROM vec_chunks vc'),
+      );
+      assert.equal(
+        batchQueryCalls.length,
+        expectedBatches,
+        `expected ${expectedBatches} prepared statements (one per batch of ${PATH_BATCH_SIZE} paths), got ${batchQueryCalls.length}`,
+      );
+    } finally {
+      prepareSpy.mockRestore();
+    }
   });
 
   it('lists all note paths', () => {
