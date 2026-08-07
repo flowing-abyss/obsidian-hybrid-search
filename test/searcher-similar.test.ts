@@ -267,11 +267,17 @@ describe('scan work budget', () => {
 
   beforeAll(() => {
     // 40 chunks, all far from meta-note.md EXCEPT index 13, which matches it exactly.
-    // Index 13 is chosen so the score discriminates EVERY branch under test:
-    //   all 40 (no cap)                    -> hits 13   -> 1.0
-    //   cap 8,  stride [0,5,10,15,...]     -> misses 13 -> 0.55
-    //   cap 9,  stride [0,4,8,13,17,...]   -> hits 13   -> 1.0
-    //   cap 9,  slice(0,9) = [0..8]        -> misses 13 -> 0.55  (fails the stride test)
+    // Strides below are the CURRENT formula, floor(i * (n-1) / (max-1)) over n = 40 —
+    // it spans [0, 39] inclusive, so every cap ends on the final chunk. Index 13 is
+    // chosen so the score discriminates EVERY branch under test:
+    //   all 40 (no cap)                            -> hits 13   -> 1.0
+    //   cap 8,  [0,5,11,16,22,27,33,39]            -> misses 13 -> 0.55
+    //   cap 10, [0,4,8,13,17,21,26,30,34,39]       -> hits 13   -> 1.0
+    //   cap 10, slice(0,10) = [0..9]               -> misses 13 -> 0.55  (fails the stride test)
+    // Cap 10 is what the spread test uses precisely because of that last pair: it is
+    // the smallest cap whose stride reaches 13 while head-truncation still misses it,
+    // so the test cannot pass unless the subsample really is spread. (Cap 9 gives
+    // [0,4,9,14,19,24,29,34,39] and misses 13 — it would not discriminate.)
     // Crucially, cap 8 MISSING index 13 is what makes the I/O-gate test meaningful:
     // if that gate were deleted, the over-ceiling case would scan with cap 8 and
     // score 0.55 instead of the KNN path's 1.0.
