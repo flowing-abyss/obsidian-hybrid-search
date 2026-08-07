@@ -1852,6 +1852,20 @@ async function searchSimilar(notePath: string, limit: number): Promise<RawResult
  * an approximate answer beats a slow exact one. In vault terms it admits ~5.4k
  * candidate chunks at dim 3072 (text-embedding-3-large) and ~43k at dim 384 (the
  * default local model), so a small model scans a proportionally larger vault.
+ *
+ * KNOWN BOUNDARY — the ceiling is NOT "the filter is basically the whole vault".
+ * At the measured ~7.9 chunks/note it translates to roughly:
+ *     dim  384 (local multilingual-e5-small) : ~5,500 candidate notes
+ *     dim 1536 (text-embedding-3-small)      : ~1,380 candidate notes  <- the
+ *              DEFAULT whenever OPENAI_API_KEY is set
+ *     dim 3072 (text-embedding-3-large)      :   ~690 candidate notes
+ * So on a 30k-note vault at dim 1536, a tag matching 2,000 notes — 6.7% of the
+ * vault, narrow by any reading — already exceeds this ceiling and degrades to
+ * knnSimilar() over a 500-deep pool plus post-filtering. If none of the global
+ * top-500 carry the tag, the result is empty: the same class of symptom this
+ * function exists to fix, ~50x further out. Filters wider than the numbers above
+ * are therefore APPROXIMATE, not exact. The real fix is a sqlite-vec rowid
+ * pre-filter (out of scope here; see the design spec's "Явно вне рамок").
  */
 const SCAN_IO_BUDGET_BYTES = 64 * 1024 * 1024;
 
@@ -1912,8 +1926,9 @@ function subsampleEvenly<T>(items: T[], max: number): T[] {
  * Two independent gates gate the scan:
  *   1. I/O (candidate-driven). Over the ceiling the scan is unaffordable outright —
  *      subsampling source chunks would not reduce a single byte read — so we fall
- *      back to oversampled KNN. At that size the filtered set covers a large share
- *      of the vault, so the filter is not narrow and KNN is the right tool.
+ *      back to oversampled KNN. That fallback is APPROXIMATE and can still return
+ *      empty for a genuinely narrow filter on a large vault; see the known-boundary
+ *      note on SCAN_IO_BUDGET_BYTES for the exact note counts per dimension.
  *   2. CPU (source × candidate). Met by reducing SOURCE chunks, never candidates:
  *      score fidelity degrades gracefully, whereas dropping candidates makes
  *      matching notes vanish — the very defect this function exists to fix.
