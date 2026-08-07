@@ -115,6 +115,36 @@ describe('path lookup combined with filters', () => {
     );
   });
 
+  it('reads only tag-matching candidates during the scan', async () => {
+    // Results alone cannot protect the tag arm of resolveFilteredPaths: the
+    // pipeline's trailing applyTagFilter keeps them correct even if the arm is
+    // deleted. But the arm feeds BOTH gates — a deleted arm inflates
+    // candidateChunks, which on a large vault trips the I/O gate into a 500-deep
+    // KNN pool (the original defect) and below the gate subsamples the source note
+    // harder. So assert the narrowing directly, at the scan's chunk reader.
+    const scanSpy = vi.spyOn(dbModule, 'getChunksWithEmbeddingsForPaths');
+    try {
+      bumpIndexVersion();
+      const results = await search('', { notePath: 'target.md', tag: 'system/meta', limit: 3 });
+      assert.ok(
+        results.some((r) => r.path === 'meta-note.md'),
+        'expected meta-note.md',
+      );
+
+      const scanned = [...new Set(scanSpy.mock.calls.flatMap((call) => call[0]))];
+      assert.ok(scanned.length > 0, 'expected the exact scan to run');
+      const stray = scanned.filter((p) => p !== 'meta-note.md').sort((a, b) => a.localeCompare(b));
+      assert.deepEqual(
+        stray,
+        [],
+        'the tag arm of resolveFilteredPaths must narrow the candidate pool to the ' +
+          `tagged notes; the scan also read: ${stray.join(', ')}`,
+      );
+    } finally {
+      scanSpy.mockRestore();
+    }
+  });
+
   it('returns nothing when the filter matches no note', async () => {
     const results = await search('', {
       notePath: 'target.md',
@@ -293,6 +323,12 @@ describe('scope and frontmatter arms of the filter resolver', () => {
   // truncating limit in the frontmatter arm (the exact mistake the code comment
   // warns about) would have passed the whole suite silently.
   const far = new Float32Array([0.9, 0.1, 0.0, 0.0]);
+  /** Exactly the notes carrying `status: active` — the frontmatter arm's correct output. */
+  const FM_MATCHING = new Set([
+    ...Array.from({ length: 24 }, (_, i) => `fm/filler-${i}.md`),
+    'fm/zz-target.md',
+  ]);
+
   // Closer to target.md than `far`, but still strictly worse than the 21 notes
   // sitting at distance 0 — so it ranks #1 within the filtered set while being
   // unable to survive an unfiltered top-3.
@@ -383,6 +419,39 @@ describe('scope and frontmatter arms of the filter resolver', () => {
       'expected fm/zz-target.md — it sorts last by title among 25 frontmatter matches, so ' +
         'any LIMIT other than -1 in resolveFilteredPaths drops it',
     );
+  });
+
+  it('reads only frontmatter-matching candidates during the scan', async () => {
+    // Same reasoning as the tag and scope arms: the trailing applyFrontmatterFilter
+    // keeps results correct even if the frontmatter seed is replaced by
+    // getAllNotePaths(), so only the scan's reads reveal whether the pool was
+    // narrowed. This is the assertion that catches arm DELETION; the sibling test
+    // above catches the separate `-1 -> truncating limit` regression.
+    const scanSpy = vi.spyOn(dbModule, 'getChunksWithEmbeddingsForPaths');
+    try {
+      bumpIndexVersion();
+      const results = await search('', {
+        notePath: 'target.md',
+        frontmatter: 'status:active',
+        limit: 3,
+      });
+      assert.ok(
+        results.some((r) => r.path === 'fm/zz-target.md'),
+        'expected fm/zz-target.md',
+      );
+
+      const scanned = [...new Set(scanSpy.mock.calls.flatMap((call) => call[0]))];
+      assert.ok(scanned.length > 0, 'expected the exact scan to run');
+      const stray = scanned.filter((p) => !FM_MATCHING.has(p)).sort((a, b) => a.localeCompare(b));
+      assert.deepEqual(
+        stray,
+        [],
+        'the frontmatter arm of resolveFilteredPaths must narrow the candidate pool ' +
+          `to notes matching status:active; the scan also read: ${stray.join(', ')}`,
+      );
+    } finally {
+      scanSpy.mockRestore();
+    }
   });
 
   it('returns nothing when the scope matches no note', async () => {
