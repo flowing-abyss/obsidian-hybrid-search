@@ -825,10 +825,20 @@ function searchVector(queryEmbedding: Float32Array, limit: number): RawResult[] 
  *  not by the size of the filtered set. */
 const SCAN_BATCH_NOTES = 200;
 
+/**
+ * Squared L2 distance, or Infinity when the vectors have different dimensions.
+ *
+ * Failing closed on a mismatch is deliberate: comparing only the overlapping
+ * prefix would omit terms from the sum and therefore report an INFLATED
+ * similarity, silently. The KNN path fails closed too — sqlite-vec throws on a
+ * dimension mismatch and searchVector returns []. Reachable when a note takes the
+ * getSimilaritySource re-embed fallback while the configured model's dimension
+ * differs from the one the vectors were indexed with.
+ */
 function squaredL2(a: Float32Array, b: Float32Array): number {
-  const n = Math.min(a.length, b.length);
+  if (a.length !== b.length) return Infinity;
   let sum = 0;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < a.length; i++) {
     const d = a[i]! - b[i]!;
     sum += d * d;
   }
@@ -858,10 +868,18 @@ function scanSimilarExact(
     const batch = targets.slice(i, i + SCAN_BATCH_NOTES);
     for (const chunk of getChunksWithEmbeddingsForPaths(batch)) {
       let best = 0;
+      let comparable = false;
       for (const source of sourceEmbeddings) {
-        const score = Math.max(0, 1 - squaredL2(source, chunk.embedding) / 2);
+        const d2 = squaredL2(source, chunk.embedding);
+        // Dimension mismatch — skip rather than score a truncated prefix. If NO
+        // source chunk is comparable we emit nothing for this note, mirroring the
+        // KNN path, which returns [] outright when sqlite-vec rejects the vector.
+        if (!Number.isFinite(d2)) continue;
+        comparable = true;
+        const score = Math.max(0, 1 - d2 / 2);
         if (score > best) best = score;
       }
+      if (!comparable) continue;
       const existing = byPath.get(chunk.path);
       if (existing && existing.score >= best) continue;
       byPath.set(chunk.path, {
@@ -1791,12 +1809,12 @@ async function getSimilaritySource(normalizedPath: string): Promise<SimilaritySo
   return { embeddings: [f32], excluded };
 }
 
-async function searchSimilar(notePath: string, limit: number): Promise<RawResult[]> {
-  // macOS stores filenames as NFD; normalize to match DB paths
-  const normalizedPath = notePath.normalize('NFD');
-  const source = await getSimilaritySource(normalizedPath);
-  if (!source) return [];
-
+/**
+ * KNN similarity over an ALREADY-RESOLVED source. Split out so callers that have
+ * resolved the source can reuse it — re-resolving costs a second embedQuery
+ * round-trip for any note indexed without embeddings.
+ */
+function knnSimilar(source: SimilaritySource, limit: number): RawResult[] {
   // Run vector search per source chunk, deduplicate by path keeping the max score
   const allResults = source.embeddings.flatMap((f32) => searchVector(f32, limit + 1));
 
@@ -1810,16 +1828,44 @@ async function searchSimilar(notePath: string, limit: number): Promise<RawResult
   return [...byPath.values()].sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
+async function searchSimilar(notePath: string, limit: number): Promise<RawResult[]> {
+  // macOS stores filenames as NFD; normalize to match DB paths
+  const source = await getSimilaritySource(notePath.normalize('NFD'));
+  if (!source) return [];
+  return knnSimilar(source, limit);
+}
+
 /**
- * Float-multiply budget for the exact scan: sourceChunks × candidateChunks × dim.
- * Expressed in work rather than note count because embedding dimension varies
- * 384..3072 across supported models and a source note can hold 130+ chunks —
- * a note-count threshold reflects neither.
+ * I/O ceiling for the exact scan, in bytes of embedding blob: candidateChunks × dim × 4.
  *
- * When the budget is exceeded we reduce SOURCE chunks, never candidates: dropping
- * candidates is the exact defect this branch exists to fix.
+ * This is the gate that actually matters. Reading every candidate embedding out of
+ * SQLite and materializing Float32Arrays dominates the scan; the float multiplies
+ * are nearly free by comparison. Source-chunk subsampling cannot help here — I/O
+ * volume is set by the candidate set alone — so when this ceiling is exceeded the
+ * scan is simply not affordable and we fall back to KNN. That is honest: we cannot
+ * scan what we will not read.
+ *
+ * 64 MB is a LATENCY budget for a single uncached query, not a memory limit (the
+ * scan is already batched by SCAN_BATCH_NOTES). At typical local SSD/page-cache
+ * throughput it lands in the low hundreds of milliseconds — acceptable for an
+ * explicit "find notes like this one, filtered" request, and the point past which
+ * an approximate answer beats a slow exact one. In vault terms it admits ~5.4k
+ * candidate chunks at dim 3072 (text-embedding-3-large) and ~43k at dim 384 (the
+ * default local model), so a small model scans a proportionally larger vault.
  */
-const SCAN_WORK_BUDGET = 150_000_000;
+const SCAN_IO_BUDGET_BYTES = 64 * 1024 * 1024;
+
+/**
+ * CPU budget for the exact scan, in float multiplies: sourceChunks × candidateChunks × dim.
+ * Applied only AFTER the I/O ceiling has admitted the scan.
+ *
+ * Expressed in work rather than note count because embedding dimension varies
+ * 384..3072 across supported models and a source note can hold 130+ chunks — a
+ * note-count threshold reflects neither. When this budget is exceeded we reduce
+ * SOURCE chunks, never candidates: dropping candidates is the exact defect this
+ * branch exists to fix.
+ */
+const SCAN_CPU_BUDGET = 150_000_000;
 
 /**
  * Assumed embedding dimension when the DB has no stored value.
@@ -1863,12 +1909,14 @@ function subsampleEvenly<T>(items: T[], max: number): T[] {
  * filters ever ran, so a narrow filter returned empty. We resolve the filter to a
  * path set first and scan it exhaustively.
  *
- * The scan budget is met by reducing SOURCE chunks, not candidates: score fidelity
- * degrades gracefully, whereas dropping candidates makes matching notes vanish —
- * the very defect this function exists to fix. Only when a SINGLE source chunk
- * already exceeds the budget do we fall back to oversampled KNN, and at that point
- * the filtered set covers a large share of the vault, so the filter is not narrow
- * and KNN is the right tool.
+ * Two independent gates gate the scan:
+ *   1. I/O (candidate-driven). Over the ceiling the scan is unaffordable outright —
+ *      subsampling source chunks would not reduce a single byte read — so we fall
+ *      back to oversampled KNN. At that size the filtered set covers a large share
+ *      of the vault, so the filter is not narrow and KNN is the right tool.
+ *   2. CPU (source × candidate). Met by reducing SOURCE chunks, never candidates:
+ *      score fidelity degrades gracefully, whereas dropping candidates makes
+ *      matching notes vanish — the very defect this function exists to fix.
  */
 async function searchSimilarFiltered(
   notePath: string,
@@ -1886,22 +1934,25 @@ async function searchSimilarFiltered(
 
   const dim = getStoredEmbeddingDim() ?? ASSUMED_EMBEDDING_DIM;
   const candidateChunks = countChunksForPaths(candidatePaths);
-  const workPerSourceChunk = candidateChunks * dim;
 
-  // Even one source chunk blows the budget — the filtered set is a large share of
-  // the vault, so the filter is broad and KNN's approximation is acceptable.
-  if (workPerSourceChunk > SCAN_WORK_BUDGET) {
-    return searchSimilar(notePath, Math.min(limit * 20, OVERSAMPLE_MAX));
+  // Gate 1 — I/O. Reading the candidate blobs is the scan's dominant cost and no
+  // amount of source subsampling reduces it, so this decides scan vs KNN outright.
+  if (candidateChunks * dim * 4 > SCAN_IO_BUDGET_BYTES) {
+    // Reuse the resolved source: searchSimilar would re-run getSimilaritySource,
+    // costing a second embedQuery round-trip for a note indexed without embeddings.
+    return knnSimilar(source, Math.min(limit * 20, OVERSAMPLE_MAX));
   }
 
+  // Gate 2 — CPU. Trim source chunks so the scan's arithmetic stays bounded.
   // Nothing indexed among the candidates (workPerSourceChunk === 0) still scans;
   // scanSimilarExact simply finds no chunks and returns [].
+  const workPerSourceChunk = candidateChunks * dim;
   const sourceEmbeddings =
     workPerSourceChunk === 0
       ? source.embeddings
       : subsampleEvenly(
           source.embeddings,
-          Math.max(1, Math.floor(SCAN_WORK_BUDGET / workPerSourceChunk)),
+          Math.max(1, Math.floor(SCAN_CPU_BUDGET / workPerSourceChunk)),
         );
 
   return scanSimilarExact(sourceEmbeddings, candidatePaths, source.excluded);
