@@ -518,3 +518,46 @@ describe('outgoing-link exclusion on the filtered path', () => {
     );
   });
 });
+
+describe('no-embed re-embed fallback combined with a filter', () => {
+  // no-embed.md has no stored chunks, so getSimilaritySource re-embeds the whole
+  // note via embedQuery into a single source vector — the same fallback covered
+  // unfiltered above. This note carries a distant embedding under its own tag so
+  // it can only surface through the filtered candidate pool, never through an
+  // unfiltered top-N cut (target.md and the 20 fillers all sit at distance 0 from
+  // the re-embedded source vector). This is the fallback-plus-filter combination
+  // the design doc flags as missing from an earlier draft.
+  beforeAll(() => {
+    upsertNote({
+      path: 'no-embed-far.md',
+      title: 'No Embed Far',
+      tags: ['system/no-embed-filter'],
+      content: 'Only reachable through the filtered candidate pool.',
+      mtime: Date.now(),
+      hash: 'hash-no-embed-far',
+      chunks: [
+        {
+          text: 'Only reachable through the filtered candidate pool.',
+          embedding: new Float32Array([0.9, 0.1, 0.0, 0.0]),
+        },
+      ],
+    });
+  });
+
+  it('finds a tagged note through the re-embed fallback that would not survive an unfiltered top-N cut', async () => {
+    const results = await search('', {
+      notePath: 'no-embed.md',
+      tag: 'system/no-embed-filter',
+      limit: 5,
+    });
+    assert.ok(
+      results.some((r) => r.path === 'no-embed-far.md'),
+      'expected no-embed-far.md — the re-embed fallback source must flow into ' +
+        'searchSimilarFiltered and reach the exact scan, not an unfiltered top-5',
+    );
+    assert.ok(
+      results.every((r) => r.path !== 'no-embed.md'),
+      'source note must stay excluded',
+    );
+  });
+});
