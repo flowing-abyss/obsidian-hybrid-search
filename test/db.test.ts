@@ -60,6 +60,7 @@ const {
   isLikelyDatabaseCorruption,
   closeDb,
   getChunksWithEmbeddingsForPaths,
+  getChunkEmbeddingsByPath,
   countChunksForPaths,
   getAllNotePaths,
   PATH_BATCH_SIZE,
@@ -1691,6 +1692,43 @@ describe('getChunksWithEmbeddingsForPaths', () => {
     }
   });
 
+  // Every path in the DB is NFD-normalized (macOS HFS+). resolveFilteredPaths hands
+  // those stored paths straight through, so the chunk reader must match on the NFD
+  // form — an NFC lookup is a different byte string and finds nothing.
+  it('looks up chunks by their stored NFD path', () => {
+    const nfdPath = 'cafe\u0301-note.md'; // 'e' + U+0301 combining acute
+    const nfcPath = 'caf\u00e9-note.md'; // precomposed U+00E9
+    assert.notEqual(nfdPath, nfcPath, 'the two normalization forms must differ as strings');
+    assert.equal(nfcPath.normalize('NFD'), nfdPath, 'fixture must really be the NFD form');
+
+    upsertNote({
+      path: nfdPath,
+      title: 'Cafe Note',
+      tags: [],
+      content: 'A note whose path carries a decomposed character.',
+      mtime: Date.now(),
+      hash: 'hash-cafe',
+      chunks: [
+        {
+          text: 'A note whose path carries a decomposed character.',
+          embedding: new Float32Array([0.5, 0.6, 0.7, 0.8]),
+        },
+      ],
+    });
+
+    const rows = getChunksWithEmbeddingsForPaths([nfdPath]);
+    assert.equal(rows.length, 1, 'NFD lookup must find the chunk');
+    assert.equal(rows[0]!.path, nfdPath);
+    assert.equal(rows[0]!.embedding.length, 4);
+    assert.ok(Math.abs(rows[0]!.embedding[0]! - 0.5) < 1e-6);
+    assert.equal(countChunksForPaths([nfdPath]), 1);
+
+    // Discriminates: if the fixture were stored NFC, the assertions above would pass
+    // for the wrong reason. Only one form can be in the DB.
+    assert.deepEqual(getChunksWithEmbeddingsForPaths([nfcPath]), []);
+    assert.equal(countChunksForPaths([nfcPath]), 0);
+  });
+
   it('filterNotePathsByFrontmatter batches without hitting the bind-parameter limit', () => {
     const many = Array.from({ length: 5000 }, (_, i) => `missing-${i}.md`);
     many.push('target.md');
@@ -1712,5 +1750,55 @@ describe('getChunksWithEmbeddingsForPaths', () => {
     } finally {
       prepareSpy.mockRestore();
     }
+  });
+});
+
+// ─── hasVecTable() guard ─────────────────────────────────────────────────────
+
+// A DB opened but never initVecTable()'d has no `vec_chunks` — the state a vault
+// indexed with embeddings disabled (or a run before the first index) is left in.
+// The chunk readers must degrade to an empty answer there instead of throwing
+// "no such table", because searchSimilarFiltered calls them unconditionally.
+// Runs last: it deliberately leaves the singleton DB without a vec table.
+describe('hasVecTable guard', () => {
+  beforeAll(() => {
+    wipeDatabaseFiles();
+    openDb(); // deliberately NO initVecTable()
+    // Raw INSERT, not upsertNote(): insertChunks() prepares an INSERT against
+    // vec_chunks unconditionally and would throw before the guards are reached.
+    // A real row matters — it makes an empty answer prove the guard fired rather
+    // than merely that no note matched.
+    getDb()
+      .prepare(
+        'INSERT INTO notes (path, title, tags, content, frontmatter, mtime, hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        'vecless.md',
+        'Vecless Note',
+        '[]',
+        'Indexed without a vector table.',
+        '',
+        1,
+        'h-vecless',
+      );
+  });
+
+  it('has no vec_chunks table in this state', () => {
+    const probe = getDb()
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_chunks'")
+      .get();
+    assert.equal(probe, undefined, 'precondition: the vector table must be absent');
+  });
+
+  it('getChunksWithEmbeddingsForPaths returns [] instead of throwing', () => {
+    assert.deepEqual(getChunksWithEmbeddingsForPaths(['vecless.md']), []);
+  });
+
+  it('countChunksForPaths returns 0 instead of throwing', () => {
+    assert.equal(countChunksForPaths(['vecless.md']), 0);
+  });
+
+  it('getChunkEmbeddingsByPath returns [] instead of throwing', () => {
+    assert.deepEqual(getChunkEmbeddingsByPath('vecless.md'), []);
   });
 });
