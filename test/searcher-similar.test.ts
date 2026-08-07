@@ -145,6 +145,41 @@ describe('path lookup combined with filters', () => {
     }
   });
 
+  it('treats an empty-string filter as absent, not as a filter', async () => {
+    // Pins the ONE semantics of hasFilterValue(). `tag: ''` used to be "present"
+    // for the candidate-pool decision and "absent" for every filter that actually
+    // runs — same answer, needless whole-vault resolution. Now it is absent
+    // everywhere, so the two calls must be indistinguishable.
+    const withEmptyTag = await search('', { notePath: 'target.md', tag: '', limit: 5 });
+    const withNoTag = await search('', { notePath: 'target.md', limit: 5 });
+    assert.deepEqual(
+      withEmptyTag.map((r) => r.path),
+      withNoTag.map((r) => r.path),
+      "tag: '' must behave exactly as if no tag filter were given",
+    );
+    assert.ok(withNoTag.length > 0, 'expected a non-empty baseline for the comparison');
+  });
+
+  it("does not resolve a candidate pool for tag: ''", async () => {
+    // The result-equality test above cannot discriminate: both semantics rank the
+    // same notes identically. The COST is the observable difference, so assert at
+    // the exact scan's chunk reader — it runs only when a candidate pool was
+    // resolved. Treating '' as present sends this down the whole-vault scan.
+    const scanSpy = vi.spyOn(dbModule, 'getChunksWithEmbeddingsForPaths');
+    try {
+      bumpIndexVersion();
+      await search('', { notePath: 'target.md', tag: '', limit: 5 });
+      assert.equal(
+        scanSpy.mock.calls.length,
+        0,
+        "tag: '' must not trigger a candidate-pool scan; the scan read " +
+          `${[...new Set(scanSpy.mock.calls.flatMap((c) => c[0]))].length} paths`,
+      );
+    } finally {
+      scanSpy.mockRestore();
+    }
+  });
+
   it('returns nothing when the filter matches no note', async () => {
     const results = await search('', {
       notePath: 'target.md',

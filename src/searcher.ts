@@ -185,11 +185,28 @@ function applyFrontmatterFilter(results: RawResult[], frontmatter: string | stri
   return results.filter((result) => allowedPaths.has(result.path));
 }
 
+/**
+ * True when a tag/scope/frontmatter option carries an actual filter value.
+ *
+ * THE single answer to "is this filter present?" — every site that asks must call
+ * this one. The predicate used to be open-coded at four sites with two different
+ * answers for the empty string, which stayed correct only by accident of where the
+ * trailing filters happened to run. An empty string and an empty array both mean
+ * ABSENT: that matches what the resolver and the result pipeline already do, and it
+ * avoids resolving a whole-vault candidate set for a filter that filters nothing.
+ */
+function hasFilterValue(v: string | string[] | undefined): boolean {
+  if (v === undefined) return false;
+  return Array.isArray(v) ? v.length > 0 : v !== '';
+}
+
 /** True when the options carry a filter that narrows the candidate set. */
 function hasCandidateFilters(options: SearchOptions): boolean {
-  const nonEmpty = (v: string | string[] | undefined): boolean =>
-    v !== undefined && (!Array.isArray(v) || v.length > 0);
-  return nonEmpty(options.tag) || nonEmpty(options.scope) || nonEmpty(options.frontmatter);
+  return (
+    hasFilterValue(options.tag) ||
+    hasFilterValue(options.scope) ||
+    hasFilterValue(options.frontmatter)
+  );
 }
 
 /**
@@ -202,20 +219,19 @@ function hasCandidateFilters(options: SearchOptions): boolean {
  * Filter SEMANTICS stay identical because the low-level helpers are shared.
  */
 function resolveFilteredPaths(options: SearchOptions): string[] {
-  const hasFm =
-    options.frontmatter && (!Array.isArray(options.frontmatter) || options.frontmatter.length > 0);
+  const hasFm = hasFilterValue(options.frontmatter);
 
   // -1 means "no LIMIT" in SQLite. Never pass FETCH_ALL here.
   let paths = hasFm
     ? getMatchingNotesByFrontmatter(options.frontmatter!, -1).map((m) => m.path)
     : getAllNotePaths();
 
-  if (options.scope && (!Array.isArray(options.scope) || options.scope.length > 0)) {
+  if (hasFilterValue(options.scope)) {
     paths = paths.filter((p) => matchesScopeFilter(p, options.scope!));
   }
 
-  if (options.tag && (!Array.isArray(options.tag) || options.tag.length > 0)) {
-    const allowed = filterNotePathsByTag(paths, options.tag);
+  if (hasFilterValue(options.tag)) {
+    const allowed = filterNotePathsByTag(paths, options.tag!);
     paths = paths.filter((p) => allowed.has(p));
   }
 
@@ -1368,21 +1384,20 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     if (cached) return cached;
     let related = searchRelated(resolvedPath, maxDepth, direction, snippetLength, linkType);
     // Apply scope, tag, and frontmatter filters (related bypasses the normal pipeline)
-    if (options.scope) related = related.filter((r) => matchesScopeFilter(r.path, options.scope!));
-    if (options.tag && (!Array.isArray(options.tag) || options.tag.length > 0)) {
+    if (hasFilterValue(options.scope)) {
+      related = related.filter((r) => matchesScopeFilter(r.path, options.scope!));
+    }
+    if (hasFilterValue(options.tag)) {
       const allowedPaths = filterNotePathsByTag(
         related.map((result) => result.path),
-        options.tag,
+        options.tag!,
       );
       related = related.filter((result) => allowedPaths.has(result.path));
     }
-    if (
-      options.frontmatter &&
-      (!Array.isArray(options.frontmatter) || options.frontmatter.length > 0)
-    ) {
+    if (hasFilterValue(options.frontmatter)) {
       const allowedPaths = filterNotePathsByFrontmatter(
         related.map((result) => result.path),
-        options.frontmatter,
+        options.frontmatter!,
       );
       related = related.filter((result) => allowedPaths.has(result.path));
     }
@@ -1407,11 +1422,9 @@ export async function search(input: string, options: SearchOptions = {}): Promis
 
   // Filter-only mode: no text query, but filters present (frontmatter, tag, scope)
   // Return all matching notes sorted by title
-  const hasFrontmatterFilter =
-    options.frontmatter && (!Array.isArray(options.frontmatter) || options.frontmatter.length > 0);
-  const hasTagFilter = options.tag && (!Array.isArray(options.tag) || options.tag.length > 0);
-  const hasScopeFilter =
-    options.scope && (!Array.isArray(options.scope) || options.scope.length > 0);
+  const hasFrontmatterFilter = hasFilterValue(options.frontmatter);
+  const hasTagFilter = hasFilterValue(options.tag);
+  const hasScopeFilter = hasFilterValue(options.scope);
 
   if (!input && !isPathLookup && (hasFrontmatterFilter || hasTagFilter || hasScopeFilter)) {
     const fmKey = cacheKey('', options);
@@ -1536,14 +1549,11 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   const { filteredResults, final } = measureSearchStageSync('filterAndFormat', () => {
     let filteredResults = applyScope(results, options.scope);
     filteredResults = applyThreshold(filteredResults, threshold);
-    if (options.tag && (!Array.isArray(options.tag) || options.tag.length > 0)) {
-      filteredResults = applyTagFilter(filteredResults, options.tag);
+    if (hasFilterValue(options.tag)) {
+      filteredResults = applyTagFilter(filteredResults, options.tag!);
     }
-    if (
-      options.frontmatter &&
-      (!Array.isArray(options.frontmatter) || options.frontmatter.length > 0)
-    ) {
-      filteredResults = applyFrontmatterFilter(filteredResults, options.frontmatter);
+    if (hasFilterValue(options.frontmatter)) {
+      filteredResults = applyFrontmatterFilter(filteredResults, options.frontmatter!);
     }
     filteredResults = filteredResults.slice(0, limit);
 
