@@ -30,6 +30,29 @@ const NEAR = new Float32Array([0.1, 0.2, 0.3, 0.4]);
 const FAR = new Float32Array([0.9, 0.1, 0.0, 0.0]);
 
 /**
+ * One vector per needle note, parallel to NEEDLE_PATHS. All three are far from NEAR
+ * (so the needles stay outside every unfiltered top-N, which is what the pushdown
+ * tests rest on) but at three DISTINCT distances, and their distance order is not
+ * their declaration order — needle-2 is nearest, then needle-3, then needle-1.
+ *
+ * That asymmetry is deliberate: test/knn-prefilter-oracle.test.ts asserts the exact
+ * ranking sqlite-vec returns inside the filtered set. With one shared vector every
+ * needle would tie, the oracle's sort would be a stable no-op, and the ordering half
+ * of the assertion would prove nothing. None of these is unit-length, which is also
+ * deliberate — it is what makes plain cosine disagree with the `1 - L2²/2` expression
+ * searchVector actually uses.
+ */
+const NEEDLE_VECS = [
+  FAR,
+  new Float32Array([0.6, 0.2, 0.1, 0.1]),
+  new Float32Array([0.75, 0.15, 0.05, 0.0]),
+];
+
+/** A needle note that HUB also links to, so `related` + `tag` yields a non-empty
+ *  PROPER subset of the unfiltered related set rather than an empty one. */
+export const HUB_RELATED_NEEDLE = NEEDLE_PATHS[1]!;
+
+/**
  * Seeds a vault where, for the query "alpha" and the source vector NEAR:
  *   - 30 "strong" notes match the text strongly and sit at distance 0 — they fill any
  *     unfiltered top-N;
@@ -90,12 +113,12 @@ export function seedPushdownVault(): void {
       `alpha alpha alpha strong doc ${i}`,
     );
   }
-  for (const p of NEEDLE_PATHS) {
+  for (const [i, p] of NEEDLE_PATHS.entries()) {
     note(
       p,
       ['needle'],
       'alpha mentioned once',
-      FAR,
+      NEEDLE_VECS[i]!,
       { status: 'rare' },
       `weak note that mentions alpha once ${p}`,
     );
@@ -124,7 +147,10 @@ export function seedPushdownVault(): void {
   note(SRC_PATH, [], 'alpha source', NEAR);
   note(HUB_PATH, [], 'alpha hub', NEAR);
   for (const t of HUB_LINK_TARGETS) note(t, [], 'alpha linked', NEAR);
-  upsertLinks(HUB_PATH, HUB_LINK_TARGETS);
+  // HUB_RELATED_NEEDLE is linked too, but deliberately kept OUT of HUB_LINK_TARGETS:
+  // the exclusion tests assert only that HUB's links are absent, while the related
+  // guard needs one linked note that a tag filter can single out.
+  upsertLinks(HUB_PATH, [...HUB_LINK_TARGETS, HUB_RELATED_NEEDLE]);
 
   // Second hub. Deliberately free of the token "alpha" so it cannot perturb the
   // fixture invariant that the needle notes stay outside the unfiltered top-5.

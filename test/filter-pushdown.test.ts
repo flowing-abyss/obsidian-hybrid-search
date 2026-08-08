@@ -28,6 +28,12 @@ vi.resetModules();
 const { closeDb } = await import('../src/db.js');
 const { search, searchFuzzyTitle } = await import('../src/searcher.js');
 const { buildFilterPredicate } = await import('../src/filter-predicate.js');
+// Imported from the SAME post-reset module graph searcher.js was, so the rerank guard
+// below can spy on the very singleton searcher.js captured. Deliberately NOT a
+// `vi.mock('../src/reranker.js', …)`: with `isolate: false` the mocked module stays in
+// the shared cache, and test/searcher.test.ts — which spies on the real singleton —
+// then silently gets this file's stub instead and fails depending on file order.
+const { reranker } = await import('../src/reranker.js');
 const {
   seedPushdownVault,
   NEEDLE_PATHS,
@@ -41,6 +47,7 @@ const {
   HUB2_TAG,
   HUB2_LINKS,
   HUB2_FAR,
+  HUB_RELATED_NEEDLE,
 } = await import('./fixtures/pushdown-vault.js');
 
 /** Code-unit order, not localeCompare: these are paths, and SQLite orders them BINARY. */
@@ -172,6 +179,125 @@ describe('filter pushdown', () => {
     assert.ok(unfiltered.every((r) => HUB2_FAR.includes(r.path)));
     assert.ok(unfiltered.every((r) => r.path !== HUB2_PATH));
     assert.ok(unfiltered.every((r) => !HUB2_LINKS.includes(r.path)));
+  });
+
+  // ─── Guards for the machinery that survived the post-filter removal ────────
+  //
+  // The pushdown moved tag/scope/frontmatter into SQL. These pin the things that did
+  // NOT move and could therefore have been dropped along with it.
+
+  // `related` bypasses the retrieval pipeline entirely, so it keeps its own JS-side
+  // filtering. HUB links to 12 untagged targets plus one needle, so the filtered set
+  // is a non-empty PROPER subset — an implementation that dropped the filter returns
+  // all 14, one that filtered everything away returns 0, and both fail.
+  it('related mode still honours filters after the post-filter removal', async () => {
+    const all = await search('', { notePath: HUB_PATH, related: true });
+    assert.ok(all.length > 1, 'precondition: the unfiltered related set must be wide');
+    assert.ok(all.some((r) => r.path === HUB_RELATED_NEEDLE));
+
+    const tagged = await search('', { notePath: HUB_PATH, related: true, tag: 'needle' });
+    assert.deepEqual(
+      tagged.map((r) => r.path),
+      [HUB_RELATED_NEEDLE],
+    );
+    assert.ok(all.length > tagged.length);
+  });
+
+  // `threshold` is a score cutoff and cannot be expressed as a predicate over `notes`,
+  // so it stayed in JS. The cut is taken BETWEEN the surviving scores on purpose: a
+  // hard-coded 0.99 would return 0 rows, and "0 < 3" is also what a threshold that
+  // rejected everything would produce.
+  it('threshold still applies alongside a filter', async () => {
+    const loose = await search('alpha', { tag: 'needle', limit: 20, threshold: 0 });
+    assert.equal(loose.length, NEEDLE_PATHS.length);
+    const scores = loose.map((r) => r.score);
+    assert.ok(
+      scores[0]! > scores[scores.length - 1]!,
+      'precondition: filtered scores must differ, or no cut can separate them',
+    );
+
+    const cut = (scores[0]! + scores[scores.length - 1]!) / 2;
+    const strict = await search('alpha', { tag: 'needle', limit: 20, threshold: cut });
+    assert.ok(strict.length > 0, 'the cut sits between real scores, so some must survive');
+    assert.ok(strict.length < loose.length);
+    assert.ok(strict.every((r) => r.score >= cut));
+  });
+
+  // Reranking runs on the retrieval output, which is now already narrowed. Asserting
+  // only that the results are needles would pass even if rerank never ran, so this
+  // checks the stub was invoked, that the pool handed to it was the filtered one, and
+  // that the returned score is the blended value rather than the raw RRF score.
+  it('rerank works on a filtered pool', async () => {
+    // Constant logits are enough — what has to be pinned is that reranking RAN and
+    // that the pool handed to it was the filtered one. The real cross-encoder would
+    // download ~570 MB.
+    const scoreAll = vi
+      .spyOn(reranker, 'scoreAll')
+      .mockImplementation((_query, candidates) => Promise.resolve(candidates.map(() => 0)));
+    try {
+      const results = await search('alpha', {
+        mode: 'hybrid',
+        tag: 'needle',
+        limit: 5,
+        rerank: true,
+      });
+
+      assert.equal(scoreAll.mock.calls.length, 1, 'rerank was silently skipped');
+      assert.equal(
+        scoreAll.mock.calls[0]![1].length,
+        NEEDLE_PATHS.length,
+        'rerank saw an unfiltered pool',
+      );
+
+      assert.ok(results.length > 0);
+      assert.ok(results.every((r) => NEEDLE_PATHS.includes(r.path)));
+      // 0.75 * normalizedHybrid + 0.25 * sigmoid(0); the top candidate normalizes to 1.
+      assert.ok(
+        Math.abs(results[0]!.score - (0.75 + 0.25 * 0.5)) < 1e-6,
+        `expected the blended rerank score, got ${results[0]!.score}`,
+      );
+    } finally {
+      scoreAll.mockRestore();
+    }
+  });
+
+  // Unparsable frontmatter must match NOTHING, not silently degrade to "no filter".
+  // Degrading would fill the top-5 with the strong notes, so a length of 0 is the
+  // only outcome that distinguishes the two.
+  it('a frontmatter filter that parses to nothing matches nothing', async () => {
+    const unfiltered = await search('alpha', { limit: 5 });
+    assert.equal(unfiltered.length, 5, 'precondition: the query must match without the filter');
+    const results = await search('alpha', { frontmatter: 'not-a-pair', limit: 5 });
+    assert.equal(results.length, 0);
+  });
+
+  // limit 0 means "no limit". Retrieval still needs a finite pool, so the pushdown
+  // gave it a ceiling — this pins that the ceiling did not become a literal 0.
+  it('limit 0 returns every match rather than nothing', async () => {
+    const results = await search('alpha', { tag: 'needle', limit: 0 });
+    assert.equal(results.length, NEEDLE_PATHS.length);
+  });
+
+  // The fan-out builds the predicate once in search() and threads it into each
+  // sub-search. A non-empty `input` is required: with '' the filter-only branch
+  // short-circuits before the fan-out and the test would never touch it. "strong"
+  // matches the 30 strong notes and no needle, so an unforwarded predicate puts a
+  // strong note at rank 1.
+  it('multi-query fan-out receives the filter', async () => {
+    const unfiltered = await search('alpha', { queries: ['alpha', 'strong'], limit: 5 });
+    assert.equal(unfiltered.length, 5, 'precondition: the fan-out must return results');
+    assert.ok(
+      unfiltered.every((r) => !NEEDLE_PATHS.includes(r.path)),
+      'a needle reached the unfiltered fan-out top-5 — the assertion below is vacuous',
+    );
+
+    const results = await search('alpha', {
+      queries: ['alpha', 'strong'],
+      tag: 'needle',
+      limit: 5,
+    });
+    assert.equal(results.length, NEEDLE_PATHS.length);
+    assert.ok(results.every((r) => NEEDLE_PATHS.includes(r.path)));
   });
 
   // Characterization: pre-existing and deliberate. Tag matching is by SUBSTRING, so a
