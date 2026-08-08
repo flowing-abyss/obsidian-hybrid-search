@@ -1,5 +1,19 @@
 import { initVecTable, openDb, upsertLinks, upsertNote } from '../../src/db.js';
 
+/**
+ * Alias-arm fixture. Both notes answer to the SAME alias, and it is two characters long
+ * so the trigram index cannot tokenize it — the only arm that can return them is
+ * searchByAliasExact. Their titles and content deliberately avoid the token "alpha", so
+ * they stay outside every other test's pool and cannot perturb the top-5 invariant.
+ *
+ * Exact alias hits enter RRF at weight 2.0. Once the post-filter is gone, an alias hit
+ * that skipped the predicate is undroppable — it lands at or near rank 1 for a query
+ * whose filter should have excluded it.
+ */
+export const ALIAS_QUERY = 'pm';
+export const ALIAS_INCLUDED_PATH = 'work/notes.md'.normalize('NFD');
+export const ALIAS_EXCLUDED_PATH = 'personal/notes.md'.normalize('NFD');
+
 /** Notes carrying the `needle` tag. All rank BELOW the top-5 for the query "alpha"
  *  when unfiltered, which is what makes the pushdown tests discriminate. */
 export const NEEDLE_PATHS = ['weak/needle-1.md', 'weak/needle-2.md', 'weak/needle-3.md'].map((p) =>
@@ -76,6 +90,23 @@ export function seedPushdownVault(): void {
   note('tagged-meta.md'.normalize('NFD'), ['meta'], 'alpha', FAR);
   note('tagged-metadata.md'.normalize('NFD'), ['metadata'], 'alpha', FAR);
   note('deep/inside.md'.normalize('NFD'), [], 'alpha deep', FAR);
+
+  for (const [p, tag] of [
+    [ALIAS_INCLUDED_PATH, 'work'],
+    [ALIAS_EXCLUDED_PATH, 'personal'],
+  ] as const) {
+    upsertNote({
+      path: p,
+      title: p,
+      tags: [tag],
+      aliases: [ALIAS_QUERY],
+      frontmatter: {},
+      content: 'aliased note, deliberately without the shared query token',
+      mtime: Date.now(),
+      hash: 'h-' + p,
+      chunks: [{ text: 'aliased note', embedding: FAR }],
+    });
+  }
 
   note(SRC_PATH, [], 'alpha source', NEAR);
   note(HUB_PATH, [], 'alpha hub', NEAR);

@@ -304,10 +304,12 @@ const SNIPPET_MARK_END = '';
  * The `AND <predicate>` fragment and the params to splice, or empty strings/arrays when
  * no filter is active.
  *
- * An inactive filter MUST contribute a byte-identical SQL string: better-sqlite3 caches
- * prepared statements by SQL text, and an unconditional `AND 1` would fork every
- * unfiltered query onto a second plan. It is also the property the frozen output capture
- * checks.
+ * An inactive filter MUST contribute a byte-identical SQL string. Not for statement
+ * reuse — better-sqlite3 has no SQL-text statement cache, every db.prepare() compiles
+ * afresh — but because identical text is what keeps the unfiltered path's query plan and
+ * its output stable, which is the property the frozen output capture pins. An
+ * unconditional `AND 1` would hand SQLite a different statement to plan on every
+ * unfiltered query in the codebase for no gain.
  */
 function filterFragment(predicate: FilterPredicate | undefined): {
   clause: string;

@@ -16,8 +16,17 @@ vi.mock('../src/embedder.js', () => ({
 }));
 
 const { closeDb } = await import('../src/db.js');
-const { search } = await import('../src/searcher.js');
-const { seedPushdownVault, NEEDLE_PATHS } = await import('./fixtures/pushdown-vault.js');
+const { search, searchFuzzyTitle } = await import('../src/searcher.js');
+const { buildFilterPredicate } = await import('../src/filter-predicate.js');
+const { seedPushdownVault, NEEDLE_PATHS, ALIAS_QUERY, ALIAS_INCLUDED_PATH, ALIAS_EXCLUDED_PATH } =
+  await import('./fixtures/pushdown-vault.js');
+
+/** Code-unit order, not localeCompare: these are paths, and SQLite orders them BINARY. */
+function byCodeUnit(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
 
 beforeAll(() => {
   seedPushdownVault();
@@ -33,7 +42,7 @@ describe('filter pushdown', () => {
   // needle notes are unreachable without a filter; if this breaks, they all still pass
   // and prove nothing.
   it('fixture invariant: needle notes are outside the unfiltered top-5', async () => {
-    for (const mode of ['fulltext', 'title'] as const) {
+    for (const mode of ['fulltext', 'title', 'hybrid'] as const) {
       const top = await search('alpha', { mode, limit: 5 });
       assert.equal(top.length, 5, `${mode}: fixture did not produce a full top-5`);
       assert.ok(
@@ -60,6 +69,26 @@ describe('filter pushdown', () => {
     const results = await search('alpha', { scope: 'deep', limit: 5 });
     assert.ok(results.length > 0);
     assert.ok(results.every((r) => r.path.startsWith('deep/')));
+  });
+
+  // The alias arm is the highest-risk forwarding site: exact alias hits enter RRF at
+  // weight 2.0, so once the post-filter is gone an unfiltered one is undroppable. Both
+  // notes answer to the same two-character alias, which the trigram index cannot
+  // tokenize — searchByAliasExact is the ONLY arm that can return them, so this test
+  // fails the moment searchFuzzyTitle stops forwarding its predicate to it.
+  it('the alias arm applies the predicate', () => {
+    const unfiltered = searchFuzzyTitle(ALIAS_QUERY, 10).map((r) => r.path);
+    assert.deepEqual(
+      unfiltered.sort(byCodeUnit),
+      [ALIAS_EXCLUDED_PATH, ALIAS_INCLUDED_PATH].sort(byCodeUnit),
+      'the alias arm did not fire at all — the assertion below would pass vacuously',
+    );
+
+    const filtered = searchFuzzyTitle(ALIAS_QUERY, 10, buildFilterPredicate({ tag: 'work' }));
+    assert.deepEqual(
+      filtered.map((r) => r.path),
+      [ALIAS_INCLUDED_PATH],
+    );
   });
 
   // Characterization: pre-existing and deliberate. Tag matching is by SUBSTRING, so a
