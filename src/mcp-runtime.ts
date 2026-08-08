@@ -433,7 +433,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
             path: {
               type: 'string',
               description:
-                'Note path for semantic similarity search, e.g. "notes/pkm/zettelkasten.md"; when provided, it is used instead of query/queries. Uses stored chunk embeddings when available, falling back to embedding title + content; excludes the source note and its outgoing links. Combine with related: true for graph traversal.',
+                "Vault-relative path to a note. Returns notes semantically similar to that note, ranked by embedding similarity, excluding the note itself and any note it already links to. Combines with tag/scope/frontmatter filters: the filter is applied to the candidate pool, so a narrow filter still returns the closest matches within it. Use this to find where a note belongs — related aggregators, overlapping topics. Do NOT use it for text search; it ignores the `query` argument entirely — use `query` without `path` for that. Do NOT use it to list a note's existing links — use `related` instead.",
             },
             mode: {
               type: 'string',
@@ -453,7 +453,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
             limit: {
               type: 'number',
               description:
-                'Maximum text/path/filter-only results to return; related traversal uses depth instead. 0 means no limit in filter-only searches. Default 10. ' +
+                'Maximum text/path/filter-only results to return; related traversal uses depth instead. 0 means no limit. Default 10. ' +
                 'Keep at 10 or below for best signal-to-noise unless the user asks for broad enumeration; results past position 10 frequently score below 0.35.',
             },
             threshold: {

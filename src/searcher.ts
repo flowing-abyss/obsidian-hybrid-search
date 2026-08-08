@@ -2,10 +2,13 @@ import path from 'node:path';
 import { buildMatchText, buildMatchTextFromMarkedSnippet, stripSnippetMarkers } from './chunker.js';
 import { config } from './config.js';
 import {
+  countChunksForPaths,
   filterNotePathsByFrontmatter,
   filterNotePathsByTag,
+  getAllNotePaths,
   getBacklinksForPaths,
   getChunkEmbeddingsByPath,
+  getChunksWithEmbeddingsForPaths,
   getDb,
   getDbVersion,
   getLinksForPaths,
@@ -14,6 +17,7 @@ import {
   getNoteByPath,
   getOutgoingLinks,
   getOutgoingLinksForPaths,
+  getStoredEmbeddingDim,
   getUrlsForPaths,
   hasVecTable,
   resolveNotePath,
@@ -179,6 +183,59 @@ function applyFrontmatterFilter(results: RawResult[], frontmatter: string | stri
     frontmatter,
   );
   return results.filter((result) => allowedPaths.has(result.path));
+}
+
+/**
+ * True when a tag/scope/frontmatter option carries an actual filter value.
+ *
+ * THE single answer to "is this filter present?" — every site that asks must call
+ * this one. The predicate used to be open-coded at four sites with two different
+ * answers for the empty string, which stayed correct only by accident of where the
+ * trailing filters happened to run. An empty string and an empty array both mean
+ * ABSENT: that matches what the resolver and the result pipeline already do, and it
+ * avoids resolving a whole-vault candidate set for a filter that filters nothing.
+ */
+function hasFilterValue(v: string | string[] | undefined): boolean {
+  if (v === undefined) return false;
+  return Array.isArray(v) ? v.length > 0 : v !== '';
+}
+
+/** True when the options carry a filter that narrows the candidate set. */
+function hasCandidateFilters(options: SearchOptions): boolean {
+  return (
+    hasFilterValue(options.tag) ||
+    hasFilterValue(options.scope) ||
+    hasFilterValue(options.frontmatter)
+  );
+}
+
+/**
+ * Resolve tag/scope/frontmatter filters into the full set of matching note paths.
+ *
+ * Deliberately does NOT reuse the filter-only branch's code path: that branch
+ * produces synthetic RawResults in title-ASC order and caps at FETCH_ALL, both of
+ * which are wrong here. A truncated set would make the caller's exact-scan-vs-KNN
+ * decision wrong, which is the same class of bug this whole change fixes.
+ * Filter SEMANTICS stay identical because the low-level helpers are shared.
+ */
+function resolveFilteredPaths(options: SearchOptions): string[] {
+  const hasFm = hasFilterValue(options.frontmatter);
+
+  // -1 means "no LIMIT" in SQLite. Never pass FETCH_ALL here.
+  let paths = hasFm
+    ? getMatchingNotesByFrontmatter(options.frontmatter!, -1).map((m) => m.path)
+    : getAllNotePaths();
+
+  if (hasFilterValue(options.scope)) {
+    paths = paths.filter((p) => matchesScopeFilter(p, options.scope!));
+  }
+
+  if (hasFilterValue(options.tag)) {
+    const allowed = filterNotePathsByTag(paths, options.tag!);
+    paths = paths.filter((p) => allowed.has(p));
+  }
+
+  return paths;
 }
 
 function toSearchResult(r: RawResult): SearchResult {
@@ -708,6 +765,15 @@ function isMarkdownWhitespace(char: string): boolean {
   return char === ' ' || char === '\t' || char === '\r' || char === '\n' || char === '\f';
 }
 
+/**
+ * Hard ceiling sqlite-vec enforces on a KNN `k`. Exceeding it throws
+ * "k value in knn query too large", which the catch below used to swallow into an
+ * empty result — so any search with limit > 819 (k = limit * 5) silently returned
+ * nothing, on every vault regardless of size. Clamp instead: k = 4096 already
+ * over-fetches far past any sane result count, and the outer LIMIT does the trimming.
+ */
+const VEC_MAX_K = 4096;
+
 function searchVector(queryEmbedding: Float32Array, limit: number): RawResult[] {
   if (!hasVecTable()) return [];
 
@@ -738,7 +804,7 @@ function searchVector(queryEmbedding: Float32Array, limit: number): RawResult[] 
       LIMIT ?
     `,
         )
-        .all(queryEmbedding, limit * 5, limit) as Array<{
+        .all(queryEmbedding, Math.min(limit * 5, VEC_MAX_K), limit) as Array<{
         chunk_id: number;
         distance: number;
         note_id: number;
@@ -774,10 +840,99 @@ function searchVector(queryEmbedding: Float32Array, limit: number): RawResult[] 
           },
         };
       });
-    } catch {
+    } catch (error) {
+      // Never swallow silently: an empty vector result is indistinguishable from
+      // "no semantic matches", which hid the k-ceiling bug above for a long time.
+      process.stderr.write(
+        `Vector search failed: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
       return [];
     }
   });
+}
+
+/** Process candidate chunks in batches so peak memory stays bounded by the batch,
+ *  not by the size of the filtered set. */
+const SCAN_BATCH_NOTES = 200;
+
+/**
+ * Squared L2 distance, or Infinity when the vectors have different dimensions.
+ *
+ * Failing closed on a mismatch is deliberate: comparing only the overlapping
+ * prefix would omit terms from the sum and therefore report an INFLATED
+ * similarity, silently. The KNN path fails closed too — sqlite-vec throws on a
+ * dimension mismatch and searchVector returns []. Reachable when a note takes the
+ * getSimilaritySource re-embed fallback while the configured model's dimension
+ * differs from the one the vectors were indexed with.
+ */
+function squaredL2(a: Float32Array, b: Float32Array): number {
+  if (a.length !== b.length) return Infinity;
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) {
+    const d = a[i]! - b[i]!;
+    sum += d * d;
+  }
+  return sum;
+}
+
+/**
+ * Exhaustive similarity scan of `candidatePaths` against every source chunk.
+ *
+ * Scores are computed with the SAME expression sqlite-vec's KNN path uses
+ * (searchVector, above): Math.max(0, 1 - squaredL2 / 2). Computing plain cosine
+ * here would diverge, because embeddings are only guaranteed normalized on the
+ * local-model path — the API path stores whatever the endpoint returned.
+ *
+ * Unlike KNN this never truncates, so a filter that matches only distant notes
+ * still returns them ranked. Cost is bounded by the caller's work estimate.
+ */
+function scanSimilarExact(
+  sourceEmbeddings: Float32Array[],
+  candidatePaths: string[],
+  excluded: Set<string>,
+): RawResult[] {
+  const byPath = new Map<string, RawResult>();
+  const targets = candidatePaths.filter((p) => !excluded.has(p));
+
+  for (let i = 0; i < targets.length; i += SCAN_BATCH_NOTES) {
+    const batch = targets.slice(i, i + SCAN_BATCH_NOTES);
+    for (const chunk of getChunksWithEmbeddingsForPaths(batch)) {
+      let best = 0;
+      let comparable = false;
+      for (const source of sourceEmbeddings) {
+        const d2 = squaredL2(source, chunk.embedding);
+        // Dimension mismatch — skip rather than score a truncated prefix. If NO
+        // source chunk is comparable we emit nothing for this note, mirroring the
+        // KNN path, which returns [] outright when sqlite-vec rejects the vector.
+        if (!Number.isFinite(d2)) continue;
+        comparable = true;
+        const score = Math.max(0, 1 - d2 / 2);
+        if (score > best) best = score;
+      }
+      if (!comparable) continue;
+      const existing = byPath.get(chunk.path);
+      if (existing && existing.score >= best) continue;
+      byPath.set(chunk.path, {
+        path: chunk.path,
+        title: chunk.title,
+        tags: chunk.tags,
+        aliases: chunk.aliases,
+        snippet: formatChunkSnippet(chunk.headingPath, chunk.chunkText, chunk.chunkIndex > 0),
+        chunkText: chunk.chunkText,
+        score: best,
+        scores: { semantic: best },
+        semanticAnchor: {
+          kind: 'semantic' as const,
+          headingPath: chunk.headingPath ?? null,
+          matchText: buildMatchText(chunk.chunkText),
+          charStart: chunk.charStart ?? null,
+          charEnd: chunk.charEnd ?? null,
+        },
+      });
+    }
+  }
+
+  return [...byPath.values()].sort((a, b) => b.score - a.score);
 }
 
 function rrfFusion(lists: RawResult[][], k = 60, weights?: number[]): RawResult[] {
@@ -1184,6 +1339,10 @@ export function bumpIndexVersion(): void {
   localVersion++;
 }
 
+/** Ceiling used when the caller asks for "no limit" (limit === 0). Mirrors the
+ *  filter-only branch's FETCH_ALL so both paths cap the vault the same way. */
+const UNLIMITED_RESULTS = 10000;
+
 function cacheKey(input: string, options: SearchOptions): string {
   const scopeStr = Array.isArray(options.scope) ? options.scope.join(',') : (options.scope ?? '');
   const tagStr = Array.isArray(options.tag) ? options.tag.join(',') : (options.tag ?? '');
@@ -1206,6 +1365,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   const mode = options.mode ?? 'hybrid';
   const limit = options.limit ?? 10;
   const threshold = options.threshold ?? 0.0;
+  const noLimit = limit === 0;
   const snippetLength = options.snippetLength ?? 300;
 
   // Path-based lookup when --path is given explicitly, OR when related mode is
@@ -1243,21 +1403,20 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     if (cached) return cached;
     let related = searchRelated(resolvedPath, maxDepth, direction, snippetLength, linkType);
     // Apply scope, tag, and frontmatter filters (related bypasses the normal pipeline)
-    if (options.scope) related = related.filter((r) => matchesScopeFilter(r.path, options.scope!));
-    if (options.tag && (!Array.isArray(options.tag) || options.tag.length > 0)) {
+    if (hasFilterValue(options.scope)) {
+      related = related.filter((r) => matchesScopeFilter(r.path, options.scope!));
+    }
+    if (hasFilterValue(options.tag)) {
       const allowedPaths = filterNotePathsByTag(
         related.map((result) => result.path),
-        options.tag,
+        options.tag!,
       );
       related = related.filter((result) => allowedPaths.has(result.path));
     }
-    if (
-      options.frontmatter &&
-      (!Array.isArray(options.frontmatter) || options.frontmatter.length > 0)
-    ) {
+    if (hasFilterValue(options.frontmatter)) {
       const allowedPaths = filterNotePathsByFrontmatter(
         related.map((result) => result.path),
-        options.frontmatter,
+        options.frontmatter!,
       );
       related = related.filter((result) => allowedPaths.has(result.path));
     }
@@ -1282,11 +1441,9 @@ export async function search(input: string, options: SearchOptions = {}): Promis
 
   // Filter-only mode: no text query, but filters present (frontmatter, tag, scope)
   // Return all matching notes sorted by title
-  const hasFrontmatterFilter =
-    options.frontmatter && (!Array.isArray(options.frontmatter) || options.frontmatter.length > 0);
-  const hasTagFilter = options.tag && (!Array.isArray(options.tag) || options.tag.length > 0);
-  const hasScopeFilter =
-    options.scope && (!Array.isArray(options.scope) || options.scope.length > 0);
+  const hasFrontmatterFilter = hasFilterValue(options.frontmatter);
+  const hasTagFilter = hasFilterValue(options.tag);
+  const hasScopeFilter = hasFilterValue(options.scope);
 
   if (!input && !isPathLookup && (hasFrontmatterFilter || hasTagFilter || hasScopeFilter)) {
     const fmKey = cacheKey('', options);
@@ -1371,12 +1528,18 @@ export async function search(input: string, options: SearchOptions = {}): Promis
 
   let results: RawResult[];
 
+  // limit === 0 means "no limit" — the semantics the filter-only branch above
+  // already implements and the CLI/MCP flags document. Retrieval still needs a
+  // finite pool, so it borrows the same ceiling the filter-only branch uses; the
+  // final slice below is what is actually skipped.
+  const retrievalLimit = noLimit ? UNLIMITED_RESULTS : limit;
+
   if (isPathLookup) {
-    results = await searchSimilar(resolvedPath, limit);
+    results = await searchSimilarFiltered(resolvedPath, retrievalLimit, options);
   } else if (options.queries && options.queries.length > 1) {
     // Multi-query fan-out: run each query in parallel, merge via RRF, then rerank once.
     // Each sub-search uses a larger candidate pool so RRF has enough signal to rank correctly.
-    const candidateLimit = Math.max(limit * 2, 20);
+    const candidateLimit = Math.max(retrievalLimit * 2, 20);
     const perQueryResults = await Promise.all(
       options.queries.map((q) =>
         searchByQuery(q, mode, candidateLimit, snippetLength, false, options.anchors ?? false),
@@ -1401,7 +1564,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     results = await searchByQuery(
       input,
       mode,
-      limit,
+      retrievalLimit,
       snippetLength,
       options.rerank ?? false,
       options.anchors ?? false,
@@ -1411,16 +1574,13 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   const { filteredResults, final } = measureSearchStageSync('filterAndFormat', () => {
     let filteredResults = applyScope(results, options.scope);
     filteredResults = applyThreshold(filteredResults, threshold);
-    if (options.tag && (!Array.isArray(options.tag) || options.tag.length > 0)) {
-      filteredResults = applyTagFilter(filteredResults, options.tag);
+    if (hasFilterValue(options.tag)) {
+      filteredResults = applyTagFilter(filteredResults, options.tag!);
     }
-    if (
-      options.frontmatter &&
-      (!Array.isArray(options.frontmatter) || options.frontmatter.length > 0)
-    ) {
-      filteredResults = applyFrontmatterFilter(filteredResults, options.frontmatter);
+    if (hasFilterValue(options.frontmatter)) {
+      filteredResults = applyFrontmatterFilter(filteredResults, options.frontmatter!);
     }
-    filteredResults = filteredResults.slice(0, limit);
+    if (!noLimit) filteredResults = filteredResults.slice(0, limit);
 
     const paths = filteredResults.map((r) => r.path);
     const { links, backlinks } = getLinksForPaths(paths);
@@ -1658,41 +1818,199 @@ async function searchByQuery(
   return results;
 }
 
-async function searchSimilar(notePath: string, limit: number): Promise<RawResult[]> {
-  // macOS stores filenames as NFD; normalize to match DB paths
-  const normalizedPath = notePath.normalize('NFD');
+interface SimilaritySource {
+  embeddings: Float32Array[];
+  excluded: Set<string>;
+}
+
+/**
+ * Source vectors for a similarity lookup, plus the set of paths to omit.
+ *
+ * Prefers the chunk embeddings stored at index time — re-embedding would truncate
+ * long notes (the local model caps at 512 tokens). Falls back to re-embedding the
+ * whole note only when it was indexed without embeddings, e.g. the API was down.
+ * Excludes the note itself and everything it already links to: those are known.
+ */
+async function getSimilaritySource(normalizedPath: string): Promise<SimilaritySource | null> {
   const note = getNoteByPath(normalizedPath);
-  if (!note) return [];
+  if (!note) return null;
 
-  // Use already-stored chunk embeddings — avoids redundant re-embedding and truncation
-  // (the local model caps at 512 tokens, so long notes lose their tail when re-embedded).
-  // Each chunk was embedded at index time; we search with each and merge by max score.
-  const chunkEmbeddings = getChunkEmbeddingsByPath(normalizedPath);
-
-  if (chunkEmbeddings.length === 0) {
-    // Fallback: note was never indexed with embeddings (e.g. embedding API was down)
-    const f32 = await embedQuery(`${note.title}\n\n${note.content}`);
-    if (!f32) return [];
-    const excluded = new Set([note.path, ...getOutgoingLinks(normalizedPath)]);
-    return searchVector(f32, limit + 1)
-      .filter((r) => !excluded.has(r.path))
-      .slice(0, limit);
-  }
-
-  // Exclude the source note itself and notes it already links to — they are already known.
   const excluded = new Set([note.path, ...getOutgoingLinks(normalizedPath)]);
+  const stored = getChunkEmbeddingsByPath(normalizedPath);
+  if (stored.length > 0) return { embeddings: stored, excluded };
 
-  // Run vector search per chunk, deduplicate by path keeping the max score
-  const allResults = chunkEmbeddings.flatMap((f32) => searchVector(f32, limit + 1));
+  const f32 = await embedQuery(`${note.title}\n\n${note.content}`);
+  if (!f32) return null;
+  return { embeddings: [f32], excluded };
+}
+
+/**
+ * KNN similarity over an ALREADY-RESOLVED source. Split out so callers that have
+ * resolved the source can reuse it — re-resolving costs a second embedQuery
+ * round-trip for any note indexed without embeddings.
+ */
+function knnSimilar(source: SimilaritySource, limit: number): RawResult[] {
+  // Run vector search per source chunk, deduplicate by path keeping the max score
+  const allResults = source.embeddings.flatMap((f32) => searchVector(f32, limit + 1));
 
   const byPath = new Map<string, RawResult>();
   for (const r of allResults) {
-    if (excluded.has(r.path)) continue;
+    if (source.excluded.has(r.path)) continue;
     const existing = byPath.get(r.path);
     if (!existing || r.score > existing.score) byPath.set(r.path, r);
   }
 
   return [...byPath.values()].sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+async function searchSimilar(notePath: string, limit: number): Promise<RawResult[]> {
+  // macOS stores filenames as NFD; normalize to match DB paths
+  const source = await getSimilaritySource(notePath.normalize('NFD'));
+  if (!source) return [];
+  return knnSimilar(source, limit);
+}
+
+/**
+ * I/O ceiling for the exact scan, in bytes of embedding blob: candidateChunks × dim × 4.
+ *
+ * This is the gate that actually matters. Reading every candidate embedding out of
+ * SQLite and materializing Float32Arrays dominates the scan; the float multiplies
+ * are nearly free by comparison. Source-chunk subsampling cannot help here — I/O
+ * volume is set by the candidate set alone — so when this ceiling is exceeded the
+ * scan is simply not affordable and we fall back to KNN. That is honest: we cannot
+ * scan what we will not read.
+ *
+ * 64 MB is a LATENCY budget for a single uncached query, not a memory limit (the
+ * scan is already batched by SCAN_BATCH_NOTES). At typical local SSD/page-cache
+ * throughput it lands in the low hundreds of milliseconds — acceptable for an
+ * explicit "find notes like this one, filtered" request, and the point past which
+ * an approximate answer beats a slow exact one. In vault terms it admits ~5.4k
+ * candidate chunks at dim 3072 (text-embedding-3-large) and ~43k at dim 384 (the
+ * default local model), so a small model scans a proportionally larger vault.
+ *
+ * KNOWN BOUNDARY — the ceiling is NOT "the filter is basically the whole vault".
+ * At the measured ~7.9 chunks/note it translates to roughly:
+ *     dim  384 (local multilingual-e5-small) : ~5,500 candidate notes
+ *     dim 1536 (text-embedding-3-small)      : ~1,380 candidate notes  <- the
+ *              DEFAULT whenever OPENAI_API_KEY is set
+ *     dim 3072 (text-embedding-3-large)      :   ~690 candidate notes
+ * So on a 30k-note vault at dim 1536, a tag matching 2,000 notes — 6.7% of the
+ * vault, narrow by any reading — already exceeds this ceiling and degrades to
+ * knnSimilar() over a 500-deep pool plus post-filtering. If none of the global
+ * top-500 carry the tag, the result is empty: the same class of symptom this
+ * function exists to fix, ~50x further out. Filters wider than the numbers above
+ * are therefore APPROXIMATE, not exact. The real fix is a sqlite-vec rowid
+ * pre-filter (out of scope here; see the design spec's "Явно вне рамок").
+ */
+const SCAN_IO_BUDGET_BYTES = 64 * 1024 * 1024;
+
+/**
+ * CPU budget for the exact scan, in float multiplies: sourceChunks × candidateChunks × dim.
+ * Applied only AFTER the I/O ceiling has admitted the scan.
+ *
+ * Expressed in work rather than note count because embedding dimension varies
+ * 384..3072 across supported models and a source note can hold 130+ chunks — a
+ * note-count threshold reflects neither. When this budget is exceeded we reduce
+ * SOURCE chunks, never candidates: dropping candidates is the exact defect this
+ * branch exists to fix.
+ */
+const SCAN_CPU_BUDGET = 150_000_000;
+
+/**
+ * Assumed embedding dimension when the DB has no stored value.
+ *
+ * Deliberately the LARGEST supported dimension (text-embedding-3-large), not the
+ * smallest: an unknown dim must over-estimate work so we err toward subsampling
+ * source chunks rather than toward committing to a multi-second scan we sized
+ * with an up-to-8x under-estimate.
+ */
+const ASSUMED_EMBEDDING_DIM = 3072;
+
+/** Absolute cap on the oversampled KNN pool. Without it, limit × 20 expands to
+ *  k = limit × 100 chunks PER source chunk, which for a many-chunk note costs
+ *  more than the exact scan this branch exists to avoid. */
+const OVERSAMPLE_MAX = 500;
+
+/**
+ * Take at most `max` items spread evenly across `items`.
+ *
+ * Used to shrink the source-chunk set to fit the scan budget. Striding rather
+ * than truncating matters: the head of a long note is not representative of it,
+ * so `slice(0, max)` would silently narrow a similarity lookup to the note's
+ * introduction. An even stride keeps the whole note represented.
+ */
+function subsampleEvenly<T>(items: T[], max: number): T[] {
+  if (items.length <= max) return items;
+  if (max === 1) return [items[0]!];
+  const out: T[] = [];
+  const last = items.length - 1;
+  for (let i = 0; i < max; i++) {
+    // Stride over [0, last] INCLUSIVE. The earlier `i * length / max` form peaked at
+    // floor((max-1) * length / max) < length - 1, so the tail of the note was
+    // unreachable — a 132-chunk note capped at 8 never sampled its final ~16 chunks.
+    // i <= max - 1, so (i * last) / (max - 1) <= last — index is always in bounds.
+    out.push(items[Math.floor((i * last) / (max - 1))]!);
+  }
+  return out;
+}
+
+/**
+ * Similarity lookup that applies tag/scope/frontmatter filters to the CANDIDATE
+ * POOL rather than to an already-truncated top-N.
+ *
+ * Without filters this is plain searchSimilar — unchanged behavior. With filters,
+ * KNN's `k` cut-off would discard every matching note before the pipeline's
+ * filters ever ran, so a narrow filter returned empty. We resolve the filter to a
+ * path set first and scan it exhaustively.
+ *
+ * Two independent gates gate the scan:
+ *   1. I/O (candidate-driven). Over the ceiling the scan is unaffordable outright —
+ *      subsampling source chunks would not reduce a single byte read — so we fall
+ *      back to oversampled KNN. That fallback is APPROXIMATE and can still return
+ *      empty for a genuinely narrow filter on a large vault; see the known-boundary
+ *      note on SCAN_IO_BUDGET_BYTES for the exact note counts per dimension.
+ *   2. CPU (source × candidate). Met by reducing SOURCE chunks, never candidates:
+ *      score fidelity degrades gracefully, whereas dropping candidates makes
+ *      matching notes vanish — the very defect this function exists to fix.
+ */
+async function searchSimilarFiltered(
+  notePath: string,
+  limit: number,
+  options: SearchOptions,
+): Promise<RawResult[]> {
+  if (!hasCandidateFilters(options)) return searchSimilar(notePath, limit);
+
+  const normalizedPath = notePath.normalize('NFD');
+  const candidatePaths = resolveFilteredPaths(options);
+  if (candidatePaths.length === 0) return [];
+
+  const source = await getSimilaritySource(normalizedPath);
+  if (!source) return [];
+
+  const dim = getStoredEmbeddingDim() ?? ASSUMED_EMBEDDING_DIM;
+  const candidateChunks = countChunksForPaths(candidatePaths);
+
+  // Gate 1 — I/O. Reading the candidate blobs is the scan's dominant cost and no
+  // amount of source subsampling reduces it, so this decides scan vs KNN outright.
+  if (candidateChunks * dim * 4 > SCAN_IO_BUDGET_BYTES) {
+    // Reuse the resolved source: searchSimilar would re-run getSimilaritySource,
+    // costing a second embedQuery round-trip for a note indexed without embeddings.
+    return knnSimilar(source, Math.min(limit * 20, OVERSAMPLE_MAX));
+  }
+
+  // Gate 2 — CPU. Trim source chunks so the scan's arithmetic stays bounded.
+  // Nothing indexed among the candidates (workPerSourceChunk === 0) still scans;
+  // scanSimilarExact simply finds no chunks and returns [].
+  const workPerSourceChunk = candidateChunks * dim;
+  const sourceEmbeddings =
+    workPerSourceChunk === 0
+      ? source.embeddings
+      : subsampleEvenly(
+          source.embeddings,
+          Math.max(1, Math.floor(SCAN_CPU_BUDGET / workPerSourceChunk)),
+        );
+
+  return scanSimilarExact(sourceEmbeddings, candidatePaths, source.excluded);
 }
 
 /**
