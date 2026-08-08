@@ -36,7 +36,7 @@ function normalizeAlias(alias: string): string {
   return alias.normalize('NFD').toLowerCase();
 }
 
-function normalizeTag(tag: string): string {
+export function normalizeTag(tag: string): string {
   return tag.normalize('NFD').toLowerCase();
 }
 

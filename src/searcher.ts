@@ -23,6 +23,7 @@ import {
   resolveNotePath,
 } from './db.js';
 import { embed } from './embedder.js';
+import { hasFilterValue } from './filter-predicate.js';
 import {
   extractMarkdownReferenceOccurrences,
   resolveMarkdownNoteLinks,
@@ -144,7 +145,7 @@ interface RawResult {
   bm25Anchor?: MatchAnchor;
 }
 
-function matchesScopeFilter(notePath: string, scope: string | string[]): boolean {
+export function matchesScopeFilter(notePath: string, scope: string | string[]): boolean {
   const scopes = (Array.isArray(scope) ? scope : [scope]).map((s) => s.normalize('NFD'));
   const includes = scopes.filter((s) => !s.startsWith('-'));
   const excludes = scopes.filter((s) => s.startsWith('-')).map((s) => s.slice(1));
@@ -183,21 +184,6 @@ function applyFrontmatterFilter(results: RawResult[], frontmatter: string | stri
     frontmatter,
   );
   return results.filter((result) => allowedPaths.has(result.path));
-}
-
-/**
- * True when a tag/scope/frontmatter option carries an actual filter value.
- *
- * THE single answer to "is this filter present?" — every site that asks must call
- * this one. The predicate used to be open-coded at four sites with two different
- * answers for the empty string, which stayed correct only by accident of where the
- * trailing filters happened to run. An empty string and an empty array both mean
- * ABSENT: that matches what the resolver and the result pipeline already do, and it
- * avoids resolving a whole-vault candidate set for a filter that filters nothing.
- */
-function hasFilterValue(v: string | string[] | undefined): boolean {
-  if (v === undefined) return false;
-  return Array.isArray(v) ? v.length > 0 : v !== '';
 }
 
 /** True when the options carry a filter that narrows the candidate set. */
