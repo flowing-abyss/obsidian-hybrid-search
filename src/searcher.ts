@@ -23,7 +23,7 @@ import {
   resolveNotePath,
 } from './db.js';
 import { embed } from './embedder.js';
-import { hasFilterValue } from './filter-predicate.js';
+import { buildFilterPredicate, hasFilterValue, type FilterPredicate } from './filter-predicate.js';
 import {
   extractMarkdownReferenceOccurrences,
   resolveMarkdownNoteLinks,
@@ -300,22 +300,43 @@ type FtsRow = {
 const SNIPPET_MARK_START = '';
 const SNIPPET_MARK_END = '';
 
+/**
+ * The `AND <predicate>` fragment and the params to splice, or empty strings/arrays when
+ * no filter is active.
+ *
+ * An inactive filter MUST contribute a byte-identical SQL string: better-sqlite3 caches
+ * prepared statements by SQL text, and an unconditional `AND 1` would fork every
+ * unfiltered query onto a second plan. It is also the property the frozen output capture
+ * checks.
+ */
+function filterFragment(predicate: FilterPredicate | undefined): {
+  clause: string;
+  params: Array<string | number>;
+} {
+  if (predicate === undefined || predicate.isEmpty) return { clause: '', params: [] };
+  return { clause: ` AND ${predicate.sql}`, params: predicate.params };
+}
+
 export function searchBm25(
   query: string,
   limit: number,
   snippetLength = 300,
   buildAnchors = false,
+  predicate?: FilterPredicate,
 ): RawResult[] {
   const db = getDb();
   const numTokens = Math.max(10, Math.ceil(snippetLength / 4));
-  const stmt = db.prepare<[string, string, number, string, number], FtsRow>(
+  const filter = filterFragment(predicate);
+  // Widened from the former fixed 5-tuple: the filter params are spliced in before
+  // `limit`, so the bind list is variable-length.
+  const stmt = db.prepare<Array<string | number>, FtsRow>(
     `
       SELECT n.path, n.title, n.tags, n.aliases,
              snippet(notes_fts_bm25, 2, ?, ?, '...', ?) AS snippet,
              bm25(notes_fts_bm25, 10.0, 5.0, 1.0) AS rank
       FROM notes_fts_bm25
       JOIN notes n ON n.id = notes_fts_bm25.rowid
-      WHERE notes_fts_bm25 MATCH ?
+      WHERE notes_fts_bm25 MATCH ?${filter.clause}
       ORDER BY rank
       LIMIT ?
     `,
@@ -332,6 +353,7 @@ export function searchBm25(
       SNIPPET_MARK_END,
       numTokens,
       toFtsQuery(query, 'OR'),
+      ...filter.params,
       limit,
     );
 
@@ -421,9 +443,14 @@ function calculateTrigramOverlap(query: string, title: string): number {
  * Handles short aliases (< 3 chars) that the trigram FTS index can't tokenize,
  * and Cyrillic / non-ASCII aliases that SQLite's lower() doesn't fold correctly.
  */
-function searchByAliasExact(query: string, limit: number): RawResult[] {
+function searchByAliasExact(
+  query: string,
+  limit: number,
+  predicate?: FilterPredicate,
+): RawResult[] {
   const db = getDb();
   const queryNfd = query.normalize('NFD').toLowerCase();
+  const filter = filterFragment(predicate);
 
   const rows = db
     .prepare(
@@ -431,11 +458,11 @@ function searchByAliasExact(query: string, limit: number): RawResult[] {
       SELECT DISTINCT n.path, n.title, n.tags, n.aliases
       FROM note_aliases a
       JOIN notes n ON n.id = a.note_id
-      WHERE a.alias_norm = ?
+      WHERE a.alias_norm = ?${filter.clause}
       LIMIT ?
     `,
     )
-    .all(queryNfd, limit) as Array<{
+    .all(queryNfd, ...filter.params, limit) as Array<{
     path: string;
     title: string;
     tags: string;
@@ -453,14 +480,25 @@ function searchByAliasExact(query: string, limit: number): RawResult[] {
   }));
 }
 
-export function searchFuzzyTitle(query: string, limit: number): RawResult[] {
+/**
+ * `predicate` is optional because readNotes() calls this for path-miss suggestions,
+ * where the caller's filters must NOT apply.
+ */
+export function searchFuzzyTitle(
+  query: string,
+  limit: number,
+  predicate?: FilterPredicate,
+): RawResult[] {
   // Exact alias match first — handles short aliases (< 3 chars) and Cyrillic that
   // the trigram FTS can't tokenize, ensuring they always surface in title/hybrid mode.
-  const aliasExact = searchByAliasExact(query, limit);
+  // It MUST get the same predicate: alias hits enter RRF at weight 2.0, and once the
+  // post-filter is gone there is nothing downstream left to drop unfiltered ones.
+  const aliasExact = searchByAliasExact(query, limit, predicate);
   const aliasExactPaths = new Set(aliasExact.map((r) => r.path));
 
   const db = getDb();
   const ftsQuery = buildTrigramOrQuery(query);
+  const filter = filterFragment(predicate);
 
   try {
     const ftsRows = db
@@ -470,12 +508,12 @@ export function searchFuzzyTitle(query: string, limit: number): RawResult[] {
              bm25(notes_fts_fuzzy) AS rank
       FROM notes_fts_fuzzy
       JOIN notes n ON n.id = notes_fts_fuzzy.rowid
-      WHERE notes_fts_fuzzy MATCH ?
+      WHERE notes_fts_fuzzy MATCH ?${filter.clause}
       ORDER BY rank
       LIMIT ?
     `,
       )
-      .all(ftsQuery, limit) as Array<{
+      .all(ftsQuery, ...filter.params, limit) as Array<{
       path: string;
       title: string;
       tags: string;
@@ -1520,6 +1558,11 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   // final slice below is what is actually skipped.
   const retrievalLimit = noLimit ? UNLIMITED_RESULTS : limit;
 
+  // Built ONCE and threaded into every retrieval arm, so the filter narrows the pool
+  // the query itself scans instead of trimming an already-truncated result list. A
+  // narrow filter used to return nothing at a small limit for exactly that reason.
+  const predicate = buildFilterPredicate(options);
+
   if (isPathLookup) {
     results = await searchSimilarFiltered(resolvedPath, retrievalLimit, options);
   } else if (options.queries && options.queries.length > 1) {
@@ -1528,7 +1571,15 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     const candidateLimit = Math.max(retrievalLimit * 2, 20);
     const perQueryResults = await Promise.all(
       options.queries.map((q) =>
-        searchByQuery(q, mode, candidateLimit, snippetLength, false, options.anchors ?? false),
+        searchByQuery(
+          q,
+          mode,
+          candidateLimit,
+          snippetLength,
+          false,
+          options.anchors ?? false,
+          predicate,
+        ),
       ),
     );
     results = measureSearchStageSync('rrfFusion', () => rrfFusion(perQueryResults, 60));
@@ -1554,6 +1605,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
       snippetLength,
       options.rerank ?? false,
       options.anchors ?? false,
+      predicate,
     );
   }
 
@@ -1726,6 +1778,7 @@ async function searchByQuery(
   snippetLength: number,
   rerank = false,
   buildAnchors = false,
+  predicate?: FilterPredicate,
 ): Promise<RawResult[]> {
   if (rerank && mode !== 'hybrid') {
     process.stderr.write('Reranking is only supported in hybrid mode. Ignoring --rerank.\n');
@@ -1734,7 +1787,7 @@ async function searchByQuery(
 
   if (mode === 'fulltext') {
     return measureSearchStageSync('bm25', () =>
-      searchBm25(query, limit, snippetLength, buildAnchors),
+      searchBm25(query, limit, snippetLength, buildAnchors, predicate),
     );
   }
 
@@ -1745,7 +1798,7 @@ async function searchByQuery(
     // dropped before scoring. Only done for title mode — hybrid uses rrfFusion which
     // depends on the original BM25 ordering from searchFuzzyTitle.
     const candidates = measureSearchStageSync('fuzzyTitle', () =>
-      searchFuzzyTitle(query, Math.max(limit * 5, 50)),
+      searchFuzzyTitle(query, Math.max(limit * 5, 50), predicate),
     );
     return candidates.sort((a, b) => b.score - a.score).slice(0, limit);
   }
@@ -1771,11 +1824,13 @@ async function searchByQuery(
   const [bm25Results, fuzzyResults, vectorResults] = await Promise.all([
     Promise.resolve(
       measureSearchStageSync('bm25', () =>
-        searchBm25(query, candidateLimit, snippetLength, buildAnchors),
+        searchBm25(query, candidateLimit, snippetLength, buildAnchors, predicate),
       ),
     ),
     Promise.resolve(
-      measureSearchStageSync('fuzzyTitle', () => searchFuzzyTitle(query, candidateLimit)),
+      measureSearchStageSync('fuzzyTitle', () =>
+        searchFuzzyTitle(query, candidateLimit, predicate),
+      ),
     ),
     f32 ? searchVector(f32, candidateLimit) : Promise.resolve([]),
   ]);

@@ -42,4 +42,32 @@ describe('filter pushdown', () => {
       );
     }
   });
+
+  it.each([['fulltext'], ['title']] as const)(
+    '%s returns a needle note that cannot reach the unfiltered top-5',
+    async (mode) => {
+      const results = await search('alpha', { mode, tag: 'needle', limit: 5 });
+      assert.ok(results.some((r) => NEEDLE_PATHS.includes(r.path)));
+    },
+  );
+
+  it('frontmatter narrows the pool for a text query', async () => {
+    const results = await search('alpha', { frontmatter: 'status:rare', limit: 5 });
+    assert.ok(results.some((r) => NEEDLE_PATHS.includes(r.path)));
+  });
+
+  it('scope narrows the pool for a text query', async () => {
+    const results = await search('alpha', { scope: 'deep', limit: 5 });
+    assert.ok(results.length > 0);
+    assert.ok(results.every((r) => r.path.startsWith('deep/')));
+  });
+
+  // Characterization: pre-existing and deliberate. Tag matching is by SUBSTRING, so a
+  // filter of "meta" also matches "metadata". Changing this is a separate decision with
+  // its own effect on results — see the 2026-08-08 filter-pushdown spec.
+  it('tag filter matches by substring: "meta" also matches "metadata"', async () => {
+    const paths = (await search('alpha', { tag: 'meta', limit: 20 })).map((r) => r.path);
+    assert.ok(paths.includes('tagged-meta.md'.normalize('NFD')));
+    assert.ok(paths.includes('tagged-metadata.md'.normalize('NFD')));
+  });
 });
