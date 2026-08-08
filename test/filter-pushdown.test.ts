@@ -9,17 +9,35 @@ import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-pushdown-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-// Embedding always fails, so the vector arm contributes nothing and every assertion
-// below is about the FTS arms alone. That is exactly the scope of this test file.
+// Every query embeds to the fixture's NEAR vector, so the vector arm ranks the 30
+// "strong" notes at distance 0 and the needle notes (FAR) far outside any k. That is
+// what makes the semantic assertions below discriminate: a needle can only appear if
+// the filter reached sqlite-vec as a KNN PRE-filter.
 vi.mock('../src/embedder.js', () => ({
-  embed: vi.fn((texts: string[]) => Promise.resolve(texts.map(() => null))),
+  embed: vi.fn((texts: string[]) =>
+    Promise.resolve(texts.map(() => new Float32Array([0.1, 0.2, 0.3, 0.4]))),
+  ),
 }));
+
+// The suite runs with `isolate: false`, so a test file that loads searcher.js first
+// leaves it bound to the REAL embedder and the mock above never takes effect — the
+// vector arm then fails with a dimension mismatch against the 4-dim fixture. Reset the
+// module graph so db.js, searcher.js and embedder.js are all instantiated fresh here.
+vi.resetModules();
 
 const { closeDb } = await import('../src/db.js');
 const { search, searchFuzzyTitle } = await import('../src/searcher.js');
 const { buildFilterPredicate } = await import('../src/filter-predicate.js');
-const { seedPushdownVault, NEEDLE_PATHS, ALIAS_QUERY, ALIAS_INCLUDED_PATH, ALIAS_EXCLUDED_PATH } =
-  await import('./fixtures/pushdown-vault.js');
+const {
+  seedPushdownVault,
+  NEEDLE_PATHS,
+  ALIAS_QUERY,
+  ALIAS_INCLUDED_PATH,
+  ALIAS_EXCLUDED_PATH,
+  SRC_PATH,
+  HUB_PATH,
+  HUB_LINK_TARGETS,
+} = await import('./fixtures/pushdown-vault.js');
 
 /** Code-unit order, not localeCompare: these are paths, and SQLite orders them BINARY. */
 function byCodeUnit(a: string, b: string): number {
@@ -89,6 +107,47 @@ describe('filter pushdown', () => {
       filtered.map((r) => r.path),
       [ALIAS_INCLUDED_PATH],
     );
+  });
+
+  // sqlite-vec honours `chunk_id IN (subquery)` as a KNN PRE-filter. The correlated
+  // EXISTS form the FTS arms use silently degrades to a POST-filter here and returns
+  // zero rows. The needle notes sit far from the source vector, so they can only appear
+  // if the restriction was applied before k was taken.
+  it('semantic pre-filters: matches outside the global top-k still appear', async () => {
+    const unfiltered = await search('', { notePath: SRC_PATH, limit: 3 });
+    assert.equal(unfiltered.length, 3, 'precondition: the unfiltered lookup must be full');
+    assert.ok(
+      unfiltered.every((r) => !NEEDLE_PATHS.includes(r.path)),
+      'a needle reached the unfiltered top-3 — the filtered assertion below is vacuous',
+    );
+    const filtered = await search('', { notePath: SRC_PATH, tag: 'needle', limit: 3 });
+    assert.ok(filtered.some((r) => NEEDLE_PATHS.includes(r.path)));
+  });
+
+  it('mode:semantic pre-filters too', async () => {
+    const unfiltered = await search('alpha', { mode: 'semantic', limit: 3 });
+    assert.equal(unfiltered.length, 3, 'precondition: the semantic arm must return results');
+    assert.ok(
+      unfiltered.every((r) => !NEEDLE_PATHS.includes(r.path)),
+      'a needle reached the unfiltered semantic top-3 — the assertion below is vacuous',
+    );
+    const results = await search('alpha', { mode: 'semantic', tag: 'needle', limit: 3 });
+    assert.ok(results.some((r) => NEEDLE_PATHS.includes(r.path)));
+  });
+
+  it('hybrid pre-filters too', async () => {
+    const results = await search('alpha', { mode: 'hybrid', tag: 'needle', limit: 5 });
+    assert.ok(results.some((r) => NEEDLE_PATHS.includes(r.path)));
+  });
+
+  // Behaviour change, accepted: exclusions live in SQL now, so they narrow the pool the
+  // KNN scans instead of eating into an already-truncated top-N. The user asked for 5
+  // and gets 5.
+  it('excludes the source and its links without shrinking the result count', async () => {
+    const results = await search('', { notePath: HUB_PATH, limit: 5 });
+    assert.ok(results.every((r) => r.path !== HUB_PATH));
+    assert.ok(results.every((r) => !HUB_LINK_TARGETS.includes(r.path)));
+    assert.equal(results.length, 5);
   });
 
   // Characterization: pre-existing and deliberate. Tag matching is by SUBSTRING, so a
