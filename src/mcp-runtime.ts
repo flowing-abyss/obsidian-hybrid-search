@@ -453,7 +453,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
             limit: {
               type: 'number',
               description:
-                'Maximum text/path/filter-only results to return; related traversal uses depth instead. 0 means no limit in filter-only searches. Default 10. ' +
+                'Maximum text/path/filter-only results to return; related traversal uses depth instead. 0 means no limit. Default 10. ' +
                 'Keep at 10 or below for best signal-to-noise unless the user asks for broad enumeration; results past position 10 frequently score below 0.35.',
             },
             threshold: {
