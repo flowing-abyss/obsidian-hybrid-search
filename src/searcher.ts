@@ -765,6 +765,15 @@ function isMarkdownWhitespace(char: string): boolean {
   return char === ' ' || char === '\t' || char === '\r' || char === '\n' || char === '\f';
 }
 
+/**
+ * Hard ceiling sqlite-vec enforces on a KNN `k`. Exceeding it throws
+ * "k value in knn query too large", which the catch below used to swallow into an
+ * empty result — so any search with limit > 819 (k = limit * 5) silently returned
+ * nothing, on every vault regardless of size. Clamp instead: k = 4096 already
+ * over-fetches far past any sane result count, and the outer LIMIT does the trimming.
+ */
+const VEC_MAX_K = 4096;
+
 function searchVector(queryEmbedding: Float32Array, limit: number): RawResult[] {
   if (!hasVecTable()) return [];
 
@@ -795,7 +804,7 @@ function searchVector(queryEmbedding: Float32Array, limit: number): RawResult[] 
       LIMIT ?
     `,
         )
-        .all(queryEmbedding, limit * 5, limit) as Array<{
+        .all(queryEmbedding, Math.min(limit * 5, VEC_MAX_K), limit) as Array<{
         chunk_id: number;
         distance: number;
         note_id: number;
@@ -831,7 +840,12 @@ function searchVector(queryEmbedding: Float32Array, limit: number): RawResult[] 
           },
         };
       });
-    } catch {
+    } catch (error) {
+      // Never swallow silently: an empty vector result is indistinguishable from
+      // "no semantic matches", which hid the k-ceiling bug above for a long time.
+      process.stderr.write(
+        `Vector search failed: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
       return [];
     }
   });
@@ -1325,6 +1339,10 @@ export function bumpIndexVersion(): void {
   localVersion++;
 }
 
+/** Ceiling used when the caller asks for "no limit" (limit === 0). Mirrors the
+ *  filter-only branch's FETCH_ALL so both paths cap the vault the same way. */
+const UNLIMITED_RESULTS = 10000;
+
 function cacheKey(input: string, options: SearchOptions): string {
   const scopeStr = Array.isArray(options.scope) ? options.scope.join(',') : (options.scope ?? '');
   const tagStr = Array.isArray(options.tag) ? options.tag.join(',') : (options.tag ?? '');
@@ -1347,6 +1365,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   const mode = options.mode ?? 'hybrid';
   const limit = options.limit ?? 10;
   const threshold = options.threshold ?? 0.0;
+  const noLimit = limit === 0;
   const snippetLength = options.snippetLength ?? 300;
 
   // Path-based lookup when --path is given explicitly, OR when related mode is
@@ -1509,12 +1528,18 @@ export async function search(input: string, options: SearchOptions = {}): Promis
 
   let results: RawResult[];
 
+  // limit === 0 means "no limit" — the semantics the filter-only branch above
+  // already implements and the CLI/MCP flags document. Retrieval still needs a
+  // finite pool, so it borrows the same ceiling the filter-only branch uses; the
+  // final slice below is what is actually skipped.
+  const retrievalLimit = noLimit ? UNLIMITED_RESULTS : limit;
+
   if (isPathLookup) {
-    results = await searchSimilarFiltered(resolvedPath, limit, options);
+    results = await searchSimilarFiltered(resolvedPath, retrievalLimit, options);
   } else if (options.queries && options.queries.length > 1) {
     // Multi-query fan-out: run each query in parallel, merge via RRF, then rerank once.
     // Each sub-search uses a larger candidate pool so RRF has enough signal to rank correctly.
-    const candidateLimit = Math.max(limit * 2, 20);
+    const candidateLimit = Math.max(retrievalLimit * 2, 20);
     const perQueryResults = await Promise.all(
       options.queries.map((q) =>
         searchByQuery(q, mode, candidateLimit, snippetLength, false, options.anchors ?? false),
@@ -1539,7 +1564,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     results = await searchByQuery(
       input,
       mode,
-      limit,
+      retrievalLimit,
       snippetLength,
       options.rerank ?? false,
       options.anchors ?? false,
@@ -1555,7 +1580,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     if (hasFilterValue(options.frontmatter)) {
       filteredResults = applyFrontmatterFilter(filteredResults, options.frontmatter!);
     }
-    filteredResults = filteredResults.slice(0, limit);
+    if (!noLimit) filteredResults = filteredResults.slice(0, limit);
 
     const paths = filteredResults.map((r) => r.path);
     const { links, backlinks } = getLinksForPaths(paths);

@@ -433,6 +433,38 @@ describe('search — filter-only mode (empty query + filters)', () => {
     const results = await search('', { tag: 'todo', limit: 0 });
     assert.ok(results.length > 0);
   });
+
+  // limit=0 means "no limit" in filter-only mode. It must mean the same thing on
+  // every other path, otherwise a saved filter carrying limit:0 (a real user
+  // pattern) silently returns nothing the moment it is combined with @sim or a
+  // text query — indistinguishable from "no matches".
+  it('limit=0 returns results for a path lookup combined with a filter', async () => {
+    const results = await search('', { notePath: 'fm-a.md', tag: 'todo', limit: 0 });
+    assert.ok(results.length > 0, 'limit=0 must not truncate a filtered path lookup to nothing');
+  });
+
+  it('limit=0 returns results for an unfiltered path lookup', async () => {
+    const baseline = await search('', { notePath: 'fm-a.md', limit: 5 });
+    assert.ok(baseline.length > 0, 'fixture sanity: the path lookup finds neighbours at limit 5');
+    const results = await search('', { notePath: 'fm-a.md', limit: 0 });
+    assert.ok(results.length > 0, 'limit=0 must not truncate a path lookup to nothing');
+  });
+
+  // sqlite-vec caps a KNN `k` at 4096 and throws above it; searchVector binds
+  // k = limit * 5, so every search with limit > 819 used to come back empty on
+  // every vault, silently, because the error was swallowed into [].
+  it('a limit far above the sqlite-vec k ceiling still returns results', async () => {
+    const results = await search('', { notePath: 'fm-a.md', limit: 5000 });
+    assert.ok(
+      results.length > 0,
+      'k must be clamped to the sqlite-vec ceiling, not passed through',
+    );
+  });
+
+  it('limit=0 returns results for a text query', async () => {
+    const results = await search('filter', { limit: 0 });
+    assert.ok(results.length > 0, 'limit=0 must not truncate a text search to nothing');
+  });
 });
 
 describe('search — path lookup edge cases', () => {
