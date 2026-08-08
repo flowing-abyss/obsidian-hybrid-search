@@ -771,36 +771,47 @@ function searchVector(
   // searchFuzzyTitle correctly use — compiles to a POST-filter here: k is taken first
   // and the restriction then throws the survivors away, so a narrow filter returns 0
   // rows instead of `limit`. Measured. Do NOT "harmonize" these two forms.
-  const restrictions: string[] = [];
+  // sqlite-vec applies a KNN restriction BEFORE taking k only when it is expressed
+  // positively on the primary key, as `vc.chunk_id IN (subquery)`. `NOT IN` is NOT
+  // recognized by that optimization: k is taken first and the exclusion then discards
+  // the survivors, so a source note whose links fill the top-k returns nothing.
+  // Measured. Everything therefore collapses into ONE positive `IN`, with the
+  // exclusion carried inside it as a `NOT IN` over note ids — cheap there, because by
+  // that point we are already inside a plain SQL subquery rather than the KNN itself.
+  //
+  // Do not "harmonize" this with the correlated EXISTS the FTS arms use: that form
+  // compiles to a post-filter here and silently returns zero rows.
+  const conditions: string[] = [];
   const extraParams: Array<string | number> = [];
 
   if (predicate !== undefined && !predicate.isEmpty) {
     // The predicate's clauses reference the alias `n`; inside this subquery the notes
     // table is aliased `n2` so it cannot shadow the outer join above.
-    restrictions.push(
-      `vc.chunk_id IN (SELECT c2.id FROM chunks c2 JOIN notes n2 ON n2.id = c2.note_id WHERE ${predicate.sql.replace(/\bn\./g, 'n2.')})`,
-    );
+    conditions.push(predicate.sql.replace(/\bn\./g, 'n2.'));
     extraParams.push(...predicate.params);
   }
 
   if (excludeLinkedFrom !== undefined) {
-    // Driven from `links`, not a correlated EXISTS inside NOT IN: the correlated form
-    // forces a full chunk scan and doubled the arm's cost (7.33 ms vs 4.94 ms on a
-    // 157-link hub note). A bound parameter list is impossible — hub notes can have
-    // thousands of links and an exclusion list cannot be batched inside a single
-    // k-limited KNN.
-    restrictions.push(
-      `vc.chunk_id NOT IN (
-           SELECT c3.id FROM chunks c3 WHERE c3.note_id IN (
+    // Driven from `links` rather than a correlated EXISTS: the correlated form forces
+    // a full chunk scan and doubled the arm's cost (7.33 ms vs 4.94 ms on a 157-link
+    // hub note). A bound parameter list is impossible — hub notes can have thousands
+    // of links and such a list cannot be batched inside a single k-limited KNN.
+    conditions.push(
+      `c2.note_id NOT IN (
              SELECT n4.id FROM notes n4 WHERE n4.path = ?
              UNION
-             SELECT n5.id FROM notes n5 JOIN links l ON l.to_path = n5.path WHERE l.from_path = ?))`,
+             SELECT n5.id FROM notes n5 JOIN links l ON l.to_path = n5.path WHERE l.from_path = ?)`,
     );
     extraParams.push(excludeLinkedFrom, excludeLinkedFrom);
   }
 
-  // Empty when unrestricted, so an unfiltered query keeps a byte-identical SQL string
-  // and better-sqlite3 reuses the same prepared statement.
+  const restrictions =
+    conditions.length === 0
+      ? []
+      : [
+          `vc.chunk_id IN (SELECT c2.id FROM chunks c2 JOIN notes n2 ON n2.id = c2.note_id WHERE ${conditions.join(' AND ')})`,
+        ];
+
   const restrictionSql = restrictions.map((r) => `\n          AND ${r}`).join('');
 
   return measureSearchStageSync('vectorSearch', () => {

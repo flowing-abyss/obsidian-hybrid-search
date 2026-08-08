@@ -43,6 +43,19 @@ const FAR = new Float32Array([0.9, 0.1, 0.0, 0.0]);
  * weak term-frequency split as the content so the "outside the unfiltered top-5"
  * invariant holds for the title arm too (asserted in test/filter-pushdown.test.ts).
  */
+/** A second hub whose EXCLUDED set (itself + its links) is large enough to fill the
+ *  entire KNN k-window at distance 0, while the only other candidates sit far away.
+ *  That is what makes the exclusion test discriminate: under a POST-filter the window
+ *  is consumed by links and the query returns nothing; only a PRE-filter reaches the
+ *  far notes. Everything in this cluster shares one tag so a predicate can isolate it
+ *  from the rest of the fixture. */
+export const HUB2_PATH = 'hub2.md'.normalize('NFD');
+export const HUB2_TAG = 'hubcluster';
+export const HUB2_LINKS = Array.from({ length: 40 }, (_, i) =>
+  `h2linked/l${i}.md`.normalize('NFD'),
+);
+export const HUB2_FAR = Array.from({ length: 6 }, (_, i) => `h2far/f${i}.md`.normalize('NFD'));
+
 export function seedPushdownVault(): void {
   openDb();
   initVecTable(4);
@@ -112,4 +125,11 @@ export function seedPushdownVault(): void {
   note(HUB_PATH, [], 'alpha hub', NEAR);
   for (const t of HUB_LINK_TARGETS) note(t, [], 'alpha linked', NEAR);
   upsertLinks(HUB_PATH, HUB_LINK_TARGETS);
+
+  // Second hub. Deliberately free of the token "alpha" so it cannot perturb the
+  // fixture invariant that the needle notes stay outside the unfiltered top-5.
+  note(HUB2_PATH, [HUB2_TAG], 'hub cluster root', NEAR);
+  for (const t of HUB2_LINKS) note(t, [HUB2_TAG], 'hub cluster member', NEAR);
+  for (const f of HUB2_FAR) note(f, [HUB2_TAG], 'hub cluster distant', FAR);
+  upsertLinks(HUB2_PATH, HUB2_LINKS);
 }

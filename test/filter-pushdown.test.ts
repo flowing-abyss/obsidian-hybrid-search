@@ -37,6 +37,10 @@ const {
   SRC_PATH,
   HUB_PATH,
   HUB_LINK_TARGETS,
+  HUB2_PATH,
+  HUB2_TAG,
+  HUB2_LINKS,
+  HUB2_FAR,
 } = await import('./fixtures/pushdown-vault.js');
 
 /** Code-unit order, not localeCompare: these are paths, and SQLite orders them BINARY. */
@@ -148,6 +152,26 @@ describe('filter pushdown', () => {
     assert.ok(results.every((r) => r.path !== HUB_PATH));
     assert.ok(results.every((r) => !HUB_LINK_TARGETS.includes(r.path)));
     assert.equal(results.length, 5);
+  });
+
+  // The test above passes under a POST-filter too: HUB's excluded set is smaller than
+  // the k window, so survivors remain either way. This one does not. HUB2's excluded
+  // set (itself + 40 links, all at distance 0) fills the whole window, and the only
+  // other candidates are far away — so a post-filtering exclusion returns NOTHING.
+  //
+  // Measured against the NOT IN form this replaced: 0 results here, 5 now. sqlite-vec's
+  // key optimization recognizes `chunk_id IN (...)` and NOT `chunk_id NOT IN (...)`,
+  // which is why the exclusion has to live inside the positive subquery.
+  it('excludes links as a PRE-filter, not after k is taken', async () => {
+    const unfiltered = await search('', { notePath: HUB2_PATH, tag: HUB2_TAG, limit: 5 });
+    assert.equal(
+      unfiltered.length,
+      5,
+      'a post-filtering exclusion returns 0 here because the links fill the k window',
+    );
+    assert.ok(unfiltered.every((r) => HUB2_FAR.includes(r.path)));
+    assert.ok(unfiltered.every((r) => r.path !== HUB2_PATH));
+    assert.ok(unfiltered.every((r) => !HUB2_LINKS.includes(r.path)));
   });
 
   // Characterization: pre-existing and deliberate. Tag matching is by SUBSTRING, so a
