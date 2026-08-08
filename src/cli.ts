@@ -507,7 +507,7 @@ program
   )
   .option(
     '--limit <n>',
-    'Maximum results for search/filter modes; 0 means no limit; --related uses --depth',
+    'How many results to return for search/filter modes; filters are applied inside the query, so a narrow --tag/--scope/--frontmatter still returns up to this many matches; 0 means no limit; --related uses --depth',
   )
   .option('--threshold <n>', 'Minimum score threshold 0..1 for search/path modes', '0')
   .option(

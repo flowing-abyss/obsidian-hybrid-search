@@ -162,7 +162,6 @@ async function main(): Promise<void> {
   const db = getDb();
   const noteCount = (db.prepare('SELECT COUNT(*) as n FROM notes').get() as { n: number }).n;
   const chunkCount = (db.prepare('SELECT COUNT(*) as n FROM chunks').get() as { n: number }).n;
-  const scopedCandidateLimit = Math.max(noteCount, Math.ceil(chunkCount / 5), k);
 
   const perQuery: PerQueryResult[] = [];
 
@@ -170,7 +169,7 @@ async function main(): Promise<void> {
     process.stdout.write(`[eval] running ${q.id}: "${q.query}"...`);
     const row = await runGoldenQuery(q, {
       k,
-      searchLimit: getSearchLimitForQuery(q, k, scopedCandidateLimit),
+      searchLimit: k,
       rerank,
       searchFn: search,
     });
@@ -200,7 +199,6 @@ async function main(): Promise<void> {
       vault: path.relative(repoRoot, vault),
       note_count: noteCount,
       chunk_count: chunkCount,
-      scoped_candidate_limit: scopedCandidateLimit,
       timestamp_in_body:
         queries.some((q) => q.notes?.includes('timestamp_in_body=true')) || undefined,
       golden_set: path.relative(repoRoot, goldenSet),
@@ -249,14 +247,6 @@ interface AggregatedMetrics {
   recall_k: number;
   evidence_coverage_k: number;
   all_relevant_k: number;
-}
-
-export function getSearchLimitForQuery(
-  query: Pick<GoldenQuery, 'scope'>,
-  k: number,
-  scopedCandidateLimit: number,
-): number {
-  return query.scope ? Math.max(scopedCandidateLimit, k) : k;
 }
 
 export async function runGoldenQuery(

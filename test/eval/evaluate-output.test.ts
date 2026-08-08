@@ -1,20 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildPerQueryResult,
-  getSearchLimitForQuery,
-  runGoldenQuery,
-  type GoldenQuery,
-} from '../../eval/evaluate.js';
-
-describe('getSearchLimitForQuery()', () => {
-  it('overfetches scoped queries so scope filtering does not evaluate global top-k', () => {
-    expect(getSearchLimitForQuery({ scope: 'q1/' }, 10, 200)).toBe(200);
-  });
-
-  it('uses k for unscoped queries', () => {
-    expect(getSearchLimitForQuery({}, 10, 200)).toBe(10);
-  });
-});
+import { buildPerQueryResult, runGoldenQuery, type GoldenQuery } from '../../eval/evaluate.js';
 
 describe('buildPerQueryResult()', () => {
   const query: GoldenQuery = {
