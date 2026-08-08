@@ -66,8 +66,21 @@ function tagClause(value: string, params: Array<string | number>): string {
   return `EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = n.id AND (nt.tag_norm = ? OR nt.tag_norm LIKE ?))`;
 }
 
-/** Field and value are lowercased only — NOT NFD-normalized. getMatchingNotesByFrontmatter
- *  behaves this way, and adding NFD breaks `status:🟦` and every Cyrillic value. */
+/**
+ * Field and value are lowercased only — NOT NFD-normalized, unlike the tag and scope
+ * clauses.
+ *
+ * The reason is the write side: replaceNoteFrontmatterFields stores
+ * `value_norm = value.toLowerCase()` with no normalization step, so a query that
+ * NFD-normalized would look up a decomposed string against a precomposed column and
+ * silently miss every value containing a composable character. The query side must
+ * match the write side, whatever that side does. filterNotePathsByFrontmatter and
+ * getMatchingNotesByFrontmatter both read it this way too.
+ *
+ * (This is normalization-form mismatch, not an encoding issue — values that are
+ * NFD-invariant, such as `🟦`, are unaffected either way. The decomposing fixture in
+ * test/filter-predicate.test.ts is what actually pins it.)
+ */
 function frontmatterClause(value: string, params: Array<string | number>): string | null {
   const colon = value.indexOf(':');
   if (colon === -1) return null;
@@ -110,11 +123,16 @@ export function buildFilterPredicate(options: FilterOptions): FilterPredicate {
   const params: Array<string | number> = [];
   const clauses: string[] = [];
 
-  const tags = partition(asArray(options.tag));
+  // Each kind is gated INDEPENDENTLY, not just by the any-of-three fast path above.
+  // searcher.ts asks hasFilterValue once per kind, and an absent kind must contribute
+  // no clause at all. Expanding an absent kind unconditionally is not a no-op: `tag: ''`
+  // becomes `tag_norm LIKE '%%'`, i.e. "has at least one tag", which would drop every
+  // untagged note the moment another kind kept the predicate alive.
+  const tags = partition(hasFilterValue(options.tag) ? asArray(options.tag) : []);
   for (const t of tags.includes) clauses.push(tagClause(t, params));
   for (const t of tags.excludes) clauses.push(`NOT ${tagClause(t, params)}`);
 
-  const fm = partition(asArray(options.frontmatter));
+  const fm = partition(hasFilterValue(options.frontmatter) ? asArray(options.frontmatter) : []);
   const fmIncludes = fm.includes
     .map((f) => frontmatterClause(f, params))
     .filter((c): c is string => c !== null);
@@ -130,7 +148,7 @@ export function buildFilterPredicate(options: FilterOptions): FilterPredicate {
     if (c !== null) clauses.push(`NOT ${c}`);
   }
 
-  const scope = partition(asArray(options.scope));
+  const scope = partition(hasFilterValue(options.scope) ? asArray(options.scope) : []);
   if (scope.includes.length > 0) {
     clauses.push(`(${scope.includes.map((s) => scopeClause(s, params)).join(' OR ')})`);
   }
