@@ -4,6 +4,12 @@
  *
  *   npx tsx eval/capture-golden.ts --vault fixtures/obsidian-help/dataset \
  *                                  --output eval/results/golden-prechange.json
+ *
+ * `--limit` (default 10) sets the result window. `eval/compare-golden.ts` needs
+ * both a narrow run (matching the committed baseline) and a WIDE one: a hybrid
+ * result set that is already full at 10 must shed a tail entry for every newly
+ * promoted one, so "nothing became unfindable" can only be checked against a
+ * window wider than the one that forced the eviction.
  */
 import { writeFileSync } from 'node:fs';
 
@@ -15,6 +21,12 @@ const get = (flag: string): string | undefined => {
 
 const vault = get('--vault') ?? 'fixtures/obsidian-help/dataset';
 const output = get('--output') ?? 'eval/results/golden-prechange.json';
+const limitArg = get('--limit');
+const limit = limitArg === undefined ? 10 : Number.parseInt(limitArg, 10);
+if (!Number.isInteger(limit) || limit < 1) {
+  console.error(`--limit must be a positive integer, got "${String(limitArg)}"`);
+  process.exit(2);
+}
 process.env.OBSIDIAN_VAULT_PATH = vault;
 
 const { openDb } = await import('../src/db.js');
@@ -38,7 +50,7 @@ const record = async (
   query: string,
   options: Record<string, unknown>,
 ): Promise<void> => {
-  const results = await search(query, { limit: 10, ...options });
+  const results = await search(query, { limit, ...options });
   captured.push({
     id,
     mode,
@@ -63,4 +75,4 @@ await record('path|no-filter', 'path', '', { notePath: SRC });
 await record('path|scope', 'path', '', { notePath: SRC, scope: SCOPES[0] });
 
 writeFileSync(output, JSON.stringify(captured, null, 2));
-console.log(`captured ${captured.length} cases to ${output}`);
+console.log(`captured ${captured.length} cases at limit=${limit} to ${output}`);
