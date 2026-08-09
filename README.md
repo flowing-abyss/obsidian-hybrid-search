@@ -471,7 +471,9 @@ obsidian-hybrid-search serve --foreground
 obsidian-hybrid-search serve --http --foreground
 ```
 
-HTTP mode uses MCP Streamable HTTP. If port 3939 is already in use, the command exits with an error instead of choosing another port automatically. Use `--port` for separate vaults.
+HTTP mode uses stateless MCP Streamable HTTP. It does not issue or validate `Mcp-Session-Id`, so an MCP client can continue making tool calls after the daemon restarts even if it still sends a stale session header. This mode is intended for the server's request/response tools and does not provide persistent SSE streams, server-initiated notifications, or SSE resume.
+
+If port 3939 is already in use, the command exits with an error instead of choosing another port automatically. Use `--port` for separate vaults.
 
 When binding beyond localhost, add the client-facing Host header with `--allowed-host <host[:port]>` or `OBSIDIAN_MCP_ALLOWED_HOSTS`; `--allow-any-host` disables Host-header protection for trusted networks.
 

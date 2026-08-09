@@ -54,15 +54,15 @@ describe('runHttpMcpServer', () => {
     assert.equal(body.vaultPath, vaultDir);
   }, 30_000);
 
-  it('initializes MCP and lists tools over Streamable HTTP', async () => {
+  it('serves tools without issuing an MCP session id', async () => {
     vaultDir = createTempVault();
     server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
 
-    const sessionId = await initializeMcpSession(server.url);
+    await initializeMcpSession(server.url);
 
     const toolsRes = await fetch(server.url, {
       method: 'POST',
-      headers: { ...mcpHeaders(), 'mcp-session-id': sessionId },
+      headers: mcpHeaders(),
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 2,
@@ -73,6 +73,7 @@ describe('runHttpMcpServer', () => {
     const toolsBody = await toolsRes.text();
 
     assert.equal(toolsRes.status, 200);
+    assert.equal(toolsRes.headers.get('mcp-session-id'), null);
     assert.match(toolsBody, /search/);
     assert.match(toolsBody, /read/);
     assert.match(toolsBody, /reindex/);
@@ -93,7 +94,7 @@ describe('runHttpMcpServer', () => {
     );
 
     assert.equal(status, 200);
-    assert.ok(sessionId);
+    assert.equal(sessionId, null);
   });
 
   it('expands host-only allowed Host entries to the bound port', async () => {
@@ -110,7 +111,7 @@ describe('runHttpMcpServer', () => {
     );
 
     assert.equal(status, 200);
-    assert.ok(sessionId);
+    assert.equal(sessionId, null);
   });
 
   it('rejects MCP initialize requests for unlisted Host headers', async () => {
@@ -141,15 +142,55 @@ describe('runHttpMcpServer', () => {
     );
 
     assert.equal(status, 200);
-    assert.ok(sessionId);
+    assert.equal(sessionId, null);
   });
+
+  it('accepts a stale session header after the HTTP server restarts', async () => {
+    vaultDir = createTempVault();
+    server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
+    await initializeMcpSession(server.url);
+    const url = server.url;
+
+    await server.close();
+    server = await runHttpMcpServer({ host: '127.0.0.1', port: Number(new URL(url).port) });
+
+    const toolsRes = await fetch(server.url, {
+      method: 'POST',
+      headers: { ...mcpHeaders(), 'mcp-session-id': 'session-from-before-restart' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/list',
+        params: {},
+      }),
+    });
+
+    assert.equal(toolsRes.status, 200);
+    assert.equal(toolsRes.headers.get('mcp-session-id'), null);
+    assert.match(await toolsRes.text(), /search/);
+
+    const toolRes = await fetch(server.url, {
+      method: 'POST',
+      headers: { ...mcpHeaders(), 'mcp-session-id': 'session-from-before-restart' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: { name: 'status', arguments: {} },
+      }),
+    });
+
+    assert.equal(toolRes.status, 200);
+    assert.equal(toolRes.headers.get('mcp-session-id'), null);
+    assert.match(await toolRes.text(), /\\"indexed\\"/);
+  }, 30_000);
 
   it('returns a readable MCP error for invalid search arguments', async () => {
     vaultDir = createTempVault();
     server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
-    const sessionId = await initializeMcpSession(server.url);
+    await initializeMcpSession(server.url);
 
-    const body = await callTool(server.url, sessionId, 'search', { query: 'alpha', threshold: 2 });
+    const body = await callTool(server.url, 'search', { query: 'alpha', threshold: 2 });
     const result = parseToolCallResult(body);
 
     assert.equal(result.isError, true);
@@ -160,9 +201,9 @@ describe('runHttpMcpServer', () => {
   it('returns a readable MCP error for invalid read arguments', async () => {
     vaultDir = createTempVault();
     server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
-    const sessionId = await initializeMcpSession(server.url);
+    await initializeMcpSession(server.url);
 
-    const body = await callTool(server.url, sessionId, 'read', { paths: 123 });
+    const body = await callTool(server.url, 'read', { paths: 123 });
     const result = parseToolCallResult(body);
 
     assert.equal(result.isError, true);
@@ -196,9 +237,9 @@ describe('runHttpMcpServer', () => {
     upsertMarkdownLinks('alpha.md', ['beta.md']);
     closeDb();
     server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
-    const sessionId = await initializeMcpSession(server.url);
+    await initializeMcpSession(server.url);
 
-    const body = await callTool(server.url, sessionId, 'search', {
+    const body = await callTool(server.url, 'search', {
       path: 'alpha.md',
       related: true,
       direction: 'outgoing',
@@ -225,7 +266,7 @@ function mcpHeaders(): Record<string, string> {
 async function initializeMcpSession(
   url: string,
   extraHeaders: Record<string, string> = {},
-): Promise<string> {
+): Promise<void> {
   const initRes = await fetch(url, {
     method: 'POST',
     headers: { ...mcpHeaders(), ...extraHeaders },
@@ -240,12 +281,8 @@ async function initializeMcpSession(
       },
     }),
   });
-  const sessionId = initRes.headers.get('mcp-session-id');
-
   assert.equal(initRes.status, 200);
-  assert.ok(sessionId, 'initialize should return an MCP session id');
-
-  return sessionId;
+  assert.equal(initRes.headers.get('mcp-session-id'), null);
 }
 
 function initializeMcpSessionWithHost(
@@ -313,15 +350,10 @@ function requestHealthWithHost(url: string, hostHeader: string): Promise<number>
   });
 }
 
-async function callTool(
-  url: string,
-  sessionId: string,
-  name: string,
-  args: Record<string, unknown>,
-): Promise<string> {
+async function callTool(url: string, name: string, args: Record<string, unknown>): Promise<string> {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { ...mcpHeaders(), 'mcp-session-id': sessionId },
+    headers: { ...mcpHeaders(), 'mcp-session-id': 'stale-session-header' },
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: 2,
