@@ -2,27 +2,23 @@ import path from 'node:path';
 import { buildMatchText, buildMatchTextFromMarkedSnippet, stripSnippetMarkers } from './chunker.js';
 import { config } from './config.js';
 import {
-  countChunksForPaths,
   filterNotePathsByFrontmatter,
   filterNotePathsByTag,
-  getAllNotePaths,
   getBacklinksForPaths,
   getChunkEmbeddingsByPath,
-  getChunksWithEmbeddingsForPaths,
   getDb,
   getDbVersion,
   getLinksForPaths,
   getMarkdownLinksForPaths,
   getMatchingNotesByFrontmatter,
   getNoteByPath,
-  getOutgoingLinks,
   getOutgoingLinksForPaths,
-  getStoredEmbeddingDim,
   getUrlsForPaths,
   hasVecTable,
   resolveNotePath,
 } from './db.js';
 import { embed } from './embedder.js';
+import { buildFilterPredicate, hasFilterValue, type FilterPredicate } from './filter-predicate.js';
 import {
   extractMarkdownReferenceOccurrences,
   resolveMarkdownNoteLinks,
@@ -144,7 +140,7 @@ interface RawResult {
   bm25Anchor?: MatchAnchor;
 }
 
-function matchesScopeFilter(notePath: string, scope: string | string[]): boolean {
+export function matchesScopeFilter(notePath: string, scope: string | string[]): boolean {
   const scopes = (Array.isArray(scope) ? scope : [scope]).map((s) => s.normalize('NFD'));
   const includes = scopes.filter((s) => !s.startsWith('-'));
   const excludes = scopes.filter((s) => s.startsWith('-')).map((s) => s.slice(1));
@@ -158,11 +154,6 @@ function matchesScopeFilter(notePath: string, scope: string | string[]): boolean
   // Multiple includes = OR logic (note must match ANY of the includes)
   if (includes.length === 0) return true;
   return includes.some((inc) => scopeMatches(notePath, inc));
-}
-
-function applyScope(results: RawResult[], scope?: string | string[]): RawResult[] {
-  if (!scope) return results;
-  return results.filter((r) => matchesScopeFilter(r.path, scope));
 }
 
 function applyThreshold(results: RawResult[], threshold: number): RawResult[] {
@@ -183,59 +174,6 @@ function applyFrontmatterFilter(results: RawResult[], frontmatter: string | stri
     frontmatter,
   );
   return results.filter((result) => allowedPaths.has(result.path));
-}
-
-/**
- * True when a tag/scope/frontmatter option carries an actual filter value.
- *
- * THE single answer to "is this filter present?" — every site that asks must call
- * this one. The predicate used to be open-coded at four sites with two different
- * answers for the empty string, which stayed correct only by accident of where the
- * trailing filters happened to run. An empty string and an empty array both mean
- * ABSENT: that matches what the resolver and the result pipeline already do, and it
- * avoids resolving a whole-vault candidate set for a filter that filters nothing.
- */
-function hasFilterValue(v: string | string[] | undefined): boolean {
-  if (v === undefined) return false;
-  return Array.isArray(v) ? v.length > 0 : v !== '';
-}
-
-/** True when the options carry a filter that narrows the candidate set. */
-function hasCandidateFilters(options: SearchOptions): boolean {
-  return (
-    hasFilterValue(options.tag) ||
-    hasFilterValue(options.scope) ||
-    hasFilterValue(options.frontmatter)
-  );
-}
-
-/**
- * Resolve tag/scope/frontmatter filters into the full set of matching note paths.
- *
- * Deliberately does NOT reuse the filter-only branch's code path: that branch
- * produces synthetic RawResults in title-ASC order and caps at FETCH_ALL, both of
- * which are wrong here. A truncated set would make the caller's exact-scan-vs-KNN
- * decision wrong, which is the same class of bug this whole change fixes.
- * Filter SEMANTICS stay identical because the low-level helpers are shared.
- */
-function resolveFilteredPaths(options: SearchOptions): string[] {
-  const hasFm = hasFilterValue(options.frontmatter);
-
-  // -1 means "no LIMIT" in SQLite. Never pass FETCH_ALL here.
-  let paths = hasFm
-    ? getMatchingNotesByFrontmatter(options.frontmatter!, -1).map((m) => m.path)
-    : getAllNotePaths();
-
-  if (hasFilterValue(options.scope)) {
-    paths = paths.filter((p) => matchesScopeFilter(p, options.scope!));
-  }
-
-  if (hasFilterValue(options.tag)) {
-    const allowed = filterNotePathsByTag(paths, options.tag!);
-    paths = paths.filter((p) => allowed.has(p));
-  }
-
-  return paths;
 }
 
 function toSearchResult(r: RawResult): SearchResult {
@@ -314,22 +252,45 @@ type FtsRow = {
 const SNIPPET_MARK_START = '';
 const SNIPPET_MARK_END = '';
 
+/**
+ * The `AND <predicate>` fragment and the params to splice, or empty strings/arrays when
+ * no filter is active.
+ *
+ * An inactive filter MUST contribute a byte-identical SQL string. Not for statement
+ * reuse — better-sqlite3 has no SQL-text statement cache, every db.prepare() compiles
+ * afresh — but because identical text is what keeps the unfiltered path's query plan and
+ * its output stable, which is the property the frozen output capture pins. An
+ * unconditional `AND 1` would hand SQLite a different statement to plan on every
+ * unfiltered query in the codebase for no gain.
+ */
+function filterFragment(predicate: FilterPredicate | undefined): {
+  clause: string;
+  params: Array<string | number>;
+} {
+  if (predicate === undefined || predicate.isEmpty) return { clause: '', params: [] };
+  return { clause: ` AND ${predicate.sql}`, params: predicate.params };
+}
+
 export function searchBm25(
   query: string,
   limit: number,
   snippetLength = 300,
   buildAnchors = false,
+  predicate?: FilterPredicate,
 ): RawResult[] {
   const db = getDb();
   const numTokens = Math.max(10, Math.ceil(snippetLength / 4));
-  const stmt = db.prepare<[string, string, number, string, number], FtsRow>(
+  const filter = filterFragment(predicate);
+  // Widened from the former fixed 5-tuple: the filter params are spliced in before
+  // `limit`, so the bind list is variable-length.
+  const stmt = db.prepare<Array<string | number>, FtsRow>(
     `
       SELECT n.path, n.title, n.tags, n.aliases,
              snippet(notes_fts_bm25, 2, ?, ?, '...', ?) AS snippet,
              bm25(notes_fts_bm25, 10.0, 5.0, 1.0) AS rank
       FROM notes_fts_bm25
       JOIN notes n ON n.id = notes_fts_bm25.rowid
-      WHERE notes_fts_bm25 MATCH ?
+      WHERE notes_fts_bm25 MATCH ?${filter.clause}
       ORDER BY rank
       LIMIT ?
     `,
@@ -346,6 +307,7 @@ export function searchBm25(
       SNIPPET_MARK_END,
       numTokens,
       toFtsQuery(query, 'OR'),
+      ...filter.params,
       limit,
     );
 
@@ -435,9 +397,14 @@ function calculateTrigramOverlap(query: string, title: string): number {
  * Handles short aliases (< 3 chars) that the trigram FTS index can't tokenize,
  * and Cyrillic / non-ASCII aliases that SQLite's lower() doesn't fold correctly.
  */
-function searchByAliasExact(query: string, limit: number): RawResult[] {
+function searchByAliasExact(
+  query: string,
+  limit: number,
+  predicate?: FilterPredicate,
+): RawResult[] {
   const db = getDb();
   const queryNfd = query.normalize('NFD').toLowerCase();
+  const filter = filterFragment(predicate);
 
   const rows = db
     .prepare(
@@ -445,11 +412,11 @@ function searchByAliasExact(query: string, limit: number): RawResult[] {
       SELECT DISTINCT n.path, n.title, n.tags, n.aliases
       FROM note_aliases a
       JOIN notes n ON n.id = a.note_id
-      WHERE a.alias_norm = ?
+      WHERE a.alias_norm = ?${filter.clause}
       LIMIT ?
     `,
     )
-    .all(queryNfd, limit) as Array<{
+    .all(queryNfd, ...filter.params, limit) as Array<{
     path: string;
     title: string;
     tags: string;
@@ -467,14 +434,25 @@ function searchByAliasExact(query: string, limit: number): RawResult[] {
   }));
 }
 
-export function searchFuzzyTitle(query: string, limit: number): RawResult[] {
+/**
+ * `predicate` is optional because readNotes() calls this for path-miss suggestions,
+ * where the caller's filters must NOT apply.
+ */
+export function searchFuzzyTitle(
+  query: string,
+  limit: number,
+  predicate?: FilterPredicate,
+): RawResult[] {
   // Exact alias match first — handles short aliases (< 3 chars) and Cyrillic that
   // the trigram FTS can't tokenize, ensuring they always surface in title/hybrid mode.
-  const aliasExact = searchByAliasExact(query, limit);
+  // It MUST get the same predicate: alias hits enter RRF at weight 2.0, and once the
+  // post-filter is gone there is nothing downstream left to drop unfiltered ones.
+  const aliasExact = searchByAliasExact(query, limit, predicate);
   const aliasExactPaths = new Set(aliasExact.map((r) => r.path));
 
   const db = getDb();
   const ftsQuery = buildTrigramOrQuery(query);
+  const filter = filterFragment(predicate);
 
   try {
     const ftsRows = db
@@ -484,12 +462,12 @@ export function searchFuzzyTitle(query: string, limit: number): RawResult[] {
              bm25(notes_fts_fuzzy) AS rank
       FROM notes_fts_fuzzy
       JOIN notes n ON n.id = notes_fts_fuzzy.rowid
-      WHERE notes_fts_fuzzy MATCH ?
+      WHERE notes_fts_fuzzy MATCH ?${filter.clause}
       ORDER BY rank
       LIMIT ?
     `,
       )
-      .all(ftsQuery, limit) as Array<{
+      .all(ftsQuery, ...filter.params, limit) as Array<{
       path: string;
       title: string;
       tags: string;
@@ -774,8 +752,67 @@ function isMarkdownWhitespace(char: string): boolean {
  */
 const VEC_MAX_K = 4096;
 
-function searchVector(queryEmbedding: Float32Array, limit: number): RawResult[] {
+/**
+ * @param excludeLinkedFrom when set, omits that note and everything it links to —
+ *   the "already known" set for a similarity lookup.
+ */
+function searchVector(
+  queryEmbedding: Float32Array,
+  limit: number,
+  predicate?: FilterPredicate,
+  excludeLinkedFrom?: string,
+): RawResult[] {
   if (!hasVecTable()) return [];
+
+  // ── The vector arm's restriction form is the OPPOSITE of the FTS arms', and the
+  // wrong one fails SILENTLY. sqlite-vec pre-filters a KNN ONLY when the restriction
+  // is on its primary key as `vc.chunk_id IN (subquery)`. The correlated
+  // `EXISTS (… WHERE nt.note_id = n.id …)` form — exactly what searchBm25 and
+  // searchFuzzyTitle correctly use — compiles to a POST-filter here: k is taken first
+  // and the restriction then throws the survivors away, so a narrow filter returns 0
+  // rows instead of `limit`. Measured. Do NOT "harmonize" these two forms.
+  // sqlite-vec applies a KNN restriction BEFORE taking k only when it is expressed
+  // positively on the primary key, as `vc.chunk_id IN (subquery)`. `NOT IN` is NOT
+  // recognized by that optimization: k is taken first and the exclusion then discards
+  // the survivors, so a source note whose links fill the top-k returns nothing.
+  // Measured. Everything therefore collapses into ONE positive `IN`, with the
+  // exclusion carried inside it as a `NOT IN` over note ids — cheap there, because by
+  // that point we are already inside a plain SQL subquery rather than the KNN itself.
+  //
+  // Do not "harmonize" this with the correlated EXISTS the FTS arms use: that form
+  // compiles to a post-filter here and silently returns zero rows.
+  const conditions: string[] = [];
+  const extraParams: Array<string | number> = [];
+
+  if (predicate !== undefined && !predicate.isEmpty) {
+    // The predicate's clauses reference the alias `n`; inside this subquery the notes
+    // table is aliased `n2` so it cannot shadow the outer join above.
+    conditions.push(predicate.sql.replace(/\bn\./g, 'n2.'));
+    extraParams.push(...predicate.params);
+  }
+
+  if (excludeLinkedFrom !== undefined) {
+    // Driven from `links` rather than a correlated EXISTS: the correlated form forces
+    // a full chunk scan and doubled the arm's cost (7.33 ms vs 4.94 ms on a 157-link
+    // hub note). A bound parameter list is impossible — hub notes can have thousands
+    // of links and such a list cannot be batched inside a single k-limited KNN.
+    conditions.push(
+      `c2.note_id NOT IN (
+             SELECT n4.id FROM notes n4 WHERE n4.path = ?
+             UNION
+             SELECT n5.id FROM notes n5 JOIN links l ON l.to_path = n5.path WHERE l.from_path = ?)`,
+    );
+    extraParams.push(excludeLinkedFrom, excludeLinkedFrom);
+  }
+
+  const restrictions =
+    conditions.length === 0
+      ? []
+      : [
+          `vc.chunk_id IN (SELECT c2.id FROM chunks c2 JOIN notes n2 ON n2.id = c2.note_id WHERE ${conditions.join(' AND ')})`,
+        ];
+
+  const restrictionSql = restrictions.map((r) => `\n          AND ${r}`).join('');
 
   return measureSearchStageSync('vectorSearch', () => {
     const db = getDb();
@@ -794,7 +831,7 @@ function searchVector(queryEmbedding: Float32Array, limit: number): RawResult[] 
         JOIN chunks c ON c.id = vc.chunk_id
         JOIN notes n ON n.id = c.note_id
         WHERE vc.embedding MATCH ?
-          AND k = ?
+          AND k = ?${restrictionSql}
       )
       SELECT chunk_id, distance, note_id, chunk_index, chunk_text, heading_path,
              char_start, char_end, path, title, tags, aliases
@@ -804,7 +841,9 @@ function searchVector(queryEmbedding: Float32Array, limit: number): RawResult[] 
       LIMIT ?
     `,
         )
-        .all(queryEmbedding, Math.min(limit * 5, VEC_MAX_K), limit) as Array<{
+        // `k` is validated by sqlite-vec BEFORE the pre-filter runs, so the VEC_MAX_K
+        // clamp stays regardless of how narrow the restriction is.
+        .all(queryEmbedding, Math.min(limit * 5, VEC_MAX_K), ...extraParams, limit) as Array<{
         chunk_id: number;
         distance: number;
         note_id: number;
@@ -849,90 +888,6 @@ function searchVector(queryEmbedding: Float32Array, limit: number): RawResult[] 
       return [];
     }
   });
-}
-
-/** Process candidate chunks in batches so peak memory stays bounded by the batch,
- *  not by the size of the filtered set. */
-const SCAN_BATCH_NOTES = 200;
-
-/**
- * Squared L2 distance, or Infinity when the vectors have different dimensions.
- *
- * Failing closed on a mismatch is deliberate: comparing only the overlapping
- * prefix would omit terms from the sum and therefore report an INFLATED
- * similarity, silently. The KNN path fails closed too — sqlite-vec throws on a
- * dimension mismatch and searchVector returns []. Reachable when a note takes the
- * getSimilaritySource re-embed fallback while the configured model's dimension
- * differs from the one the vectors were indexed with.
- */
-function squaredL2(a: Float32Array, b: Float32Array): number {
-  if (a.length !== b.length) return Infinity;
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) {
-    const d = a[i]! - b[i]!;
-    sum += d * d;
-  }
-  return sum;
-}
-
-/**
- * Exhaustive similarity scan of `candidatePaths` against every source chunk.
- *
- * Scores are computed with the SAME expression sqlite-vec's KNN path uses
- * (searchVector, above): Math.max(0, 1 - squaredL2 / 2). Computing plain cosine
- * here would diverge, because embeddings are only guaranteed normalized on the
- * local-model path — the API path stores whatever the endpoint returned.
- *
- * Unlike KNN this never truncates, so a filter that matches only distant notes
- * still returns them ranked. Cost is bounded by the caller's work estimate.
- */
-function scanSimilarExact(
-  sourceEmbeddings: Float32Array[],
-  candidatePaths: string[],
-  excluded: Set<string>,
-): RawResult[] {
-  const byPath = new Map<string, RawResult>();
-  const targets = candidatePaths.filter((p) => !excluded.has(p));
-
-  for (let i = 0; i < targets.length; i += SCAN_BATCH_NOTES) {
-    const batch = targets.slice(i, i + SCAN_BATCH_NOTES);
-    for (const chunk of getChunksWithEmbeddingsForPaths(batch)) {
-      let best = 0;
-      let comparable = false;
-      for (const source of sourceEmbeddings) {
-        const d2 = squaredL2(source, chunk.embedding);
-        // Dimension mismatch — skip rather than score a truncated prefix. If NO
-        // source chunk is comparable we emit nothing for this note, mirroring the
-        // KNN path, which returns [] outright when sqlite-vec rejects the vector.
-        if (!Number.isFinite(d2)) continue;
-        comparable = true;
-        const score = Math.max(0, 1 - d2 / 2);
-        if (score > best) best = score;
-      }
-      if (!comparable) continue;
-      const existing = byPath.get(chunk.path);
-      if (existing && existing.score >= best) continue;
-      byPath.set(chunk.path, {
-        path: chunk.path,
-        title: chunk.title,
-        tags: chunk.tags,
-        aliases: chunk.aliases,
-        snippet: formatChunkSnippet(chunk.headingPath, chunk.chunkText, chunk.chunkIndex > 0),
-        chunkText: chunk.chunkText,
-        score: best,
-        scores: { semantic: best },
-        semanticAnchor: {
-          kind: 'semantic' as const,
-          headingPath: chunk.headingPath ?? null,
-          matchText: buildMatchText(chunk.chunkText),
-          charStart: chunk.charStart ?? null,
-          charEnd: chunk.charEnd ?? null,
-        },
-      });
-    }
-  }
-
-  return [...byPath.values()].sort((a, b) => b.score - a.score);
 }
 
 function rrfFusion(lists: RawResult[][], k = 60, weights?: number[]): RawResult[] {
@@ -1534,15 +1489,28 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   // final slice below is what is actually skipped.
   const retrievalLimit = noLimit ? UNLIMITED_RESULTS : limit;
 
+  // Built ONCE and threaded into every retrieval arm, so the filter narrows the pool
+  // the query itself scans instead of trimming an already-truncated result list. A
+  // narrow filter used to return nothing at a small limit for exactly that reason.
+  const predicate = buildFilterPredicate(options);
+
   if (isPathLookup) {
-    results = await searchSimilarFiltered(resolvedPath, retrievalLimit, options);
+    results = await searchSimilar(resolvedPath, retrievalLimit, predicate);
   } else if (options.queries && options.queries.length > 1) {
     // Multi-query fan-out: run each query in parallel, merge via RRF, then rerank once.
     // Each sub-search uses a larger candidate pool so RRF has enough signal to rank correctly.
     const candidateLimit = Math.max(retrievalLimit * 2, 20);
     const perQueryResults = await Promise.all(
       options.queries.map((q) =>
-        searchByQuery(q, mode, candidateLimit, snippetLength, false, options.anchors ?? false),
+        searchByQuery(
+          q,
+          mode,
+          candidateLimit,
+          snippetLength,
+          false,
+          options.anchors ?? false,
+          predicate,
+        ),
       ),
     );
     results = measureSearchStageSync('rrfFusion', () => rrfFusion(perQueryResults, 60));
@@ -1568,18 +1536,17 @@ export async function search(input: string, options: SearchOptions = {}): Promis
       snippetLength,
       options.rerank ?? false,
       options.anchors ?? false,
+      predicate,
     );
   }
 
   const { filteredResults, final } = measureSearchStageSync('filterAndFormat', () => {
-    let filteredResults = applyScope(results, options.scope);
-    filteredResults = applyThreshold(filteredResults, threshold);
-    if (hasFilterValue(options.tag)) {
-      filteredResults = applyTagFilter(filteredResults, options.tag!);
-    }
-    if (hasFilterValue(options.frontmatter)) {
-      filteredResults = applyFrontmatterFilter(filteredResults, options.frontmatter!);
-    }
+    // Scope, tag and frontmatter are pushed into every retrieval arm as a SQL
+    // predicate, so there is nothing left for them to trim here. applyThreshold
+    // STAYS: it is a score cutoff, cannot be expressed as a predicate over `notes`,
+    // and deleting it silently turns --threshold into a no-op. It must keep running
+    // BEFORE the final slice, or a below-threshold result would consume a slot.
+    let filteredResults = applyThreshold(results, threshold);
     if (!noLimit) filteredResults = filteredResults.slice(0, limit);
 
     const paths = filteredResults.map((r) => r.path);
@@ -1740,6 +1707,7 @@ async function searchByQuery(
   snippetLength: number,
   rerank = false,
   buildAnchors = false,
+  predicate?: FilterPredicate,
 ): Promise<RawResult[]> {
   if (rerank && mode !== 'hybrid') {
     process.stderr.write('Reranking is only supported in hybrid mode. Ignoring --rerank.\n');
@@ -1748,7 +1716,7 @@ async function searchByQuery(
 
   if (mode === 'fulltext') {
     return measureSearchStageSync('bm25', () =>
-      searchBm25(query, limit, snippetLength, buildAnchors),
+      searchBm25(query, limit, snippetLength, buildAnchors, predicate),
     );
   }
 
@@ -1759,7 +1727,7 @@ async function searchByQuery(
     // dropped before scoring. Only done for title mode — hybrid uses rrfFusion which
     // depends on the original BM25 ordering from searchFuzzyTitle.
     const candidates = measureSearchStageSync('fuzzyTitle', () =>
-      searchFuzzyTitle(query, Math.max(limit * 5, 50)),
+      searchFuzzyTitle(query, Math.max(limit * 5, 50), predicate),
     );
     return candidates.sort((a, b) => b.score - a.score).slice(0, limit);
   }
@@ -1769,7 +1737,7 @@ async function searchByQuery(
     // If embedding permanently failed after retries, return empty rather than
     // polluting results with uniform zero-vector scores.
     if (!f32) return [];
-    return searchVector(f32, limit);
+    return searchVector(f32, limit, predicate);
   }
 
   // hybrid: RRF fusion of all three
@@ -1785,13 +1753,15 @@ async function searchByQuery(
   const [bm25Results, fuzzyResults, vectorResults] = await Promise.all([
     Promise.resolve(
       measureSearchStageSync('bm25', () =>
-        searchBm25(query, candidateLimit, snippetLength, buildAnchors),
+        searchBm25(query, candidateLimit, snippetLength, buildAnchors, predicate),
       ),
     ),
     Promise.resolve(
-      measureSearchStageSync('fuzzyTitle', () => searchFuzzyTitle(query, candidateLimit)),
+      measureSearchStageSync('fuzzyTitle', () =>
+        searchFuzzyTitle(query, candidateLimit, predicate),
+      ),
     ),
-    f32 ? searchVector(f32, candidateLimit) : Promise.resolve([]),
+    f32 ? searchVector(f32, candidateLimit, predicate) : Promise.resolve([]),
   ]);
 
   // Exact alias matches (fuzzy_title=1.0) are canonical identity signals — treated like BM25.
@@ -1818,199 +1788,58 @@ async function searchByQuery(
   return results;
 }
 
-interface SimilaritySource {
-  embeddings: Float32Array[];
-  excluded: Set<string>;
-}
-
 /**
- * Source vectors for a similarity lookup, plus the set of paths to omit.
+ * Source vectors for a similarity lookup.
  *
  * Prefers the chunk embeddings stored at index time — re-embedding would truncate
  * long notes (the local model caps at 512 tokens). Falls back to re-embedding the
  * whole note only when it was indexed without embeddings, e.g. the API was down.
- * Excludes the note itself and everything it already links to: those are known.
+ *
+ * The "already known" set (the note itself plus everything it links to) is NOT
+ * resolved here: it is pushed into the KNN as a SQL restriction, so it narrows the
+ * pool the query scans instead of eating into an already-truncated top-N.
  */
-async function getSimilaritySource(normalizedPath: string): Promise<SimilaritySource | null> {
+async function getSimilaritySource(normalizedPath: string): Promise<Float32Array[] | null> {
   const note = getNoteByPath(normalizedPath);
   if (!note) return null;
 
-  const excluded = new Set([note.path, ...getOutgoingLinks(normalizedPath)]);
   const stored = getChunkEmbeddingsByPath(normalizedPath);
-  if (stored.length > 0) return { embeddings: stored, excluded };
+  if (stored.length > 0) return stored;
 
   const f32 = await embedQuery(`${note.title}\n\n${note.content}`);
   if (!f32) return null;
-  return { embeddings: [f32], excluded };
+  return [f32];
 }
 
 /**
- * KNN similarity over an ALREADY-RESOLVED source. Split out so callers that have
- * resolved the source can reuse it — re-resolving costs a second embedQuery
- * round-trip for any note indexed without embeddings.
+ * KNN similarity to a note, with the tag/scope/frontmatter filter and the
+ * self+outgoing-link exclusion both applied INSIDE the KNN.
+ *
+ * There is no `limit + 1` over-fetch: it existed only to absorb self-exclusion after
+ * the fact, and the exclusion is now part of the query.
  */
-function knnSimilar(source: SimilaritySource, limit: number): RawResult[] {
+async function searchSimilar(
+  notePath: string,
+  limit: number,
+  predicate?: FilterPredicate,
+): Promise<RawResult[]> {
+  // macOS stores filenames as NFD; normalize to match DB paths
+  const normalizedPath = notePath.normalize('NFD');
+  const embeddings = await getSimilaritySource(normalizedPath);
+  if (!embeddings) return [];
+
   // Run vector search per source chunk, deduplicate by path keeping the max score
-  const allResults = source.embeddings.flatMap((f32) => searchVector(f32, limit + 1));
+  const allResults = embeddings.flatMap((f32) =>
+    searchVector(f32, limit, predicate, normalizedPath),
+  );
 
   const byPath = new Map<string, RawResult>();
   for (const r of allResults) {
-    if (source.excluded.has(r.path)) continue;
     const existing = byPath.get(r.path);
     if (!existing || r.score > existing.score) byPath.set(r.path, r);
   }
 
   return [...byPath.values()].sort((a, b) => b.score - a.score).slice(0, limit);
-}
-
-async function searchSimilar(notePath: string, limit: number): Promise<RawResult[]> {
-  // macOS stores filenames as NFD; normalize to match DB paths
-  const source = await getSimilaritySource(notePath.normalize('NFD'));
-  if (!source) return [];
-  return knnSimilar(source, limit);
-}
-
-/**
- * I/O ceiling for the exact scan, in bytes of embedding blob: candidateChunks × dim × 4.
- *
- * This is the gate that actually matters. Reading every candidate embedding out of
- * SQLite and materializing Float32Arrays dominates the scan; the float multiplies
- * are nearly free by comparison. Source-chunk subsampling cannot help here — I/O
- * volume is set by the candidate set alone — so when this ceiling is exceeded the
- * scan is simply not affordable and we fall back to KNN. That is honest: we cannot
- * scan what we will not read.
- *
- * 64 MB is a LATENCY budget for a single uncached query, not a memory limit (the
- * scan is already batched by SCAN_BATCH_NOTES). At typical local SSD/page-cache
- * throughput it lands in the low hundreds of milliseconds — acceptable for an
- * explicit "find notes like this one, filtered" request, and the point past which
- * an approximate answer beats a slow exact one. In vault terms it admits ~5.4k
- * candidate chunks at dim 3072 (text-embedding-3-large) and ~43k at dim 384 (the
- * default local model), so a small model scans a proportionally larger vault.
- *
- * KNOWN BOUNDARY — the ceiling is NOT "the filter is basically the whole vault".
- * At the measured ~7.9 chunks/note it translates to roughly:
- *     dim  384 (local multilingual-e5-small) : ~5,500 candidate notes
- *     dim 1536 (text-embedding-3-small)      : ~1,380 candidate notes  <- the
- *              DEFAULT whenever OPENAI_API_KEY is set
- *     dim 3072 (text-embedding-3-large)      :   ~690 candidate notes
- * So on a 30k-note vault at dim 1536, a tag matching 2,000 notes — 6.7% of the
- * vault, narrow by any reading — already exceeds this ceiling and degrades to
- * knnSimilar() over a 500-deep pool plus post-filtering. If none of the global
- * top-500 carry the tag, the result is empty: the same class of symptom this
- * function exists to fix, ~50x further out. Filters wider than the numbers above
- * are therefore APPROXIMATE, not exact. The real fix is a sqlite-vec rowid
- * pre-filter (out of scope here; see the design spec's "Явно вне рамок").
- */
-const SCAN_IO_BUDGET_BYTES = 64 * 1024 * 1024;
-
-/**
- * CPU budget for the exact scan, in float multiplies: sourceChunks × candidateChunks × dim.
- * Applied only AFTER the I/O ceiling has admitted the scan.
- *
- * Expressed in work rather than note count because embedding dimension varies
- * 384..3072 across supported models and a source note can hold 130+ chunks — a
- * note-count threshold reflects neither. When this budget is exceeded we reduce
- * SOURCE chunks, never candidates: dropping candidates is the exact defect this
- * branch exists to fix.
- */
-const SCAN_CPU_BUDGET = 150_000_000;
-
-/**
- * Assumed embedding dimension when the DB has no stored value.
- *
- * Deliberately the LARGEST supported dimension (text-embedding-3-large), not the
- * smallest: an unknown dim must over-estimate work so we err toward subsampling
- * source chunks rather than toward committing to a multi-second scan we sized
- * with an up-to-8x under-estimate.
- */
-const ASSUMED_EMBEDDING_DIM = 3072;
-
-/** Absolute cap on the oversampled KNN pool. Without it, limit × 20 expands to
- *  k = limit × 100 chunks PER source chunk, which for a many-chunk note costs
- *  more than the exact scan this branch exists to avoid. */
-const OVERSAMPLE_MAX = 500;
-
-/**
- * Take at most `max` items spread evenly across `items`.
- *
- * Used to shrink the source-chunk set to fit the scan budget. Striding rather
- * than truncating matters: the head of a long note is not representative of it,
- * so `slice(0, max)` would silently narrow a similarity lookup to the note's
- * introduction. An even stride keeps the whole note represented.
- */
-function subsampleEvenly<T>(items: T[], max: number): T[] {
-  if (items.length <= max) return items;
-  if (max === 1) return [items[0]!];
-  const out: T[] = [];
-  const last = items.length - 1;
-  for (let i = 0; i < max; i++) {
-    // Stride over [0, last] INCLUSIVE. The earlier `i * length / max` form peaked at
-    // floor((max-1) * length / max) < length - 1, so the tail of the note was
-    // unreachable — a 132-chunk note capped at 8 never sampled its final ~16 chunks.
-    // i <= max - 1, so (i * last) / (max - 1) <= last — index is always in bounds.
-    out.push(items[Math.floor((i * last) / (max - 1))]!);
-  }
-  return out;
-}
-
-/**
- * Similarity lookup that applies tag/scope/frontmatter filters to the CANDIDATE
- * POOL rather than to an already-truncated top-N.
- *
- * Without filters this is plain searchSimilar — unchanged behavior. With filters,
- * KNN's `k` cut-off would discard every matching note before the pipeline's
- * filters ever ran, so a narrow filter returned empty. We resolve the filter to a
- * path set first and scan it exhaustively.
- *
- * Two independent gates gate the scan:
- *   1. I/O (candidate-driven). Over the ceiling the scan is unaffordable outright —
- *      subsampling source chunks would not reduce a single byte read — so we fall
- *      back to oversampled KNN. That fallback is APPROXIMATE and can still return
- *      empty for a genuinely narrow filter on a large vault; see the known-boundary
- *      note on SCAN_IO_BUDGET_BYTES for the exact note counts per dimension.
- *   2. CPU (source × candidate). Met by reducing SOURCE chunks, never candidates:
- *      score fidelity degrades gracefully, whereas dropping candidates makes
- *      matching notes vanish — the very defect this function exists to fix.
- */
-async function searchSimilarFiltered(
-  notePath: string,
-  limit: number,
-  options: SearchOptions,
-): Promise<RawResult[]> {
-  if (!hasCandidateFilters(options)) return searchSimilar(notePath, limit);
-
-  const normalizedPath = notePath.normalize('NFD');
-  const candidatePaths = resolveFilteredPaths(options);
-  if (candidatePaths.length === 0) return [];
-
-  const source = await getSimilaritySource(normalizedPath);
-  if (!source) return [];
-
-  const dim = getStoredEmbeddingDim() ?? ASSUMED_EMBEDDING_DIM;
-  const candidateChunks = countChunksForPaths(candidatePaths);
-
-  // Gate 1 — I/O. Reading the candidate blobs is the scan's dominant cost and no
-  // amount of source subsampling reduces it, so this decides scan vs KNN outright.
-  if (candidateChunks * dim * 4 > SCAN_IO_BUDGET_BYTES) {
-    // Reuse the resolved source: searchSimilar would re-run getSimilaritySource,
-    // costing a second embedQuery round-trip for a note indexed without embeddings.
-    return knnSimilar(source, Math.min(limit * 20, OVERSAMPLE_MAX));
-  }
-
-  // Gate 2 — CPU. Trim source chunks so the scan's arithmetic stays bounded.
-  // Nothing indexed among the candidates (workPerSourceChunk === 0) still scans;
-  // scanSimilarExact simply finds no chunks and returns [].
-  const workPerSourceChunk = candidateChunks * dim;
-  const sourceEmbeddings =
-    workPerSourceChunk === 0
-      ? source.embeddings
-      : subsampleEvenly(
-          source.embeddings,
-          Math.max(1, Math.floor(SCAN_CPU_BUDGET / workPerSourceChunk)),
-        );
-
-  return scanSimilarExact(sourceEmbeddings, candidatePaths, source.excluded);
 }
 
 /**

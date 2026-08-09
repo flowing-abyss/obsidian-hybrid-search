@@ -1,0 +1,2610 @@
+[
+  {
+    "id": "sync|hybrid|no-filter",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 1,
+        "score": 0.9806142575373344
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 2,
+        "score": 0.9771246898263027
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 3,
+        "score": 0.9684792134388909
+      },
+      {
+        "path": "Obsidian Sync/Status icon and messages.md",
+        "rank": 4,
+        "score": 0.9413339188495665
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 5,
+        "score": 0.9231812963156247
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 6,
+        "score": 0.9170887083930563
+      },
+      {
+        "path": "Getting started/Sync your notes across devices.md",
+        "rank": 7,
+        "score": 0.8893326758711374
+      },
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 8,
+        "score": 0.8603344481605352
+      },
+      {
+        "path": "Obsidian Sync/Plans and storage limits.md",
+        "rank": 9,
+        "score": 0.8492995761342684
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 10,
+        "score": 0.8439784197702751
+      }
+    ]
+  },
+  {
+    "id": "sync|hybrid|scope",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 1,
+        "score": 0.9806142575373344
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 2,
+        "score": 0.9771246898263027
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 3,
+        "score": 0.9684792134388909
+      },
+      {
+        "path": "Obsidian Sync/Status icon and messages.md",
+        "rank": 4,
+        "score": 0.9413339188495665
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 5,
+        "score": 0.9170887083930563
+      },
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 6,
+        "score": 0.8603344481605352
+      },
+      {
+        "path": "Obsidian Sync/Plans and storage limits.md",
+        "rank": 7,
+        "score": 0.8492995761342684
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 8,
+        "score": 0.8439784197702751
+      },
+      {
+        "path": "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "rank": 9,
+        "score": 0.8322153465892614
+      },
+      {
+        "path": "Obsidian Sync/Version history.md",
+        "rank": 10,
+        "score": 0.8321493118753394
+      }
+    ]
+  },
+  {
+    "id": "sync|hybrid|scope-exclude",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 1,
+        "score": 0.9231812963156247
+      },
+      {
+        "path": "Getting started/Sync your notes across devices.md",
+        "rank": 2,
+        "score": 0.8893326758711374
+      },
+      {
+        "path": "Getting started/Back up your Obsidian files.md",
+        "rank": 3,
+        "score": 0.777148010051066
+      },
+      {
+        "path": "Extending Obsidian/Obsidian CLI.md",
+        "rank": 4,
+        "score": 0.414027149321267
+      },
+      {
+        "path": "Editing and formatting/Callouts.md",
+        "rank": 5,
+        "score": 0.4080267558528428
+      },
+      {
+        "path": "Obsidian/About Obsidian.md",
+        "rank": 6,
+        "score": 0.3965330444203684
+      },
+      {
+        "path": "Obsidian/Credits.md",
+        "rank": 7,
+        "score": 0.36563436563436563
+      },
+      {
+        "path": "Obsidian/Community code of conduct.md",
+        "rank": 8,
+        "score": 0.35637779941577413
+      },
+      {
+        "path": "Extending Obsidian/Obsidian Headless.md",
+        "rank": 9,
+        "score": 0.35637779941577413
+      },
+      {
+        "path": "Obsidian Publish/Collaborate on a Publish site.md",
+        "rank": 10,
+        "score": 0.35192307692307695
+      }
+    ]
+  },
+  {
+    "id": "sync|hybrid|scope-array",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 1,
+        "score": 0.9806142575373344
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 2,
+        "score": 0.9771246898263027
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 3,
+        "score": 0.9684792134388909
+      },
+      {
+        "path": "Obsidian Sync/Status icon and messages.md",
+        "rank": 4,
+        "score": 0.9413339188495665
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 5,
+        "score": 0.9231812963156247
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 6,
+        "score": 0.9170887083930563
+      },
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 7,
+        "score": 0.8603344481605352
+      },
+      {
+        "path": "Obsidian Sync/Plans and storage limits.md",
+        "rank": 8,
+        "score": 0.8492995761342684
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 9,
+        "score": 0.8439784197702751
+      },
+      {
+        "path": "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "rank": 10,
+        "score": 0.8322153465892614
+      }
+    ]
+  },
+  {
+    "id": "sync|fulltext|no-filter",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 1,
+        "score": 0.6550799882975735
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 2,
+        "score": 0.6544223376110115
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 3,
+        "score": 0.65372758020098
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 4,
+        "score": 0.6537124482980917
+      },
+      {
+        "path": "Obsidian Sync/Switch to Obsidian Sync.md",
+        "rank": 5,
+        "score": 0.6533829907928062
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 6,
+        "score": 0.652771193348151
+      },
+      {
+        "path": "Obsidian Sync/Status icon and messages.md",
+        "rank": 7,
+        "score": 0.6527349126267482
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 8,
+        "score": 0.6525707602582305
+      },
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 9,
+        "score": 0.6525505128143501
+      },
+      {
+        "path": "Obsidian Sync/Local and remote vaults.md",
+        "rank": 10,
+        "score": 0.6519872035631658
+      }
+    ]
+  },
+  {
+    "id": "sync|fulltext|scope",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 1,
+        "score": 0.6550799882975735
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 2,
+        "score": 0.6544223376110115
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 3,
+        "score": 0.65372758020098
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 4,
+        "score": 0.6537124482980917
+      },
+      {
+        "path": "Obsidian Sync/Switch to Obsidian Sync.md",
+        "rank": 5,
+        "score": 0.6533829907928062
+      },
+      {
+        "path": "Obsidian Sync/Status icon and messages.md",
+        "rank": 6,
+        "score": 0.6527349126267482
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 7,
+        "score": 0.6525707602582305
+      },
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 8,
+        "score": 0.6525505128143501
+      },
+      {
+        "path": "Obsidian Sync/Local and remote vaults.md",
+        "rank": 9,
+        "score": 0.6519872035631658
+      }
+    ]
+  },
+  {
+    "id": "sync|fulltext|scope-exclude",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 1,
+        "score": 0.652771193348151
+      }
+    ]
+  },
+  {
+    "id": "sync|fulltext|scope-array",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 1,
+        "score": 0.6550799882975735
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 2,
+        "score": 0.6544223376110115
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 3,
+        "score": 0.65372758020098
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 4,
+        "score": 0.6537124482980917
+      },
+      {
+        "path": "Obsidian Sync/Switch to Obsidian Sync.md",
+        "rank": 5,
+        "score": 0.6533829907928062
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 6,
+        "score": 0.652771193348151
+      },
+      {
+        "path": "Obsidian Sync/Status icon and messages.md",
+        "rank": 7,
+        "score": 0.6527349126267482
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 8,
+        "score": 0.6525707602582305
+      },
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 9,
+        "score": 0.6525505128143501
+      },
+      {
+        "path": "Obsidian Sync/Local and remote vaults.md",
+        "rank": 10,
+        "score": 0.6519872035631658
+      }
+    ]
+  },
+  {
+    "id": "sync|title|no-filter",
+    "mode": "title",
+    "results": [
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 1,
+        "score": 0.8570504135419796
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 2,
+        "score": 0.8551913619515134
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 3,
+        "score": 0.8531363848807846
+      },
+      {
+        "path": "Obsidian Sync/Switch to Obsidian Sync.md",
+        "rank": 4,
+        "score": 0.8516701742249597
+      },
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 5,
+        "score": 0.8486266333009166
+      },
+      {
+        "path": "Obsidian Sync/Version history.md",
+        "rank": 6,
+        "score": 0.8486266333009166
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 7,
+        "score": 0.8478351122422194
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 8,
+        "score": 0.8471985217400945
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 9,
+        "score": 0.8470669428888712
+      },
+      {
+        "path": "Obsidian Sync/Status icon and messages.md",
+        "rank": 10,
+        "score": 0.843442635308721
+      }
+    ]
+  },
+  {
+    "id": "sync|title|scope",
+    "mode": "title",
+    "results": [
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 1,
+        "score": 0.8570504135419796
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 2,
+        "score": 0.8551913619515134
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 3,
+        "score": 0.8531363848807846
+      },
+      {
+        "path": "Obsidian Sync/Switch to Obsidian Sync.md",
+        "rank": 4,
+        "score": 0.8516701742249597
+      },
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 5,
+        "score": 0.8486266333009166
+      },
+      {
+        "path": "Obsidian Sync/Version history.md",
+        "rank": 6,
+        "score": 0.8486266333009166
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 7,
+        "score": 0.8471985217400945
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 8,
+        "score": 0.8470669428888712
+      },
+      {
+        "path": "Obsidian Sync/Status icon and messages.md",
+        "rank": 9,
+        "score": 0.843442635308721
+      }
+    ]
+  },
+  {
+    "id": "sync|title|scope-exclude",
+    "mode": "title",
+    "results": [
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 1,
+        "score": 0.8478351122422194
+      }
+    ]
+  },
+  {
+    "id": "sync|title|scope-array",
+    "mode": "title",
+    "results": [
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 1,
+        "score": 0.8570504135419796
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 2,
+        "score": 0.8551913619515134
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 3,
+        "score": 0.8531363848807846
+      },
+      {
+        "path": "Obsidian Sync/Switch to Obsidian Sync.md",
+        "rank": 4,
+        "score": 0.8516701742249597
+      },
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 5,
+        "score": 0.8486266333009166
+      },
+      {
+        "path": "Obsidian Sync/Version history.md",
+        "rank": 6,
+        "score": 0.8486266333009166
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 7,
+        "score": 0.8478351122422194
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 8,
+        "score": 0.8471985217400945
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 9,
+        "score": 0.8470669428888712
+      },
+      {
+        "path": "Obsidian Sync/Status icon and messages.md",
+        "rank": 10,
+        "score": 0.843442635308721
+      }
+    ]
+  },
+  {
+    "id": "sync|semantic|no-filter",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 1,
+        "score": 0.858119354479042
+      },
+      {
+        "path": "Obsidian Sync/Status icon and messages.md",
+        "rank": 2,
+        "score": 0.8521726746482656
+      },
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 3,
+        "score": 0.8462656111059914
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 4,
+        "score": 0.8462392024655383
+      },
+      {
+        "path": "Getting started/Sync your notes across devices.md",
+        "rank": 5,
+        "score": 0.8441816907496786
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 6,
+        "score": 0.8438287539879621
+      },
+      {
+        "path": "Obsidian Sync/Local and remote vaults.md",
+        "rank": 7,
+        "score": 0.8437471298778245
+      },
+      {
+        "path": "Extending Obsidian/Obsidian CLI.md",
+        "rank": 8,
+        "score": 0.841286374734743
+      },
+      {
+        "path": "Editing and formatting/Callouts.md",
+        "rank": 9,
+        "score": 0.840508646844766
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 10,
+        "score": 0.8390923420820116
+      }
+    ]
+  },
+  {
+    "id": "sync|semantic|scope",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 1,
+        "score": 0.858119354479042
+      },
+      {
+        "path": "Obsidian Sync/Status icon and messages.md",
+        "rank": 2,
+        "score": 0.8521726746482656
+      },
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 3,
+        "score": 0.8462656111059914
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 4,
+        "score": 0.8462392024655383
+      },
+      {
+        "path": "Obsidian Sync/Local and remote vaults.md",
+        "rank": 5,
+        "score": 0.8437471298778245
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 6,
+        "score": 0.8390923420820116
+      }
+    ]
+  },
+  {
+    "id": "sync|semantic|scope-exclude",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "Getting started/Sync your notes across devices.md",
+        "rank": 1,
+        "score": 0.8441816907496786
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 2,
+        "score": 0.8438287539879621
+      },
+      {
+        "path": "Extending Obsidian/Obsidian CLI.md",
+        "rank": 3,
+        "score": 0.841286374734743
+      },
+      {
+        "path": "Editing and formatting/Callouts.md",
+        "rank": 4,
+        "score": 0.840508646844766
+      }
+    ]
+  },
+  {
+    "id": "sync|semantic|scope-array",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 1,
+        "score": 0.858119354479042
+      },
+      {
+        "path": "Obsidian Sync/Status icon and messages.md",
+        "rank": 2,
+        "score": 0.8521726746482656
+      },
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 3,
+        "score": 0.8462656111059914
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 4,
+        "score": 0.8462392024655383
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 5,
+        "score": 0.8438287539879621
+      },
+      {
+        "path": "Obsidian Sync/Local and remote vaults.md",
+        "rank": 6,
+        "score": 0.8437471298778245
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 7,
+        "score": 0.8390923420820116
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|hybrid|no-filter",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "User interface/Settings.md",
+        "rank": 1,
+        "score": 0.9853479853479853
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 2,
+        "score": 0.9826696600890149
+      },
+      {
+        "path": "Extending Obsidian/Community plugins.md",
+        "rank": 3,
+        "score": 0.9466611819552997
+      },
+      {
+        "path": "Extending Obsidian/Plugin security.md",
+        "rank": 4,
+        "score": 0.9357928873004703
+      },
+      {
+        "path": "Obsidian Sync/Version history.md",
+        "rank": 5,
+        "score": 0.8105601937416355
+      },
+      {
+        "path": "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "rank": 6,
+        "score": 0.7932234432234433
+      },
+      {
+        "path": "Plugins/Core plugins.md",
+        "rank": 7,
+        "score": 0.4923960081250552
+      },
+      {
+        "path": "Teams/Deploy Obsidian across your team.md",
+        "rank": 8,
+        "score": 0.4468864468864469
+      },
+      {
+        "path": "Plugins/Templates.md",
+        "rank": 9,
+        "score": 0.4399038461538462
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 10,
+        "score": 0.437948717948718
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|hybrid|scope",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 1,
+        "score": 0.9826696600890149
+      },
+      {
+        "path": "Obsidian Sync/Version history.md",
+        "rank": 2,
+        "score": 0.8105601937416355
+      },
+      {
+        "path": "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "rank": 3,
+        "score": 0.7932234432234433
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 4,
+        "score": 0.437948717948718
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 5,
+        "score": 0.3856691253951528
+      },
+      {
+        "path": "Obsidian Sync/Switch to Obsidian Sync.md",
+        "rank": 6,
+        "score": 0.05865384615384616
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|hybrid|scope-exclude",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "User interface/Settings.md",
+        "rank": 1,
+        "score": 0.9853479853479853
+      },
+      {
+        "path": "Extending Obsidian/Community plugins.md",
+        "rank": 2,
+        "score": 0.9466611819552997
+      },
+      {
+        "path": "Extending Obsidian/Plugin security.md",
+        "rank": 3,
+        "score": 0.9357928873004703
+      },
+      {
+        "path": "Plugins/Core plugins.md",
+        "rank": 4,
+        "score": 0.4923960081250552
+      },
+      {
+        "path": "Teams/Deploy Obsidian across your team.md",
+        "rank": 5,
+        "score": 0.4468864468864469
+      },
+      {
+        "path": "Plugins/Templates.md",
+        "rank": 6,
+        "score": 0.4399038461538462
+      },
+      {
+        "path": "Extending Obsidian/Obsidian CLI.md",
+        "rank": 7,
+        "score": 0.43313609467455627
+      },
+      {
+        "path": "Bases/Layouts/Map view.md",
+        "rank": 8,
+        "score": 0.43313609467455627
+      },
+      {
+        "path": "Teams/Security considerations for teams.md",
+        "rank": 9,
+        "score": 0.4265734265734266
+      },
+      {
+        "path": "Import notes/Import HTML files.md",
+        "rank": 10,
+        "score": 0.4265734265734266
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|hybrid|scope-array",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 1,
+        "score": 0.9826696600890149
+      },
+      {
+        "path": "Obsidian Sync/Version history.md",
+        "rank": 2,
+        "score": 0.8105601937416355
+      },
+      {
+        "path": "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "rank": 3,
+        "score": 0.7932234432234433
+      },
+      {
+        "path": "Teams/Deploy Obsidian across your team.md",
+        "rank": 4,
+        "score": 0.4468864468864469
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 5,
+        "score": 0.437948717948718
+      },
+      {
+        "path": "Teams/Security considerations for teams.md",
+        "rank": 6,
+        "score": 0.4265734265734266
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 7,
+        "score": 0.3856691253951528
+      },
+      {
+        "path": "Obsidian Sync/Switch to Obsidian Sync.md",
+        "rank": 8,
+        "score": 0.05865384615384616
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|fulltext|no-filter",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Extending Obsidian/Community plugins.md",
+        "rank": 1,
+        "score": 0.000004157478922714553
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 2,
+        "score": 0.0000040541811623654474
+      },
+      {
+        "path": "User interface/Settings.md",
+        "rank": 3,
+        "score": 0.000003926718976813083
+      },
+      {
+        "path": "Plugins/Templates.md",
+        "rank": 4,
+        "score": 0.0000038652996428509745
+      },
+      {
+        "path": "Bases/Layouts/Map view.md",
+        "rank": 5,
+        "score": 0.000003763474438229568
+      },
+      {
+        "path": "Import notes/Import HTML files.md",
+        "rank": 6,
+        "score": 0.0000037078545449139633
+      },
+      {
+        "path": "Extending Obsidian/Plugin security.md",
+        "rank": 7,
+        "score": 0.0000037003180261005296
+      },
+      {
+        "path": "Obsidian Sync/Version history.md",
+        "rank": 8,
+        "score": 0.000003687028882816366
+      },
+      {
+        "path": "Import notes/Import from Google Keep.md",
+        "rank": 9,
+        "score": 0.0000036406699798779227
+      },
+      {
+        "path": "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "rank": 10,
+        "score": 0.0000036278815639386723
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|fulltext|scope",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 1,
+        "score": 0.0000040541811623654474
+      },
+      {
+        "path": "Obsidian Sync/Version history.md",
+        "rank": 2,
+        "score": 0.000003687028882816366
+      },
+      {
+        "path": "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "rank": 3,
+        "score": 0.0000036278815639386723
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|fulltext|scope-exclude",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Extending Obsidian/Community plugins.md",
+        "rank": 1,
+        "score": 0.000004157478922714553
+      },
+      {
+        "path": "User interface/Settings.md",
+        "rank": 2,
+        "score": 0.000003926718976813083
+      },
+      {
+        "path": "Plugins/Templates.md",
+        "rank": 3,
+        "score": 0.0000038652996428509745
+      },
+      {
+        "path": "Bases/Layouts/Map view.md",
+        "rank": 4,
+        "score": 0.000003763474438229568
+      },
+      {
+        "path": "Import notes/Import HTML files.md",
+        "rank": 5,
+        "score": 0.0000037078545449139633
+      },
+      {
+        "path": "Extending Obsidian/Plugin security.md",
+        "rank": 6,
+        "score": 0.0000037003180261005296
+      },
+      {
+        "path": "Import notes/Import from Google Keep.md",
+        "rank": 7,
+        "score": 0.0000036406699798779227
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|fulltext|scope-array",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 1,
+        "score": 0.0000040541811623654474
+      },
+      {
+        "path": "Obsidian Sync/Version history.md",
+        "rank": 2,
+        "score": 0.000003687028882816366
+      },
+      {
+        "path": "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "rank": 3,
+        "score": 0.0000036278815639386723
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|title|no-filter",
+    "mode": "title",
+    "results": [
+      {
+        "path": "User interface/Settings.md",
+        "rank": 1,
+        "score": 0.36721243432299716
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 2,
+        "score": 0.36405484278487416
+      },
+      {
+        "path": "Extending Obsidian/Plugin security.md",
+        "rank": 3,
+        "score": 0.28045703841464914
+      },
+      {
+        "path": "User interface/Language settings.md",
+        "rank": 4,
+        "score": 0.27530071213165697
+      },
+      {
+        "path": "Plugins/Core plugins.md",
+        "rank": 5,
+        "score": 0.08973477665704188
+      },
+      {
+        "path": "Extending Obsidian/Community plugins.md",
+        "rank": 6,
+        "score": 0.08935154380617918
+      },
+      {
+        "path": "Plugins/Tags view.md",
+        "rank": 7,
+        "score": 0.08852481128117014
+      },
+      {
+        "path": "Import notes/Importer.md",
+        "rank": 8,
+        "score": 0.08830063998944301
+      },
+      {
+        "path": "Plugins/Bookmarks.md",
+        "rank": 9,
+        "score": 0.08830063998944301
+      },
+      {
+        "path": "Plugins/Footnotes view.md",
+        "rank": 10,
+        "score": 0.08778196290853844
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|title|scope",
+    "mode": "title",
+    "results": [
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 1,
+        "score": 0.36405484278487416
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|title|scope-exclude",
+    "mode": "title",
+    "results": [
+      {
+        "path": "User interface/Settings.md",
+        "rank": 1,
+        "score": 0.36721243432299716
+      },
+      {
+        "path": "Extending Obsidian/Plugin security.md",
+        "rank": 2,
+        "score": 0.28045703841464914
+      },
+      {
+        "path": "User interface/Language settings.md",
+        "rank": 3,
+        "score": 0.27530071213165697
+      },
+      {
+        "path": "Plugins/Core plugins.md",
+        "rank": 4,
+        "score": 0.08973477665704188
+      },
+      {
+        "path": "Extending Obsidian/Community plugins.md",
+        "rank": 5,
+        "score": 0.08935154380617918
+      },
+      {
+        "path": "Plugins/Tags view.md",
+        "rank": 6,
+        "score": 0.08852481128117014
+      },
+      {
+        "path": "Import notes/Importer.md",
+        "rank": 7,
+        "score": 0.08830063998944301
+      },
+      {
+        "path": "Plugins/Bookmarks.md",
+        "rank": 8,
+        "score": 0.08830063998944301
+      },
+      {
+        "path": "Plugins/Footnotes view.md",
+        "rank": 9,
+        "score": 0.08778196290853844
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|title|scope-array",
+    "mode": "title",
+    "results": [
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 1,
+        "score": 0.36405484278487416
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|semantic|no-filter",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "User interface/Settings.md",
+        "rank": 1,
+        "score": 0.9022377614962482
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 2,
+        "score": 0.8862230476090573
+      },
+      {
+        "path": "Teams/Deploy Obsidian across your team.md",
+        "rank": 3,
+        "score": 0.8849198079298173
+      },
+      {
+        "path": "Extending Obsidian/Plugin security.md",
+        "rank": 4,
+        "score": 0.8810147627764806
+      },
+      {
+        "path": "Extending Obsidian/Obsidian CLI.md",
+        "rank": 5,
+        "score": 0.8776527544632113
+      },
+      {
+        "path": "Teams/Security considerations for teams.md",
+        "rank": 6,
+        "score": 0.8764647444994753
+      },
+      {
+        "path": "Plugins/Core plugins.md",
+        "rank": 7,
+        "score": 0.8759290237157966
+      },
+      {
+        "path": "Extending Obsidian/Community plugins.md",
+        "rank": 8,
+        "score": 0.8735358708159122
+      },
+      {
+        "path": "Getting started/Glossary.md",
+        "rank": 9,
+        "score": 0.8718837289575827
+      },
+      {
+        "path": "Obsidian Publish/Set up Obsidian Publish.md",
+        "rank": 10,
+        "score": 0.871404429256927
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|semantic|scope",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 1,
+        "score": 0.8862230476090573
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|semantic|scope-exclude",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "User interface/Settings.md",
+        "rank": 1,
+        "score": 0.9022377614962482
+      },
+      {
+        "path": "Teams/Deploy Obsidian across your team.md",
+        "rank": 2,
+        "score": 0.8849198079298173
+      },
+      {
+        "path": "Extending Obsidian/Plugin security.md",
+        "rank": 3,
+        "score": 0.8810147627764806
+      },
+      {
+        "path": "Extending Obsidian/Obsidian CLI.md",
+        "rank": 4,
+        "score": 0.8776527544632113
+      },
+      {
+        "path": "Teams/Security considerations for teams.md",
+        "rank": 5,
+        "score": 0.8764647444994753
+      },
+      {
+        "path": "Plugins/Core plugins.md",
+        "rank": 6,
+        "score": 0.8759290237157966
+      },
+      {
+        "path": "Extending Obsidian/Community plugins.md",
+        "rank": 7,
+        "score": 0.8735358708159122
+      },
+      {
+        "path": "Getting started/Glossary.md",
+        "rank": 8,
+        "score": 0.8718837289575827
+      },
+      {
+        "path": "Obsidian Publish/Set up Obsidian Publish.md",
+        "rank": 9,
+        "score": 0.871404429256927
+      }
+    ]
+  },
+  {
+    "id": "plugin settings|semantic|scope-array",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 1,
+        "score": 0.8862230476090573
+      },
+      {
+        "path": "Teams/Deploy Obsidian across your team.md",
+        "rank": 2,
+        "score": 0.8849198079298173
+      },
+      {
+        "path": "Teams/Security considerations for teams.md",
+        "rank": 3,
+        "score": 0.8764647444994753
+      }
+    ]
+  },
+  {
+    "id": "encryption|hybrid|no-filter",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 1,
+        "score": 0.9925558312655087
+      },
+      {
+        "path": "Obsidian Sync/Security and privacy.md",
+        "rank": 2,
+        "score": 0.9156327543424317
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 3,
+        "score": 0.8867902930402931
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 4,
+        "score": 0.8800225415610031
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 5,
+        "score": 0.8539309954751133
+      },
+      {
+        "path": "Obsidian Publish/Custom domains.md",
+        "rank": 6,
+        "score": 0.7990523968784838
+      },
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 7,
+        "score": 0.7858410246469949
+      },
+      {
+        "path": "Teams/Security considerations for teams.md",
+        "rank": 8,
+        "score": 0.49174436674436683
+      },
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 9,
+        "score": 0.4697676465411019
+      },
+      {
+        "path": "Obsidian/Community code of conduct.md",
+        "rank": 10,
+        "score": 0.43313609467455627
+      }
+    ]
+  },
+  {
+    "id": "encryption|hybrid|scope",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 1,
+        "score": 0.9925558312655087
+      },
+      {
+        "path": "Obsidian Sync/Security and privacy.md",
+        "rank": 2,
+        "score": 0.9156327543424317
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 3,
+        "score": 0.8867902930402931
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 4,
+        "score": 0.8800225415610031
+      },
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 5,
+        "score": 0.7858410246469949
+      },
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 6,
+        "score": 0.4697676465411019
+      },
+      {
+        "path": "Obsidian Sync/Collaborate on a shared vault.md",
+        "rank": 7,
+        "score": 0.414027149321267
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 8,
+        "score": 0.07218934911242604
+      }
+    ]
+  },
+  {
+    "id": "encryption|hybrid|scope-exclude",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 1,
+        "score": 0.8539309954751133
+      },
+      {
+        "path": "Obsidian Publish/Custom domains.md",
+        "rank": 2,
+        "score": 0.7990523968784838
+      },
+      {
+        "path": "Teams/Security considerations for teams.md",
+        "rank": 3,
+        "score": 0.49174436674436683
+      },
+      {
+        "path": "Obsidian/Community code of conduct.md",
+        "rank": 4,
+        "score": 0.43313609467455627
+      },
+      {
+        "path": "Bases/Functions.md",
+        "rank": 5,
+        "score": 0.42969510710808184
+      },
+      {
+        "path": "Extending Obsidian/Obsidian Headless.md",
+        "rank": 6,
+        "score": 0.4265734265734266
+      },
+      {
+        "path": "Obsidian/Credits.md",
+        "rank": 7,
+        "score": 0.42020665901262916
+      },
+      {
+        "path": "Editing and formatting/Callouts.md",
+        "rank": 8,
+        "score": 0.4021978021978022
+      },
+      {
+        "path": "Getting started/Back up your Obsidian files.md",
+        "rank": 9,
+        "score": 0.3965330444203684
+      },
+      {
+        "path": "Home.md",
+        "rank": 10,
+        "score": 0.3856691253951528
+      }
+    ]
+  },
+  {
+    "id": "encryption|hybrid|scope-array",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 1,
+        "score": 0.9925558312655087
+      },
+      {
+        "path": "Obsidian Sync/Security and privacy.md",
+        "rank": 2,
+        "score": 0.9156327543424317
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 3,
+        "score": 0.8867902930402931
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 4,
+        "score": 0.8800225415610031
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 5,
+        "score": 0.8539309954751133
+      },
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 6,
+        "score": 0.7858410246469949
+      },
+      {
+        "path": "Teams/Security considerations for teams.md",
+        "rank": 7,
+        "score": 0.49174436674436683
+      },
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 8,
+        "score": 0.4697676465411019
+      },
+      {
+        "path": "Obsidian Sync/Collaborate on a shared vault.md",
+        "rank": 9,
+        "score": 0.414027149321267
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 10,
+        "score": 0.07218934911242604
+      }
+    ]
+  },
+  {
+    "id": "encryption|fulltext|no-filter",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 1,
+        "score": 0.8568344072106556
+      },
+      {
+        "path": "Obsidian Sync/Security and privacy.md",
+        "rank": 2,
+        "score": 0.8536107927085094
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 3,
+        "score": 0.8428237229666677
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 4,
+        "score": 0.8128186627172388
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 5,
+        "score": 0.7970241488879787
+      },
+      {
+        "path": "Extending Obsidian/Obsidian Headless.md",
+        "rank": 6,
+        "score": 0.7859724426950885
+      },
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 7,
+        "score": 0.7850652858569889
+      },
+      {
+        "path": "Obsidian Sync/Collaborate on a shared vault.md",
+        "rank": 8,
+        "score": 0.7680740586809969
+      },
+      {
+        "path": "Obsidian Publish/Custom domains.md",
+        "rank": 9,
+        "score": 0.7594977798725591
+      }
+    ]
+  },
+  {
+    "id": "encryption|fulltext|scope",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 1,
+        "score": 0.8568344072106556
+      },
+      {
+        "path": "Obsidian Sync/Security and privacy.md",
+        "rank": 2,
+        "score": 0.8536107927085094
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 3,
+        "score": 0.8428237229666677
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 4,
+        "score": 0.7970241488879787
+      },
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 5,
+        "score": 0.7850652858569889
+      },
+      {
+        "path": "Obsidian Sync/Collaborate on a shared vault.md",
+        "rank": 6,
+        "score": 0.7680740586809969
+      }
+    ]
+  },
+  {
+    "id": "encryption|fulltext|scope-exclude",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 1,
+        "score": 0.8128186627172388
+      },
+      {
+        "path": "Extending Obsidian/Obsidian Headless.md",
+        "rank": 2,
+        "score": 0.7859724426950885
+      },
+      {
+        "path": "Obsidian Publish/Custom domains.md",
+        "rank": 3,
+        "score": 0.7594977798725591
+      }
+    ]
+  },
+  {
+    "id": "encryption|fulltext|scope-array",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 1,
+        "score": 0.8568344072106556
+      },
+      {
+        "path": "Obsidian Sync/Security and privacy.md",
+        "rank": 2,
+        "score": 0.8536107927085094
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 3,
+        "score": 0.8428237229666677
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 4,
+        "score": 0.8128186627172388
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 5,
+        "score": 0.7970241488879787
+      },
+      {
+        "path": "Obsidian Sync/Sync regions.md",
+        "rank": 6,
+        "score": 0.7850652858569889
+      },
+      {
+        "path": "Obsidian Sync/Collaborate on a shared vault.md",
+        "rank": 7,
+        "score": 0.7680740586809969
+      }
+    ]
+  },
+  {
+    "id": "encryption|title|no-filter",
+    "mode": "title",
+    "results": [
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 1,
+        "score": 0.9689063930648644
+      },
+      {
+        "path": "Obsidian Publish/SEO.md",
+        "rank": 2,
+        "score": 0.12519063559357319
+      },
+      {
+        "path": "Licenses and payment/Refund policy.md",
+        "rank": 3,
+        "score": 0.12350084595627656
+      },
+      {
+        "path": "Bases/Functions.md",
+        "rank": 4,
+        "score": 0.05230340037006707
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 5,
+        "score": 0.051192281977301794
+      },
+      {
+        "path": "Import notes/Import from Notion.md",
+        "rank": 6,
+        "score": 0.05110768312784865
+      },
+      {
+        "path": "Obsidian Publish/Publish limitations.md",
+        "rank": 7,
+        "score": 0.05097819185927174
+      },
+      {
+        "path": "Contributing to Obsidian/Financial contributions.md",
+        "rank": 8,
+        "score": 0.05046672277648061
+      },
+      {
+        "path": "Contributing to Obsidian/Translations.md",
+        "rank": 9,
+        "score": 0.049841640335890676
+      },
+      {
+        "path": "Files and folders/Symbolic links and junctions.md",
+        "rank": 10,
+        "score": 0.049841640335890676
+      }
+    ]
+  },
+  {
+    "id": "encryption|title|scope",
+    "mode": "title",
+    "results": [
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 1,
+        "score": 0.9689063930648644
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 2,
+        "score": 0.051192281977301794
+      }
+    ]
+  },
+  {
+    "id": "encryption|title|scope-exclude",
+    "mode": "title",
+    "results": [
+      {
+        "path": "Obsidian Publish/SEO.md",
+        "rank": 1,
+        "score": 0.12519063559357319
+      },
+      {
+        "path": "Licenses and payment/Refund policy.md",
+        "rank": 2,
+        "score": 0.12350084595627656
+      },
+      {
+        "path": "Bases/Functions.md",
+        "rank": 3,
+        "score": 0.05230340037006707
+      },
+      {
+        "path": "Import notes/Import from Notion.md",
+        "rank": 4,
+        "score": 0.05110768312784865
+      },
+      {
+        "path": "Obsidian Publish/Publish limitations.md",
+        "rank": 5,
+        "score": 0.05097819185927174
+      },
+      {
+        "path": "Contributing to Obsidian/Financial contributions.md",
+        "rank": 6,
+        "score": 0.05046672277648061
+      },
+      {
+        "path": "Contributing to Obsidian/Translations.md",
+        "rank": 7,
+        "score": 0.049841640335890676
+      },
+      {
+        "path": "Files and folders/Symbolic links and junctions.md",
+        "rank": 8,
+        "score": 0.049841640335890676
+      }
+    ]
+  },
+  {
+    "id": "encryption|title|scope-array",
+    "mode": "title",
+    "results": [
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 1,
+        "score": 0.9689063930648644
+      },
+      {
+        "path": "Obsidian Sync/Frequently asked questions.md",
+        "rank": 2,
+        "score": 0.051192281977301794
+      }
+    ]
+  },
+  {
+    "id": "encryption|semantic|no-filter",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "Obsidian Sync/Security and privacy.md",
+        "rank": 1,
+        "score": 0.888032633046036
+      },
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 2,
+        "score": 0.8543382932162142
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 3,
+        "score": 0.849936418675524
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 4,
+        "score": 0.8482711208250162
+      },
+      {
+        "path": "Obsidian/Community code of conduct.md",
+        "rank": 5,
+        "score": 0.845371383845956
+      },
+      {
+        "path": "Teams/Security considerations for teams.md",
+        "rank": 6,
+        "score": 0.8410379411899935
+      },
+      {
+        "path": "Obsidian/Credits.md",
+        "rank": 7,
+        "score": 0.8371390929996494
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 8,
+        "score": 0.836147506325501
+      },
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 9,
+        "score": 0.8310822840562366
+      },
+      {
+        "path": "Editing and formatting/Callouts.md",
+        "rank": 10,
+        "score": 0.8280025889125096
+      }
+    ]
+  },
+  {
+    "id": "encryption|semantic|scope",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "Obsidian Sync/Security and privacy.md",
+        "rank": 1,
+        "score": 0.888032633046036
+      },
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 2,
+        "score": 0.8543382932162142
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 3,
+        "score": 0.849936418675524
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 4,
+        "score": 0.8482711208250162
+      },
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 5,
+        "score": 0.8310822840562366
+      }
+    ]
+  },
+  {
+    "id": "encryption|semantic|scope-exclude",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "Obsidian/Community code of conduct.md",
+        "rank": 1,
+        "score": 0.845371383845956
+      },
+      {
+        "path": "Teams/Security considerations for teams.md",
+        "rank": 2,
+        "score": 0.8410379411899935
+      },
+      {
+        "path": "Obsidian/Credits.md",
+        "rank": 3,
+        "score": 0.8371390929996494
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 4,
+        "score": 0.836147506325501
+      },
+      {
+        "path": "Editing and formatting/Callouts.md",
+        "rank": 5,
+        "score": 0.8280025889125096
+      }
+    ]
+  },
+  {
+    "id": "encryption|semantic|scope-array",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "Obsidian Sync/Security and privacy.md",
+        "rank": 1,
+        "score": 0.888032633046036
+      },
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 2,
+        "score": 0.8543382932162142
+      },
+      {
+        "path": "Obsidian Sync/Set up Obsidian Sync.md",
+        "rank": 3,
+        "score": 0.849936418675524
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 4,
+        "score": 0.8482711208250162
+      },
+      {
+        "path": "Teams/Security considerations for teams.md",
+        "rank": 5,
+        "score": 0.8410379411899935
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 6,
+        "score": 0.836147506325501
+      },
+      {
+        "path": "Obsidian Sync/Introduction to Obsidian Sync.md",
+        "rank": 7,
+        "score": 0.8310822840562366
+      }
+    ]
+  },
+  {
+    "id": "mobile app|hybrid|no-filter",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Getting started/Mobile app.md",
+        "rank": 1,
+        "score": 1
+      },
+      {
+        "path": "Contributing to Obsidian/Style guide.md",
+        "rank": 2,
+        "score": 0.8824288531980841
+      },
+      {
+        "path": "User interface/Workspace.md",
+        "rank": 3,
+        "score": 0.8125208125208125
+      },
+      {
+        "path": "Obsidian Sync/Switch to Obsidian Sync.md",
+        "rank": 4,
+        "score": 0.741018981018981
+      },
+      {
+        "path": "Obsidian/Obsidian for iOS and iPadOS.md",
+        "rank": 5,
+        "score": 0.48203160863007416
+      },
+      {
+        "path": "Obsidian/Obsidian for Android.md",
+        "rank": 6,
+        "score": 0.47806119902161437
+      },
+      {
+        "path": "Files and folders/Accepted file formats.md",
+        "rank": 7,
+        "score": 0.4589864330874605
+      },
+      {
+        "path": "Editing and formatting/Callouts.md",
+        "rank": 8,
+        "score": 0.45409429280397023
+      },
+      {
+        "path": "User interface/Ribbon.md",
+        "rank": 9,
+        "score": 0.45409429280397023
+      },
+      {
+        "path": "Obsidian/Credits.md",
+        "rank": 10,
+        "score": 0.4399038461538462
+      }
+    ]
+  },
+  {
+    "id": "mobile app|hybrid|scope",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Obsidian Sync/Switch to Obsidian Sync.md",
+        "rank": 1,
+        "score": 0.741018981018981
+      },
+      {
+        "path": "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "rank": 2,
+        "score": 0.42020665901262916
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 3,
+        "score": 0.414027149321267
+      },
+      {
+        "path": "Obsidian Sync/Version history.md",
+        "rank": 4,
+        "score": 0.36094674556213024
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 5,
+        "score": 0.35192307692307695
+      }
+    ]
+  },
+  {
+    "id": "mobile app|hybrid|scope-exclude",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Getting started/Mobile app.md",
+        "rank": 1,
+        "score": 1
+      },
+      {
+        "path": "Contributing to Obsidian/Style guide.md",
+        "rank": 2,
+        "score": 0.8824288531980841
+      },
+      {
+        "path": "User interface/Workspace.md",
+        "rank": 3,
+        "score": 0.8125208125208125
+      },
+      {
+        "path": "Obsidian/Obsidian for iOS and iPadOS.md",
+        "rank": 4,
+        "score": 0.48203160863007416
+      },
+      {
+        "path": "Obsidian/Obsidian for Android.md",
+        "rank": 5,
+        "score": 0.47806119902161437
+      },
+      {
+        "path": "Files and folders/Accepted file formats.md",
+        "rank": 6,
+        "score": 0.4589864330874605
+      },
+      {
+        "path": "Editing and formatting/Callouts.md",
+        "rank": 7,
+        "score": 0.45409429280397023
+      },
+      {
+        "path": "User interface/Ribbon.md",
+        "rank": 8,
+        "score": 0.45409429280397023
+      },
+      {
+        "path": "Obsidian/Credits.md",
+        "rank": 9,
+        "score": 0.4399038461538462
+      },
+      {
+        "path": "Obsidian/Early access versions.md",
+        "rank": 10,
+        "score": 0.4399038461538462
+      }
+    ]
+  },
+  {
+    "id": "mobile app|hybrid|scope-array",
+    "mode": "hybrid",
+    "results": [
+      {
+        "path": "Obsidian Sync/Switch to Obsidian Sync.md",
+        "rank": 1,
+        "score": 0.741018981018981
+      },
+      {
+        "path": "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "rank": 2,
+        "score": 0.42020665901262916
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 3,
+        "score": 0.414027149321267
+      },
+      {
+        "path": "Teams/Obsidian for teams.md",
+        "rank": 4,
+        "score": 0.4021978021978022
+      },
+      {
+        "path": "Obsidian Sync/Version history.md",
+        "rank": 5,
+        "score": 0.36094674556213024
+      },
+      {
+        "path": "Obsidian Sync/Headless Sync.md",
+        "rank": 6,
+        "score": 0.35192307692307695
+      }
+    ]
+  },
+  {
+    "id": "mobile app|fulltext|no-filter",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Getting started/Mobile app.md",
+        "rank": 1,
+        "score": 0.7285602708208413
+      },
+      {
+        "path": "User interface/Ribbon.md",
+        "rank": 2,
+        "score": 0.7166797812142102
+      },
+      {
+        "path": "User interface/Workspace.md",
+        "rank": 3,
+        "score": 0.7162882995594508
+      },
+      {
+        "path": "Obsidian/Early access versions.md",
+        "rank": 4,
+        "score": 0.6897265275743044
+      },
+      {
+        "path": "Getting started/Sandbox vault.md",
+        "rank": 5,
+        "score": 0.6847100631420632
+      },
+      {
+        "path": "Obsidian Publish/Publish limitations.md",
+        "rank": 6,
+        "score": 0.6842847236344155
+      },
+      {
+        "path": "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "rank": 7,
+        "score": 0.6777333844533338
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 8,
+        "score": 0.6761773861977195
+      },
+      {
+        "path": "Getting started/Update Obsidian.md",
+        "rank": 9,
+        "score": 0.6699670775699363
+      },
+      {
+        "path": "Plugins/Word count.md",
+        "rank": 10,
+        "score": 0.6687467839332689
+      }
+    ]
+  },
+  {
+    "id": "mobile app|fulltext|scope",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "rank": 1,
+        "score": 0.6777333844533338
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 2,
+        "score": 0.6761773861977195
+      }
+    ]
+  },
+  {
+    "id": "mobile app|fulltext|scope-exclude",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Getting started/Mobile app.md",
+        "rank": 1,
+        "score": 0.7285602708208413
+      },
+      {
+        "path": "User interface/Ribbon.md",
+        "rank": 2,
+        "score": 0.7166797812142102
+      },
+      {
+        "path": "User interface/Workspace.md",
+        "rank": 3,
+        "score": 0.7162882995594508
+      },
+      {
+        "path": "Obsidian/Early access versions.md",
+        "rank": 4,
+        "score": 0.6897265275743044
+      },
+      {
+        "path": "Getting started/Sandbox vault.md",
+        "rank": 5,
+        "score": 0.6847100631420632
+      },
+      {
+        "path": "Obsidian Publish/Publish limitations.md",
+        "rank": 6,
+        "score": 0.6842847236344155
+      },
+      {
+        "path": "Getting started/Update Obsidian.md",
+        "rank": 7,
+        "score": 0.6699670775699363
+      },
+      {
+        "path": "Plugins/Word count.md",
+        "rank": 8,
+        "score": 0.6687467839332689
+      }
+    ]
+  },
+  {
+    "id": "mobile app|fulltext|scope-array",
+    "mode": "fulltext",
+    "results": [
+      {
+        "path": "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "rank": 1,
+        "score": 0.6777333844533338
+      },
+      {
+        "path": "Obsidian Sync/Sync settings and selective syncing.md",
+        "rank": 2,
+        "score": 0.6761773861977195
+      }
+    ]
+  },
+  {
+    "id": "mobile app|title|no-filter",
+    "mode": "title",
+    "results": [
+      {
+        "path": "Getting started/Mobile app.md",
+        "rank": 1,
+        "score": 0.9772523543882022
+      },
+      {
+        "path": "Import notes/Import from Apple Notes.md",
+        "rank": 2,
+        "score": 0.1290070050287617
+      },
+      {
+        "path": "Import notes/Import from Apple Journal.md",
+        "rank": 3,
+        "score": 0.1287298969870843
+      },
+      {
+        "path": "Files and folders/Accepted file formats.md",
+        "rank": 4,
+        "score": 0.05452668725708265
+      },
+      {
+        "path": "Plugins/File explorer.md",
+        "rank": 5,
+        "score": 0.054428193526039996
+      },
+      {
+        "path": "Plugins/File recovery.md",
+        "rank": 6,
+        "score": 0.054428193526039996
+      },
+      {
+        "path": "Obsidian/Obsidian for Android.md",
+        "rank": 7,
+        "score": 0.053482571997017087
+      },
+      {
+        "path": "Import notes/Import Textbundle files.md",
+        "rank": 8,
+        "score": 0.05339523279401292
+      },
+      {
+        "path": "Obsidian/Obsidian for iOS and iPadOS.md",
+        "rank": 9,
+        "score": 0.052905176023976534
+      },
+      {
+        "path": "Bases/Bases syntax.md",
+        "rank": 10,
+        "score": 0.052596671710246484
+      }
+    ]
+  },
+  {
+    "id": "mobile app|title|scope",
+    "mode": "title",
+    "results": []
+  },
+  {
+    "id": "mobile app|title|scope-exclude",
+    "mode": "title",
+    "results": [
+      {
+        "path": "Getting started/Mobile app.md",
+        "rank": 1,
+        "score": 0.9772523543882022
+      },
+      {
+        "path": "Import notes/Import from Apple Notes.md",
+        "rank": 2,
+        "score": 0.1290070050287617
+      },
+      {
+        "path": "Import notes/Import from Apple Journal.md",
+        "rank": 3,
+        "score": 0.1287298969870843
+      },
+      {
+        "path": "Files and folders/Accepted file formats.md",
+        "rank": 4,
+        "score": 0.05452668725708265
+      },
+      {
+        "path": "Plugins/File explorer.md",
+        "rank": 5,
+        "score": 0.054428193526039996
+      },
+      {
+        "path": "Plugins/File recovery.md",
+        "rank": 6,
+        "score": 0.054428193526039996
+      },
+      {
+        "path": "Obsidian/Obsidian for Android.md",
+        "rank": 7,
+        "score": 0.053482571997017087
+      },
+      {
+        "path": "Import notes/Import Textbundle files.md",
+        "rank": 8,
+        "score": 0.05339523279401292
+      },
+      {
+        "path": "Obsidian/Obsidian for iOS and iPadOS.md",
+        "rank": 9,
+        "score": 0.052905176023976534
+      },
+      {
+        "path": "Bases/Bases syntax.md",
+        "rank": 10,
+        "score": 0.052596671710246484
+      }
+    ]
+  },
+  {
+    "id": "mobile app|title|scope-array",
+    "mode": "title",
+    "results": []
+  },
+  {
+    "id": "mobile app|semantic|no-filter",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "Getting started/Mobile app.md",
+        "rank": 1,
+        "score": 0.8606813198847476
+      },
+      {
+        "path": "Editing and formatting/Callouts.md",
+        "rank": 2,
+        "score": 0.8523475046409814
+      },
+      {
+        "path": "Contributing to Obsidian/Style guide.md",
+        "rank": 3,
+        "score": 0.8421901103982918
+      },
+      {
+        "path": "Obsidian/Credits.md",
+        "rank": 4,
+        "score": 0.8417968414723855
+      },
+      {
+        "path": "User interface/Settings.md",
+        "rank": 5,
+        "score": 0.8415157553047106
+      },
+      {
+        "path": "Extending Obsidian/Obsidian CLI.md",
+        "rank": 6,
+        "score": 0.8374233898805823
+      },
+      {
+        "path": "Editing and formatting/HTML content.md",
+        "rank": 7,
+        "score": 0.8364500538422632
+      },
+      {
+        "path": "Obsidian/Obsidian for iOS and iPadOS.md",
+        "rank": 8,
+        "score": 0.835290497704106
+      },
+      {
+        "path": "Obsidian/Obsidian for Android.md",
+        "rank": 9,
+        "score": 0.8330297150555861
+      },
+      {
+        "path": "Teams/Obsidian for teams.md",
+        "rank": 10,
+        "score": 0.8321843542560554
+      }
+    ]
+  },
+  {
+    "id": "mobile app|semantic|scope",
+    "mode": "semantic",
+    "results": []
+  },
+  {
+    "id": "mobile app|semantic|scope-exclude",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "Getting started/Mobile app.md",
+        "rank": 1,
+        "score": 0.8606813198847476
+      },
+      {
+        "path": "Editing and formatting/Callouts.md",
+        "rank": 2,
+        "score": 0.8523475046409814
+      },
+      {
+        "path": "Contributing to Obsidian/Style guide.md",
+        "rank": 3,
+        "score": 0.8421901103982918
+      },
+      {
+        "path": "Obsidian/Credits.md",
+        "rank": 4,
+        "score": 0.8417968414723855
+      },
+      {
+        "path": "User interface/Settings.md",
+        "rank": 5,
+        "score": 0.8415157553047106
+      },
+      {
+        "path": "Extending Obsidian/Obsidian CLI.md",
+        "rank": 6,
+        "score": 0.8374233898805823
+      },
+      {
+        "path": "Editing and formatting/HTML content.md",
+        "rank": 7,
+        "score": 0.8364500538422632
+      },
+      {
+        "path": "Obsidian/Obsidian for iOS and iPadOS.md",
+        "rank": 8,
+        "score": 0.835290497704106
+      },
+      {
+        "path": "Obsidian/Obsidian for Android.md",
+        "rank": 9,
+        "score": 0.8330297150555861
+      },
+      {
+        "path": "Teams/Obsidian for teams.md",
+        "rank": 10,
+        "score": 0.8321843542560554
+      }
+    ]
+  },
+  {
+    "id": "mobile app|semantic|scope-array",
+    "mode": "semantic",
+    "results": [
+      {
+        "path": "Teams/Obsidian for teams.md",
+        "rank": 1,
+        "score": 0.8321843542560554
+      }
+    ]
+  },
+  {
+    "id": "path|no-filter",
+    "mode": "path",
+    "results": [
+      {
+        "path": "Getting started/Sync your notes across devices.md",
+        "rank": 1,
+        "score": 0.9407698320424447
+      },
+      {
+        "path": "Extending Obsidian/Obsidian CLI.md",
+        "rank": 2,
+        "score": 0.9385402260272282
+      },
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 3,
+        "score": 0.9369253849391685
+      },
+      {
+        "path": "Obsidian Sync/Local and remote vaults.md",
+        "rank": 4,
+        "score": 0.9362494331167976
+      },
+      {
+        "path": "Teams/Syncing for teams.md",
+        "rank": 5,
+        "score": 0.9313651185368523
+      },
+      {
+        "path": "Obsidian Sync/Security and privacy.md",
+        "rank": 6,
+        "score": 0.9294038279023584
+      }
+    ]
+  },
+  {
+    "id": "path|scope",
+    "mode": "path",
+    "results": [
+      {
+        "path": "Obsidian Sync/Upgrade Sync encryption.md",
+        "rank": 1,
+        "score": 0.9369253818933408
+      },
+      {
+        "path": "Obsidian Sync/Local and remote vaults.md",
+        "rank": 2,
+        "score": 0.9362494292293541
+      },
+      {
+        "path": "Obsidian Sync/Security and privacy.md",
+        "rank": 3,
+        "score": 0.9294038306251701
+      }
+    ]
+  }
+]

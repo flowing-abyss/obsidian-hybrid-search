@@ -321,6 +321,32 @@ obsidian-hybrid-search read notes/pkm/zettelkasten.md --snippet-length 2000
 obsidian-hybrid-search read notes/pkm/zettelkasten.md --json
 ```
 
+### Filters and `--limit`
+
+`--tag`, `--scope`/`--folder` and `--frontmatter` are applied **inside** the
+database query, not as a post-filter on an already-truncated result list. So
+`--limit` means "how many results to return", not "how deep to search":
+
+```bash
+# Returns up to 10 notes tagged #pkm that match "learning" —
+# even if none of them would appear in the unfiltered global top 10.
+obsidian-hybrid-search "learning" --tag pkm --limit 10
+```
+
+There is no need to inflate `--limit` to compensate for a narrow filter. Raise
+it only when you genuinely want more results, and lower it (10 or less) for the
+best signal-to-noise — results past position 10 frequently score below 0.35.
+
+**Known boundary.** The semantic arm retrieves **chunks**, not notes: its
+internal KNN `k` is `limit * 5`, hard-capped at `4096` chunks by `sqlite-vec`.
+A `--limit` above roughly `819` therefore stops widening the semantic candidate
+pool, and on a vault whose notes split into many chunks the cap is reached with
+fewer distinct notes than the chunk count suggests. BM25, title and filter-only
+retrieval are unaffected by this ceiling. `--limit 0` ("no limit") retrieves
+against an internal ceiling of 10,000 notes, so it too tops out at the 4,096
+chunk cap for the semantic arm; it is most useful in filter-only mode, where no
+KNN runs at all.
+
 ### Shell aliases
 
 Add to your `~/.zshrc` or `~/.bashrc` for quick access:

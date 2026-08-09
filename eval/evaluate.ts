@@ -162,7 +162,6 @@ async function main(): Promise<void> {
   const db = getDb();
   const noteCount = (db.prepare('SELECT COUNT(*) as n FROM notes').get() as { n: number }).n;
   const chunkCount = (db.prepare('SELECT COUNT(*) as n FROM chunks').get() as { n: number }).n;
-  const scopedCandidateLimit = Math.max(noteCount, Math.ceil(chunkCount / 5), k);
 
   const perQuery: PerQueryResult[] = [];
 
@@ -170,7 +169,22 @@ async function main(): Promise<void> {
     process.stdout.write(`[eval] running ${q.id}: "${q.query}"...`);
     const row = await runGoldenQuery(q, {
       k,
-      searchLimit: getSearchLimitForQuery(q, k, scopedCandidateLimit),
+      // Plain `k`, including for scoped queries. This used to inflate the limit
+      // for anything with a `scope` (max of noteCount, chunkCount/5, k), because
+      // filters were applied AFTER truncation to the limit — a scoped query at
+      // k=10 evaluated the global top 10 and could score zero on a corpus where
+      // the answer existed but ranked 11th overall. Filters are now pushed into
+      // the SQL of every retrieval arm, so each arm ranks densely within the
+      // filtered set and k means "how many results", not "how deep to search".
+      //
+      // NOT VALIDATED BY MEASUREMENT: the fixture this harness runs by default
+      // (obsidian-help) has zero scoped queries, so its numbers cannot move
+      // either way — before and after the removal they are bit-identical across
+      // all 58 per-query rows. The corpus that would size the workaround
+      // (longmemeval-s, 470 scoped queries) was out of scope. The removal rests
+      // on the code argument above plus the filtered cases in
+      // eval/compare-golden.ts, which call search() directly.
+      searchLimit: k,
       rerank,
       searchFn: search,
     });
@@ -200,7 +214,6 @@ async function main(): Promise<void> {
       vault: path.relative(repoRoot, vault),
       note_count: noteCount,
       chunk_count: chunkCount,
-      scoped_candidate_limit: scopedCandidateLimit,
       timestamp_in_body:
         queries.some((q) => q.notes?.includes('timestamp_in_body=true')) || undefined,
       golden_set: path.relative(repoRoot, goldenSet),
@@ -249,14 +262,6 @@ interface AggregatedMetrics {
   recall_k: number;
   evidence_coverage_k: number;
   all_relevant_k: number;
-}
-
-export function getSearchLimitForQuery(
-  query: Pick<GoldenQuery, 'scope'>,
-  k: number,
-  scopedCandidateLimit: number,
-): number {
-  return query.scope ? Math.max(scopedCandidateLimit, k) : k;
 }
 
 export async function runGoldenQuery(

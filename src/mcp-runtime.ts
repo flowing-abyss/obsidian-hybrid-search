@@ -453,8 +453,11 @@ export function createMcpServer(runtime: McpRuntime): Server {
             limit: {
               type: 'number',
               description:
-                'Maximum text/path/filter-only results to return; related traversal uses depth instead. 0 means no limit. Default 10. ' +
-                'Keep at 10 or below for best signal-to-noise unless the user asks for broad enumeration; results past position 10 frequently score below 0.35.',
+                'How many text/path/filter-only results to return; related traversal uses depth instead. 0 means no limit. Default 10. ' +
+                'tag/scope/frontmatter filters are applied inside the query, so limit caps the filtered results, not a pre-filter pool: a narrow filter still returns up to limit matches instead of whatever survived the global top-limit. ' +
+                'Do NOT raise limit to compensate for a narrow filter — raise it only when the user genuinely wants more results. ' +
+                'Keep at 10 or below for best signal-to-noise unless the user asks for broad enumeration; results past position 10 frequently score below 0.35. ' +
+                'Ceiling: the semantic arm retrieves CHUNKS, not notes, with an internal k of limit*5 capped at 4096 chunks, so a limit above ~819 stops widening the semantic candidate pool.',
             },
             threshold: {
               type: 'number',

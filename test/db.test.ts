@@ -59,10 +59,7 @@ const {
   wipeDatabaseSidecars,
   isLikelyDatabaseCorruption,
   closeDb,
-  getChunksWithEmbeddingsForPaths,
   getChunkEmbeddingsByPath,
-  countChunksForPaths,
-  getAllNotePaths,
   PATH_BATCH_SIZE,
 } = await import('../src/db.js');
 const { searchBm25, searchFuzzyTitle, search } = await import('../src/searcher.js');
@@ -1568,9 +1565,11 @@ describe('initVecTable', () => {
   });
 });
 
-// ─── getChunksWithEmbeddingsForPaths ─────────────────────────────────────────
+// ─── path-batched note filters ───────────────────────────────────────────────
 
-describe('getChunksWithEmbeddingsForPaths', () => {
+// These two take caller-supplied path lists that can run to the whole vault, so an
+// unbatched `IN (?, ?, ...)` would exceed SQLITE_MAX_VARIABLE_NUMBER on a large vault.
+describe('path-batched note filters', () => {
   beforeAll(() => {
     wipeDatabaseFiles();
     openDb();
@@ -1591,82 +1590,6 @@ describe('getChunksWithEmbeddingsForPaths', () => {
     });
   });
 
-  it('returns chunks with embeddings for the requested paths only', () => {
-    const rows = getChunksWithEmbeddingsForPaths(['target.md']);
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0]!.path, 'target.md');
-    assert.equal(rows[0]!.chunkIndex, 0);
-    assert.equal(rows[0]!.embedding.length, 4);
-    assert.ok(Math.abs(rows[0]!.embedding[0]! - 0.1) < 1e-6);
-  });
-
-  it('returns [] for an empty path list', () => {
-    assert.deepEqual(getChunksWithEmbeddingsForPaths([]), []);
-  });
-
-  it('batches without hitting the bind-parameter limit', () => {
-    const many = Array.from({ length: 5000 }, (_, i) => `missing-${i}.md`);
-    many.push('target.md');
-    const expectedBatches = Math.ceil(many.length / PATH_BATCH_SIZE);
-
-    const db = getDb();
-    const prepareSpy = vi.spyOn(db, 'prepare');
-    try {
-      const rows = getChunksWithEmbeddingsForPaths(many);
-      assert.equal(rows.length, 1);
-      assert.equal(rows[0]!.path, 'target.md');
-      // Exclude the hasVecTable() sqlite_master probe — only count the actual
-      // per-batch SELECT so the assertion reflects batching, not unrelated calls.
-      const batchQueryCalls = prepareSpy.mock.calls.filter((call) =>
-        String(call[0]).includes('FROM vec_chunks vc'),
-      );
-      assert.equal(
-        batchQueryCalls.length,
-        expectedBatches,
-        `expected ${expectedBatches} prepared statements (one per batch of ${PATH_BATCH_SIZE} paths), got ${batchQueryCalls.length}`,
-      );
-    } finally {
-      prepareSpy.mockRestore();
-    }
-  });
-
-  it('counts chunks for a path set', () => {
-    assert.equal(countChunksForPaths(['target.md']), 1);
-    assert.equal(countChunksForPaths([]), 0);
-  });
-
-  it('countChunksForPaths batches without hitting the bind-parameter limit', () => {
-    const many = Array.from({ length: 5000 }, (_, i) => `missing-${i}.md`);
-    many.push('target.md');
-    const expectedBatches = Math.ceil(many.length / PATH_BATCH_SIZE);
-
-    const db = getDb();
-    const prepareSpy = vi.spyOn(db, 'prepare');
-    try {
-      const count = countChunksForPaths(many);
-      assert.equal(count, 1);
-      // Exclude the hasVecTable() sqlite_master probe — only count the actual
-      // per-batch COUNT(*) query so the assertion reflects batching, not unrelated calls.
-      const batchQueryCalls = prepareSpy.mock.calls.filter((call) =>
-        String(call[0]).includes('FROM vec_chunks vc'),
-      );
-      assert.equal(
-        batchQueryCalls.length,
-        expectedBatches,
-        `expected ${expectedBatches} prepared statements (one per batch of ${PATH_BATCH_SIZE} paths), got ${batchQueryCalls.length}`,
-      );
-    } finally {
-      prepareSpy.mockRestore();
-    }
-  });
-
-  it('lists all note paths', () => {
-    const all = getAllNotePaths();
-    assert.ok(all.includes('target.md'));
-  });
-
-  // resolveFilteredPaths hands these two the entire vault, so an unbatched
-  // `IN (?, ?, ...)` would exceed SQLITE_MAX_VARIABLE_NUMBER on a large vault.
   it('filterNotePathsByTag batches without hitting the bind-parameter limit', () => {
     const many = Array.from({ length: 5000 }, (_, i) => `missing-${i}.md`);
     many.push('target.md');
@@ -1690,43 +1613,6 @@ describe('getChunksWithEmbeddingsForPaths', () => {
     } finally {
       prepareSpy.mockRestore();
     }
-  });
-
-  // Every path in the DB is NFD-normalized (macOS HFS+). resolveFilteredPaths hands
-  // those stored paths straight through, so the chunk reader must match on the NFD
-  // form — an NFC lookup is a different byte string and finds nothing.
-  it('looks up chunks by their stored NFD path', () => {
-    const nfdPath = 'cafe\u0301-note.md'; // 'e' + U+0301 combining acute
-    const nfcPath = 'caf\u00e9-note.md'; // precomposed U+00E9
-    assert.notEqual(nfdPath, nfcPath, 'the two normalization forms must differ as strings');
-    assert.equal(nfcPath.normalize('NFD'), nfdPath, 'fixture must really be the NFD form');
-
-    upsertNote({
-      path: nfdPath,
-      title: 'Cafe Note',
-      tags: [],
-      content: 'A note whose path carries a decomposed character.',
-      mtime: Date.now(),
-      hash: 'hash-cafe',
-      chunks: [
-        {
-          text: 'A note whose path carries a decomposed character.',
-          embedding: new Float32Array([0.5, 0.6, 0.7, 0.8]),
-        },
-      ],
-    });
-
-    const rows = getChunksWithEmbeddingsForPaths([nfdPath]);
-    assert.equal(rows.length, 1, 'NFD lookup must find the chunk');
-    assert.equal(rows[0]!.path, nfdPath);
-    assert.equal(rows[0]!.embedding.length, 4);
-    assert.ok(Math.abs(rows[0]!.embedding[0]! - 0.5) < 1e-6);
-    assert.equal(countChunksForPaths([nfdPath]), 1);
-
-    // Discriminates: if the fixture were stored NFC, the assertions above would pass
-    // for the wrong reason. Only one form can be in the DB.
-    assert.deepEqual(getChunksWithEmbeddingsForPaths([nfcPath]), []);
-    assert.equal(countChunksForPaths([nfcPath]), 0);
   });
 
   it('filterNotePathsByFrontmatter batches without hitting the bind-parameter limit', () => {
@@ -1757,8 +1643,8 @@ describe('getChunksWithEmbeddingsForPaths', () => {
 
 // A DB opened but never initVecTable()'d has no `vec_chunks` — the state a vault
 // indexed with embeddings disabled (or a run before the first index) is left in.
-// The chunk readers must degrade to an empty answer there instead of throwing
-// "no such table", because searchSimilarFiltered calls them unconditionally.
+// getChunkEmbeddingsByPath must degrade to an empty answer there instead of throwing
+// "no such table", because the similarity path calls it unconditionally.
 // Runs last: it deliberately leaves the singleton DB without a vec table.
 describe('hasVecTable guard', () => {
   beforeAll(() => {
@@ -1788,14 +1674,6 @@ describe('hasVecTable guard', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_chunks'")
       .get();
     assert.equal(probe, undefined, 'precondition: the vector table must be absent');
-  });
-
-  it('getChunksWithEmbeddingsForPaths returns [] instead of throwing', () => {
-    assert.deepEqual(getChunksWithEmbeddingsForPaths(['vecless.md']), []);
-  });
-
-  it('countChunksForPaths returns 0 instead of throwing', () => {
-    assert.equal(countChunksForPaths(['vecless.md']), 0);
   });
 
   it('getChunkEmbeddingsByPath returns [] instead of throwing', () => {
