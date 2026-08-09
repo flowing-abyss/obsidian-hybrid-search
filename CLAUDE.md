@@ -234,12 +234,6 @@ git push origin master && git push origin v0.8.13
 
 ## CodeGraph
 
-When this project has a `.codegraph/` directory, use CodeGraph for codebase navigation before falling back to broad filesystem search.
+Use `codegraph_explore` before broad filesystem search. Fall back to regular file reads or `rg` when CodeGraph returns nothing, when you need exact surrounding context it did not return, or when inspecting non-indexed files.
 
-The MCP server exposes exactly **one** tool: `mcp__codegraph__codegraph_explore`. As of CodeGraph 1.5 there is no `codegraph_search`, `codegraph_node`, `codegraph_callers`, `codegraph_callees`, `codegraph_impact`, `codegraph_context`, `codegraph_status` or `codegraph_files` MCP tool — calling one fails with "tool not found".
-
-Give `codegraph_explore` a natural-language question or a bag of symbol/file names. It returns verbatim line-numbered source grouped by file, the call paths between those symbols, and what depends on them — usually enough to answer the whole question in one call.
-
-The granular lookups live in the CLI, via Bash, when you need a single fact: `codegraph query <name>`, `codegraph node <name>`, `codegraph callers <symbol>`, `codegraph callees <symbol>`, `codegraph impact <symbol>`, `codegraph files`, `codegraph status`.
-
-Use regular file reads or `rg` when CodeGraph has no result, when you need exact surrounding context not returned by CodeGraph, or when inspecting non-indexed files.
+The tool inventory and CLI equivalents live in the agent's own global instructions — do not restate them here, they drift.
