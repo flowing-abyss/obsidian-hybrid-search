@@ -166,6 +166,7 @@ The `docs/` directory is **local-only** — it is gitignored and must never be c
 - **Don't** skip `npm run format` before committing — format:check in CI will fail.
 - Integration tests require `OPENAI_API_KEY` (they embed fixture notes). Unit tests do not.
 - The `_indexQueue` array is module-level state — tests that call `indexFile` in parallel may interfere. Unit tests use isolated temp DBs.
+- **The unit suite runs with `isolate: false`** — every test file shares one module registry. A file binds `db.js`/`searcher.js` to its own vault by setting `process.env.OBSIDIAN_VAULT_PATH` at module scope and then `await import`ing, which only holds if those modules are not already instantiated. `test/setup-module-isolation.ts` (wired in via `setupFiles`) calls `vi.resetModules()` before every file to guarantee that — do not remove it. Without it, vitest's size-based file ordering decides which vault a file actually queries, and adding a test file silently rebinds an unrelated one.
 - **`noUncheckedIndexedAccess` is enabled** — array/string indexing returns `T | undefined`. Use `!` assertions only when bounds are provably safe (loop guard, truthy check, or literal index 0 on a non-empty array). Never use `!` to silence real nullability.
 - **Type-aware ESLint** (`parserOptions.projectService`) is active — lint is ~3s slower than plain ESLint, this is expected. Do not disable `projectService`.
 - **`knip` must pass** — avoid adding `export` to symbols only used within their own file. Run `npm run knip` after adding any new exports.
@@ -233,17 +234,12 @@ git push origin master && git push origin v0.8.13
 
 ## CodeGraph
 
-When this project has a `.codegraph/` directory, use the CodeGraph MCP tools for codebase navigation before falling back to broad filesystem search.
+When this project has a `.codegraph/` directory, use CodeGraph for codebase navigation before falling back to broad filesystem search.
 
-Lightweight tools are appropriate in the main session:
+The MCP server exposes exactly **one** tool: `mcp__codegraph__codegraph_explore`. As of CodeGraph 1.5 there is no `codegraph_search`, `codegraph_node`, `codegraph_callers`, `codegraph_callees`, `codegraph_impact`, `codegraph_context`, `codegraph_status` or `codegraph_files` MCP tool — calling one fails with "tool not found".
 
-- `mcp__codegraph__codegraph_status` to confirm the index is available.
-- `mcp__codegraph__codegraph_files` to inspect indexed file structure.
-- `mcp__codegraph__codegraph_search` to find symbols by name.
-- `mcp__codegraph__codegraph_callers` and `mcp__codegraph__codegraph_callees` to trace call flow.
-- `mcp__codegraph__codegraph_impact` to check what a symbol change could affect.
-- `mcp__codegraph__codegraph_node` for a targeted symbol lookup.
+Give `codegraph_explore` a natural-language question or a bag of symbol/file names. It returns verbatim line-numbered source grouped by file, the call paths between those symbols, and what depends on them — usually enough to answer the whole question in one call.
 
-For deep exploration, prefer `mcp__codegraph__codegraph_explore` only after first using `mcp__codegraph__codegraph_search` to identify specific symbols, files, or short code terms. Avoid broad natural-language `codegraph_explore` queries.
+The granular lookups live in the CLI, via Bash, when you need a single fact: `codegraph query <name>`, `codegraph node <name>`, `codegraph callers <symbol>`, `codegraph callees <symbol>`, `codegraph impact <symbol>`, `codegraph files`, `codegraph status`.
 
 Use regular file reads or `rg` when CodeGraph has no result, when you need exact surrounding context not returned by CodeGraph, or when inspecting non-indexed files.

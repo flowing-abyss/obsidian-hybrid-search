@@ -8,6 +8,9 @@ export default defineConfig({
     maxWorkers: 1,
     testTimeout: 30_000,
     isolate: false,
+    // Runs before every test file: clears the module registry the files share under
+    // `isolate: false`, so none of them inherits another file's vault binding.
+    setupFiles: ['./test/setup-module-isolation.ts'],
     include: ['test/**/*.test.ts'],
     // integration.test.ts needs a real embedder; indexer-watcher-live-e2e.test.ts
     // runs a real (unmocked) chokidar watcher whose shared module state would
