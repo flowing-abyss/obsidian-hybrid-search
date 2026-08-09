@@ -14,7 +14,7 @@ It gives your vault one retrieval engine and three practical ways to use it. The
 
 The search understands how real vaults are built. It combines semantic search, BM25 full text, fuzzy title and alias matching, tags, folders, frontmatter, wikilinks, backlinks, and similar-note lookup. You can search by idea, phrase, title, relationship, or metadata without remembering the exact words you wrote.
 
-That turns Obsidian into a stronger personal knowledge system and a better starting point for AI work. Agents can begin from your own notes, pull cited context from source files, follow related material, and work with knowledge you already trust. OHS runs locally by default with SQLite, FTS5, `sqlite-vec`, RRF ranking, and optional OpenAI-compatible embedding APIs.
+That turns Obsidian into a stronger personal knowledge system and a better starting point for AI work. Agents can begin from your own notes, pull cited context from source files, follow related material, and work with knowledge you already trust. OHS runs locally by default with SQLite, FTS5, sqlite-vec, RRF ranking, and optional OpenAI-compatible embedding APIs.
 
 ## Search quality
 
@@ -102,7 +102,7 @@ query, while still exercising retrieval over a large generated memory vault.
 - **Incremental indexing**
   - only re-indexes changed files; watches for edits in real time
 - **Multi-query fan-out**
-  - pass multiple queries at once (`ohs "q1" "q2"` or `queries[]` in MCP); results are merged via RRF — a note that ranks well in any one query floats to the top; useful when the note may use different vocabulary than the query
+  - pass multiple queries at once (`ohs "q1" "q2"` or `queries[]` in MCP); results are merged via RRF, so a note that ranks well in any one query floats to the top; useful when the note may use different vocabulary than the query
 - **Cross-encoder reranking**
   - `--rerank` re-scores results with `bge-reranker-v2-m3` (ONNX int8, ~570 MB download once); improves precision for conceptual and multilingual queries; applied after multi-query merge
 - **Local embeddings**
@@ -114,83 +114,69 @@ query, while still exercising retrieval over a large generated memory vault.
 - **Ignore patterns**
   - exclude folders, extensions, or specific files
 - **Obsidian plugin**
-  - native search modal inside Obsidian powered by the same CLI — see [obsidian-hybrid-search-plugin](https://github.com/flowing-abyss/obsidian-hybrid-search-plugin)
+  - native search modal inside Obsidian powered by the same CLI; see [obsidian-hybrid-search-plugin](https://github.com/flowing-abyss/obsidian-hybrid-search-plugin)
 
 ## Installation
 
 ```bash
 npm install -g obsidian-hybrid-search
-# or run directly without installing:
-npx obsidian-hybrid-search
 ```
 
 ## CLI usage
 
 ### Quick start
 
-**Option A — recommended: set `OBSIDIAN_VAULT_PATH` once in your shell profile.**
-
-This lets you run the tool from any directory. Add to `~/.zshrc` or `~/.bashrc`:
+The recommended setup is to set `OBSIDIAN_VAULT_PATH` once in `~/.zshrc` or `~/.bashrc`. This lets you run the CLI from any directory.
 
 ```bash
 export OBSIDIAN_VAULT_PATH="/path/to/your/vault"
 ```
 
-Then reload (`source ~/.zshrc`) and index your vault once:
+Open a new terminal and index the vault once.
 
 ```bash
 obsidian-hybrid-search reindex
 ```
 
-After that you can search from any directory:
+You can now search from any directory.
 
 ```bash
 obsidian-hybrid-search "zettelkasten"
 ```
 
----
+### Run from a vault
 
-**Option B — no env var: run from inside your vault.**
-
-The tool detects the vault root by looking for the `.obsidian/` folder, walking up from the current directory. `cd` into your vault (or any subfolder) and run:
+Alternatively, run the CLI without an environment variable from any directory inside your vault. It finds the vault root by walking up to the nearest `.obsidian/` folder.
 
 ```bash
 cd /path/to/your/vault
-obsidian-hybrid-search reindex   # detects vault root, creates DB, indexes everything
+obsidian-hybrid-search reindex
 obsidian-hybrid-search "zettelkasten"
 ```
 
-Commands work from any directory inside the vault tree. From outside the vault (e.g. via shell aliases called from `~`), use Option A or pass `--db /path/to/vault/.obsidian-hybrid-search.db` explicitly.
+From outside the vault, set `OBSIDIAN_VAULT_PATH` or pass `--db /path/to/vault/.obsidian-hybrid-search.db` explicitly.
 
----
+### Optional remote embeddings
 
-**Optional: remote embedding API instead of local model.**
+By default, the CLI uses the local `Xenova/multilingual-e5-small` model. It works offline without an API key, downloads about 117 MB on first use, and supports more than 100 languages.
 
-By default the local `Xenova/multilingual-e5-small` model is used — works offline, no API key needed. Downloads ~117 MB on first run. Supports 100+ languages including Russian, Chinese, Japanese, and more.
-
-To use a remote API instead, add to your shell profile:
+To use a remote API, add its settings to your shell profile.
 
 ```bash
 export OPENAI_API_KEY="sk-..."
 
-# Default API base is https://api.openai.com/v1 — override for other providers:
+# Override the default API base for another provider
 # export OPENAI_BASE_URL="https://openrouter.ai/api/v1"  # OpenRouter
 # export OPENAI_BASE_URL="http://localhost:11434/v1"     # Ollama (no key needed)
 # export OPENAI_BASE_URL="http://localhost:1234/v1"      # LM Studio (no key needed)
 
-# Optional: override the embedding model (default: text-embedding-3-small)
+# Override the default text-embedding-3-small model
 # export OPENAI_EMBEDDING_MODEL="text-embedding-3-small"
 ```
 
 ### Search modes
 
-| Scenario        | How                                                                 | Modes                                               |
-| --------------- | ------------------------------------------------------------------- | --------------------------------------------------- |
-| Text query      | `obsidian-hybrid-search "some topic"`                               | `hybrid` (default), `semantic`, `fulltext`, `title` |
-| Similar notes   | `obsidian-hybrid-search --path notes/pkm/zettelkasten.md`           | Semantic similarity from stored chunk embeddings    |
-| Graph traversal | `obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related` | Links & backlinks via BFS                           |
-
-`--mode` only affects text queries. When `--path` is given without `--related`, search uses semantic similarity regardless of `--mode`; `--path --related` traverses links/backlinks instead.
+The CLI supports four search modes called `hybrid`, `fulltext`, `semantic`, and `title`, plus graph traversal for linked notes. The commands below show how to use them, apply filters, rerank results, and control the output.
 
 ```bash
 # Hybrid search (default)
@@ -391,13 +377,13 @@ Title mode omits the snippet column automatically.
 
 ## MCP server
 
-Most AI assistants operate without access to your personal knowledge — they can only work with what you paste into the conversation. Adding this server gives any MCP-compatible assistant a persistent, searchable index of your entire vault. It becomes a tool call, not a copy-paste session: the assistant queries your notes the same way it calls any other tool, gets ranked results with snippets and links, and can navigate your knowledge graph on request.
+Most AI assistants operate without access to your personal knowledge and can only work with what you paste into the conversation. Adding this server gives any MCP-compatible assistant a persistent, searchable index of your entire vault. It becomes a tool call, not a copy-paste session: the assistant queries your notes the same way it calls any other tool, gets ranked results with snippets and links, and can navigate your knowledge graph on request.
 
 Add to your MCP config (`.mcp.json`, `claude_desktop_config.json`, or equivalent for your client).
 
 ### Minimal config (local embeddings, no API key)
 
-Uses the built-in `Xenova/multilingual-e5-small` model — works fully offline, supports 100+ languages. Downloads ~117 MB on first run.
+Uses the built-in `Xenova/multilingual-e5-small` model. It works fully offline and supports 100+ languages. Downloads ~117 MB on first run.
 
 ```json
 {
@@ -475,11 +461,18 @@ HTTP mode uses stateless MCP Streamable HTTP. It does not issue or validate `Mcp
 
 If port 3939 is already in use, the command exits with an error instead of choosing another port automatically. Use `--port` for separate vaults.
 
-When binding beyond localhost, add the client-facing Host header with `--allowed-host <host[:port]>` or `OBSIDIAN_MCP_ALLOWED_HOSTS`; `--allow-any-host` disables Host-header protection for trusted networks.
+When binding beyond localhost, allow every hostname or address that MCP clients will use.
+
+```bash
+obsidian-hybrid-search serve \
+  --host 0.0.0.0 \
+  --allowed-host 192.168.1.20:3939 \
+  --allowed-host notes.example.com:3939
+```
+
+Repeat `--allowed-host` for multiple values. You can also set a comma-separated list with `OBSIDIAN_MCP_ALLOWED_HOSTS`. The `--allow-any-host` option disables Host-header protection for trusted networks.
 
 ### Available MCP tools
-
-The MCP server exposes four tools:
 
 | Tool      | Description                                                                                                                                                                                                                                                                                                                                               |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -488,7 +481,7 @@ The MCP server exposes four tools:
 | `reindex` | Reindex the vault or a specific file                                                                                                                                                                                                                                                                                                                      |
 | `status`  | Show total notes, indexed count, last indexed time                                                                                                                                                                                                                                                                                                        |
 
-If `OBSIDIAN_PREFIX` is set, tool names are prefixed in the MCP list (for example `myvault_search`, `myvault_read`). By default `OBSIDIAN_PREFIX` is empty, so tool names remain `search`, `read`, `reindex`, `status`.
+Set `OBSIDIAN_PREFIX` to add a prefix to every tool name. For example, `myvault_` produces `myvault_search` and `myvault_read`. The prefix is empty by default.
 
 ## Configuration
 
@@ -499,36 +492,30 @@ If `OBSIDIAN_PREFIX` is set, tool names are prefixed in the MCP list (for exampl
 | `OBSIDIAN_IGNORE_PATTERNS`   | `.obsidian/**,templates/**,*.canvas` | Comma-separated ignore patterns                                                    |
 | `OBSIDIAN_RESPECT_GITIGNORE` | `true`                               | Read root and nested `.gitignore` files; set to `false` to disable                 |
 | `OBSIDIAN_INCLUDE_PATTERNS`  | `""`                                 | Comma-separated patterns to re-include notes ignored only by `.gitignore`          |
-| `OPENAI_API_KEY`             | —                                    | API key; omit to use local model embeddings or keyless servers (Ollama, LM Studio) |
+| `OPENAI_API_KEY`             | None                                 | API key; omit to use local model embeddings or keyless servers (Ollama, LM Studio) |
 | `OPENAI_BASE_URL`            | `https://api.openai.com/v1`          | API base URL                                                                       |
 | `OPENAI_EMBEDDING_MODEL`     | `text-embedding-3-small`             | Embedding model name                                                               |
 
 ### Ignore patterns
 
-- `folder/**` — ignore a directory and all its contents
-- `*.canvas` — ignore by extension
-- `exact/path.md` — ignore a specific file
+- Use `folder/**` to ignore a directory and all its contents.
+- Use `*.canvas` to ignore files by extension.
+- Use `exact/path.md` to ignore a specific file.
 
-Root and nested `.gitignore` files are respected by default. Set `OBSIDIAN_RESPECT_GITIGNORE=false` to disable this. Use `OBSIDIAN_INCLUDE_PATTERNS` to re-include Markdown notes that are ignored only by `.gitignore`; include patterns do not override `OBSIDIAN_IGNORE_PATTERNS` or internal exclusions.
+Root and nested `.gitignore` files are respected by default. Set `OBSIDIAN_RESPECT_GITIGNORE=false` to disable this behavior. Use `OBSIDIAN_INCLUDE_PATTERNS` to re-include Markdown notes that are ignored only by `.gitignore`. Include patterns do not override `OBSIDIAN_IGNORE_PATTERNS` or internal exclusions.
 
-The ignore configuration is persisted in the database, so it is restored automatically even if the environment variable is missing on restart.
+The database stores the ignore configuration and restores it when the server restarts, even if the environment variable is missing.
 
 ## How it works
 
-1. **Indexing** — notes are chunked by headings (with sliding-window fallback), embedded, and stored in SQLite with FTS5 and `sqlite-vec`.
-2. **Search** — BM25 (with column weights: title 10×, aliases 5×, content 1×), fuzzy trigram title/alias search, and vector KNN search run in parallel; results are fused with RRF and scored 0–1 (higher = more relevant).
-3. **Links** — wikilinks (`[[note]]`) are resolved to note paths and stored; every search result includes `links` and `backlinks` arrays.
-4. **Watcher** — `chokidar` watches for file changes and incrementally re-indexes in the background.
+1. **Indexing** splits notes by headings with a sliding-window fallback, creates embeddings, and stores the results in SQLite with FTS5 and `sqlite-vec`.
+2. **Search** runs BM25, fuzzy trigram title and alias search, and vector KNN search in parallel. BM25 uses weights of 10× for titles, 5× for aliases, and 1× for content. RRF then gives semantic and BM25 results a weight of 1.5× each, exact alias matches 2×, and partial fuzzy matches 0.25×. The final scores range from 0 to 1, where higher scores mean greater relevance.
+3. **Links** are resolved from wikilinks such as `[[note]]`, mapped to note paths, and stored. Every search result includes `links` and `backlinks` arrays.
+4. **Watcher** uses `chokidar` to detect file changes and update the index in the background.
 
-## Development
+## Contributing
 
-```bash
-npm install
-npm test          # run test suite
-npm run build     # compile TypeScript
-```
-
-Tests use fake embeddings (no API key required) and run against a temporary vault. All tests cover chunking, BM25 scoring, fuzzy search, links/backlinks, tag filtering, scope filtering, related-mode traversal, direction/score logic, snippet fallback, and ignore pattern matching.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and project checks.
 
 ## License
 

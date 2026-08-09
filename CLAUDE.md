@@ -4,18 +4,17 @@
 
 ```bash
 npm run build          # TypeScript compile (must pass before committing)
-npm test               # Unit tests (221 tests, ~1s, no external deps) via vitest
-npm run test:integration  # Integration tests against fixture vault (need OPENAI_API_KEY)
-npm run coverage       # Unit tests with v8 coverage (≥40% lines required)
+npm test               # Unit tests with no external services
+npm run test:integration  # Integration tests with configured or local embeddings
+npm run test:e2e-watcher  # Real file-watcher integration test
+npm run coverage       # Unit coverage with thresholds from vitest.config.ts
 npm run knip           # Dead code / unused exports check (0 issues required)
 npm run lint           # ESLint (0 errors required; warnings on `any` are ok)
 npm run format         # Prettier write (run before committing)
 npm run format:check   # Prettier check (used in CI)
 ```
 
-**Pre-commit hooks run automatically** via husky + lint-staged (format + lint on staged files).
-
----
+Pre-commit hooks run `lint-staged`. The pre-push hook runs `npm run preflight` and adds the ranking quality gate when relevant search code changed.
 
 ## Agent Verification Checklist
 
@@ -27,49 +26,37 @@ npm run format && npm run build && npm test && npm run lint && npm run knip
 
 **After modifying `searcher.ts`:**
 
-- `npm test` catches BFS depth scoring regressions (`test/searcher.test.ts`)
-- `npm test` catches tag/scope filter regressions (`test/searcher.test.ts`)
-- `npm test` catches result shape contract regressions (`test/contract.test.ts`)
-- Run eval before and after to measure ranking quality impact (see below)
+- Run `npm test` for graph traversal, filters, cache behavior, and result contracts
+- Run eval before and after changes that can affect ranking quality
 
 **After modifying `db.ts`:**
 
 - `npm test` catches NFD path storage, model change wipe, link integrity (`test/db.test.ts`)
-- If you changed the DB **schema** (new columns, new tables, altered FTS structure): delete the eval
-  fixture DB and regenerate the baseline so `test/eval/regression.test.ts` reflects the new state:
+- If you changed the DB **schema** (new columns, new tables, altered FTS structure), delete the eval
+  fixture DB and regenerate both committed baselines with the local model.
+
   ```bash
   rm -f fixtures/obsidian-help/dataset/.obsidian-hybrid-search.db
-  npm run eval -- --vault fixtures/obsidian-help/dataset --output eval/results/baseline-no-rerank.json
+  npm run eval -- --output eval/results/baseline-no-rerank.json
+  npm run eval -- --rerank --output eval/results/baseline-rerank.json
   ```
-  Then commit the updated `baseline-no-rerank.json`. Do NOT update the thresholds in
-  `test/eval/regression.test.ts` unless the new metrics are genuinely better — the thresholds
-  are a quality floor, not a mirror of the latest run.
 
-**After modifying `server.ts` (MCP schema):**
+  Do not lower the floors in `eval/quality.ts` to match a regression.
 
-- `npm run build` — TypeScript enforces that MCP parameter names map to valid `SearchOptions` fields
-- If you add a new MCP parameter: update `SearchOptions` in `searcher.ts`, `server.ts`, and CLI flags in `cli.ts`
+**After modifying the MCP schema in `mcp-runtime.ts`:**
+
+- `npm run build` verifies that MCP parameter names map to valid `SearchOptions` fields
+- If you add a search parameter, update `SearchOptions` in `searcher.ts`, the schema in `mcp-runtime.ts`, and CLI flags in `cli.ts`
 - `npm test` catches result shape changes (`test/contract.test.ts`)
 
-**MCP description principles** — when editing any `description` field in `server.ts`, each parameter (especially mode-type enums) must answer four questions:
-
-1. What does it do / return?
-2. When should the agent choose this over alternatives?
-3. What does it NOT do (that the agent might expect)?
-4. What are the input constraints?
-
-For overlapping modes, include explicit routing: "Use X when Y. Do NOT use X when Z — use W instead."
-Omitting "when not to use" for overlapping modes causes agents to misinterpret correct behavior as bugs (precedent: S-66 — agent expected alias-match to be rank #1 in hybrid mode, but hybrid ranks by content depth, not note identity).
-
-**After adding new `SearchOptions` fields:**
-Update all three places: `SearchOptions` interface in `searcher.ts`, MCP tool schema in `server.ts`, and CLI flags in `cli.ts`.
+MCP parameter descriptions must say what the parameter does, when to use it, when not to use it, and what inputs it accepts. Give explicit routing when modes overlap.
 
 **After any change that affects ranking quality** (`searcher.ts`, `embedder.ts`, `chunker.ts`, indexing logic):
 
 Run eval before and after the change, then compare:
 
 ```bash
-# Before your change — save baseline
+# Before your change
 npm run eval -- \
   --vault fixtures/obsidian-help/dataset \
   --output eval/results/before-<feature>.json
@@ -85,93 +72,72 @@ npm run eval:compare -- \
   eval/results/after-<feature>.json
 ```
 
-Files in `eval/results/` are **working artifacts** — generate as many as you need and delete
-freely. The regression test (`test/eval/regression.test.ts`) does NOT read them; it only reads
-`eval/results/baseline-no-rerank.json` (the committed reference) and checks absolute thresholds.
+Most files in `eval/results/` are working artifacts. Keep the committed `baseline-no-rerank.json` and `baseline-rerank.json` files because the regression test reads them. See `eval/README.md` for current measurements and model settings.
 
-Current committed baseline: **nDCG@5 = 0.727** (hybrid, local model, no rerank, 58 queries).
-See `eval/README.md` for full benchmark table and model configuration options.
-
-**Updating regression test thresholds** — only when a change genuinely improves ranking:
+**Updating regression test thresholds** is appropriate only when a change genuinely improves ranking:
 
 1. Run eval and confirm the new metrics are higher than the current thresholds
-2. Update `eval/results/baseline-no-rerank.json` with the new run
-3. Raise (never lower) the `FLOOR` values in `test/eval/regression.test.ts`
-4. Update the "Measured baseline" comment in that file to match
+2. Update the relevant committed baseline JSON
+3. Raise (never lower) the floor values in `eval/quality.ts`
+4. Update the measured baseline comments in `test/eval/regression.test.ts`
 
-**Coverage gates** (enforced in CI via `npm run coverage`):
-
-- Lines ≥ 60%, Functions ≥ 65%, Branches ≥ 47%
-- `embedder.ts`, `server.ts`, `cli.ts` are intentionally low coverage (require API key or OS I/O)
-- Do not lower these thresholds — raise them as new testable code is added
-
----
+Coverage gates are defined in `vitest.config.ts` and enforced by CI. Do not lower them to make a change pass.
 
 ## Architecture
 
 ```
 CLI (cli.ts) ──┐
-               ├──▶ search() in searcher.ts ──▶ db.ts (SQLite)
-MCP (server.ts)┘                           └──▶ embedder.ts (OpenAI/local)
+               ├──▶ searcher.ts ──▶ db.ts (SQLite)
+MCP (mcp-runtime.ts)┘              └──▶ embedder.ts (remote/local)
 ```
 
-- **`db.ts`** — SQLite schema, migrations, all DB queries. Uses `better-sqlite3` (sync) + `sqlite-vec` for vector similarity. Tables: `notes`, `chunks`, `links`, `settings`, FTS5 virtual tables (`notes_fts_bm25`, `notes_fts_fuzzy`).
-- **`indexer.ts`** — walks vault, parses frontmatter (gray-matter), extracts tags and wikilinks, calls embedder, writes to DB. Incremental by content hash.
-- **`embedder.ts`** — embedding via OpenAI API (or OpenRouter / Ollama / any OpenAI-compatible endpoint). Falls back to `@xenova/transformers` for local inference. Context lengths are hard-coded in `KNOWN_CONTEXT_LENGTHS` to avoid API roundtrips. Default local model: `Xenova/multilingual-e5-small` (hardcoded, 512 tokens, 384d, 100+ languages). Requires `"query: "` / `"passage: "` prefix — added automatically by `embedLocal()`. Users who need a different local model should configure Ollama via `OPENAI_BASE_URL`.
-- **`searcher.ts`** — all search logic: hybrid (BM25 + semantic RRF), fulltext-only, semantic-only, title fuzzy, related (BFS graph traversal). Results are cached in a `Map`.
-- **`chunker.ts`** — splits notes into overlapping chunks by section headers and sliding window for embedding.
-- **`config.ts`** — reads env vars: `OBSIDIAN_VAULT_PATH` (required), `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OBSIDIAN_IGNORE_PATTERNS`, `EMBEDDING_MODEL`.
+- **`db.ts`** owns the SQLite schema, migrations, and queries. It uses `better-sqlite3`, FTS5, and `sqlite-vec`.
+- **`indexer.ts`** walks the vault, parses metadata and links, creates embeddings, and writes incremental updates to the database.
+- **`embedder.ts`** handles OpenAI-compatible providers and local inference through `@huggingface/transformers`. The default local model is `Xenova/multilingual-e5-small`.
+- **`searcher.ts`** implements hybrid, full-text, semantic, fuzzy title, similar-note, and graph searches. A versioned LRU cache stores up to 100 result sets.
+- **`chunker.ts`** splits notes into overlapping chunks by headings with a sliding-window fallback.
+- **`mcp-runtime.ts`** defines MCP tools and their schemas. `server.ts` is only the stdio entry point.
+- **`config.ts`** is the source of truth for environment variables. Keep the user-facing list in `README.md`.
 
 ## Key Implementation Details
 
 ### Path Normalization
 
-All note paths stored in DB are **NFD-normalized** (`path.normalize('NFD')`). macOS HFS+ uses NFD for filenames. Always normalize before DB lookups or comparisons — failing to do so causes cache misses and "note not found" bugs.
+All note paths stored in the database are NFD-normalized with `path.normalize('NFD')`. Normalize paths before database lookups or comparisons to avoid cache misses and "note not found" bugs.
 
 ### Hybrid Search (RRF)
 
-`searchByQuery()` runs BM25 (FTS5) and semantic (vec_distance_L2) in parallel, then merges with **Reciprocal Rank Fusion**: `score = 1 / (k + rank)` where `k=60`. The semantic search embeds the query on each call — results are cached so repeated identical queries don't re-embed.
+Hybrid search runs semantic, BM25, exact alias, and partial fuzzy result lists through weighted RRF with `k=60`. Semantic and BM25 lists use weight 1.5, exact aliases use 2.0, and partial fuzzy matches use 0.25. `search()` caches up to 100 result sets and invalidates them with database and in-process versions.
 
 ### Related Mode (BFS)
 
-`searchRelated()` does bidirectional BFS over the `links` table. `direction='outgoing'` follows `from_path→to_path` edges (depth > 0), `direction='backlinks'` follows reverse edges (depth < 0), `direction='both'` does both. Score = `1 / (1 + |depth|)`. The source note itself is included at depth=0 with score=1.0.
+`searchRelated()` performs bidirectional BFS over wiki or Markdown links. Outgoing links have positive depth, backlinks have negative depth, and the source note is included at depth 0. The score is `1 / (1 + |depth|)`.
 
 ### Tag/Scope Filtering
 
-`-` prefix means **exclude**: `tag="-category/cs"` removes notes with that tag. Arrays are OR for includes, AND for excludes. Scope filters match against path prefix.
+A leading `-` excludes a value. Tag and frontmatter includes use AND semantics. Scope includes use OR semantics. Every exclusion removes matching notes.
 
 ### Snippet Logic
 
-1. BM25 search uses SQLite `snippet()` function (context around match).
-2. Semantic search uses `getLinkContext()` — finds the wikilink in the source note and returns surrounding text.
-3. If both are empty: `getSnippetFallback()` reads first N chars from `notes.content`.
-4. All snippets are capped to `snippetLength` (default 300 chars).
+1. BM25 uses SQLite `snippet()` and adds the matching heading path when available.
+2. Semantic search returns the matching chunk with its heading path.
+3. Related mode extracts context around the link that produced the result.
+4. Short or empty snippets fall back to note content and are capped by `snippetLength`.
 
 ### DB Is a Singleton
 
-`getDb()` returns a module-level singleton. Tests must call `openDb()` explicitly with the test DB path via `OBSIDIAN_VAULT_PATH` env var pointing to `test/fixtures/vault/`.
-
----
+`getDb()` returns a module-level singleton and throws until `openDb()` initializes it. Tests must set an isolated vault path before opening the database.
 
 ## Local-Only Files
 
-The `docs/` directory is **local-only** — it is gitignored and must never be committed to the repository. It holds personal plans, specs, and notes that stay on your machine. Do not `git add` anything under `docs/`.
-
----
+The `docs/` directory is local-only and gitignored. Do not add files from it to commits.
 
 ## Common Pitfalls
 
-- **Never** modify `notes_fts_bm25` or `notes_fts_fuzzy` directly — they are FTS5 content tables kept in sync via triggers on `notes`.
-- **Don't** use `let` for arrays that are never reassigned — ESLint enforces `prefer-const`.
-- **Don't** skip `npm run format` before committing — format:check in CI will fail.
-- Integration tests require `OPENAI_API_KEY` (they embed fixture notes). Unit tests do not.
-- The `_indexQueue` array is module-level state — tests that call `indexFile` in parallel may interfere. Unit tests use isolated temp DBs.
-- **The unit suite runs with `isolate: false`** — every test file shares one module registry. A file binds `db.js`/`searcher.js` to its own vault by setting `process.env.OBSIDIAN_VAULT_PATH` at module scope and then `await import`ing, which only holds if those modules are not already instantiated. `test/setup-module-isolation.ts` (wired in via `setupFiles`) calls `vi.resetModules()` before every file to guarantee that — do not remove it. Without it, vitest's size-based file ordering decides which vault a file actually queries, and adding a test file silently rebinds an unrelated one.
-- **`noUncheckedIndexedAccess` is enabled** — array/string indexing returns `T | undefined`. Use `!` assertions only when bounds are provably safe (loop guard, truthy check, or literal index 0 on a non-empty array). Never use `!` to silence real nullability.
-- **Type-aware ESLint** (`parserOptions.projectService`) is active — lint is ~3s slower than plain ESLint, this is expected. Do not disable `projectService`.
-- **`knip` must pass** — avoid adding `export` to symbols only used within their own file. Run `npm run knip` after adding any new exports.
-
----
+- Never modify `notes_fts_bm25` or `notes_fts_fuzzy` directly. Triggers keep these FTS5 content tables synchronized with `notes`.
+- `_indexQueue` is module-level state. Tests that index files concurrently can interfere with one another.
+- The unit suite uses `isolate: false`. `test/setup-module-isolation.ts` resets modules before every file so vault-bound modules do not leak between suites. Do not remove it.
+- `noUncheckedIndexedAccess` is enabled. Use non-null assertions only when bounds are proven.
 
 ## Testing the Local Embedding Model
 
@@ -184,56 +150,30 @@ unset OPENAI_BASE_URL
 npm run test:integration
 ```
 
-The local model (`Xenova/multilingual-e5-small`) downloads ~117 MB on first run and is cached in `~/.cache/`. Fixture vault includes Russian notes in `test/fixtures/vault/notes/ru/` to validate multilingual indexing.
-
-**Note:** The local model is slow for the first inference (~10s warmup). Integration test timeout is set to 120s.
-
----
-
-## Environment Variables
-
-| Variable                   | Required      | Default                                  | Description                                                                                |
-| -------------------------- | ------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `OBSIDIAN_VAULT_PATH`      | Yes           | —                                        | Absolute path to Obsidian vault root                                                       |
-| `OBSIDIAN_PREFIX`          | No            | `""`                                     | MCP tool name prefix for multi-vault setups, e.g. `work_` → `work_search`, `work_read`     |
-| `OPENAI_API_KEY`           | For embedding | —                                        | Also used for OpenRouter                                                                   |
-| `OPENAI_BASE_URL`          | No            | `https://api.openai.com/v1`              | Override for Ollama/OpenRouter                                                             |
-| `OPENAI_EMBEDDING_MODEL`   | No            | `text-embedding-3-small`                 | Any OpenAI-compatible embedding model                                                      |
-| `OBSIDIAN_IGNORE_PATTERNS` | No            | `.obsidian/**,templates/**,*.canvas`     | Comma-separated glob patterns                                                              |
-| `RERANKER_MODEL`           | No            | `onnx-community/bge-reranker-v2-m3-ONNX` | Cross-encoder model for `--rerank` (int8 quantized, ~570MB — 568M param xlm-roberta-large) |
-
-## MCP Tools
-
-The MCP server exposes 4 tools: `search`, `reindex`, `status`, `read`. Tool schema is defined inline in `server.ts`. When adding new `SearchOptions` fields, update all three places: `SearchOptions` interface in `searcher.ts`, tool schema in `server.ts`, and CLI flags in `cli.ts`. The `read` tool uses its own `ReadResult` type (`NoteReadResult | NoteReadMiss`) defined in `searcher.ts` — it does not use `SearchOptions`.
-
----
+The local model downloads about 117 MB on first use and is cached in `~/.cache/huggingface/`.
 
 ## Release Management
 
-To release a new version (triggers CI build and npm publish):
+Update all package version files before creating the release tag.
 
 ```bash
-# 1. Update version in package.json (e.g., 0.8.12 → 0.8.13)
-#    npm version patch will also sync server.json via the pre-commit hook.
-# 2. Stage and commit changes
-git add package.json server.json <other-files>
-git commit -m "type: description"
+npm version X.Y.Z --no-git-tag-version
+npm run sync-server-json
+git add package.json package-lock.json server.json <other-files>
+git commit -m "chore(release): X.Y.Z"
+git push origin master
 
-# 3. Create and push tag
-git tag v0.8.13
-git push origin master && git push origin v0.8.13
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
-**Notes:**
-
-- Tag must follow semver format: `v*.*.*` (e.g., `v0.8.13`)
+- The tag must match `v*.*.*`
 - Release workflow triggers automatically on tag push
-- Pre-commit hooks run tests automatically and synchronize `server.json` with `package.json`
+- The release waits for CI to pass on the tagged commit
 - CI creates GitHub Release and publishes to npm
-- `server.json` is always kept in sync with `package.json` by `npm run sync-server-json`
 
 ## CodeGraph
 
 Use `codegraph_explore` before broad filesystem search. Fall back to regular file reads or `rg` when CodeGraph returns nothing, when you need exact surrounding context it did not return, or when inspecting non-indexed files.
 
-The tool inventory and CLI equivalents live in the agent's own global instructions — do not restate them here, they drift.
+The tool inventory and CLI equivalents live in the agent's own global instructions. Do not restate them here because they drift.

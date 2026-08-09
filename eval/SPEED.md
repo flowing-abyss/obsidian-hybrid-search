@@ -1,31 +1,35 @@
-# Speed Benchmarks
+# Speed benchmarks
 
-This directory has two speed tools with different goals:
+The repository includes two performance tools.
 
-- `benchmark-speed.ts` measures end-to-end CLI wall time.
-- `speed-profile.ts` measures the search pipeline inside one Node process and breaks latency down by stage.
+| Tool                      | Measures                                 | Use it when                                   |
+| ------------------------- | ---------------------------------------- | --------------------------------------------- |
+| `eval/benchmark-speed.ts` | Complete CLI wall time                   | You want the latency a CLI user experiences   |
+| `eval/speed-profile.ts`   | Search stages inside one Node.js process | You need to find which part of search is slow |
 
-Use the CLI wall-time benchmark when you want the user-visible cost of launching the command. Use the pipeline profiler when you need to find which part of search is slow.
+## CLI wall time
 
-## CLI Wall-Time Benchmark
-
-Run:
+Run the OHS benchmark with the default Obsidian Help fixture.
 
 ```bash
 npm run eval:speed -- --vault fixtures/obsidian-help/dataset
 ```
 
-Compare with qmd:
+Add a qmd collection to benchmark both tools.
 
 ```bash
-npm run eval:speed -- --vault fixtures/obsidian-help/dataset --collection obsidian-help
+npm run eval:speed -- \
+  --vault fixtures/obsidian-help/dataset \
+  --collection obsidian-help
 ```
 
-This benchmark spawns `node dist/src/cli.js` for each query. The timing includes process startup, module loading, DB open, embedding, search, formatting, and output. It is intentionally noisy but close to what a CLI user experiences.
+The benchmark launches `node dist/src/cli.js` for every query. Its timing includes process startup, module loading, database access, embedding, search, formatting, and output. It is intentionally close to real CLI usage, so results contain normal process-level noise.
 
-## Search Pipeline Profiler
+Both tools are warmed up before measurement. Each query runs five times, and the report compares the median for every query and the overall median.
 
-Run:
+## Search pipeline profiler
+
+The profiler imports `search()` directly and keeps one Node.js process alive.
 
 ```bash
 npm run eval:speed-profile -- \
@@ -35,13 +39,15 @@ npm run eval:speed-profile -- \
   --warmup 2
 ```
 
-The profiler uses one random query for warmup, then samples one golden-set query per measured run. Pass `--seed` to make the sequence reproducible:
+Warmup loads the model and runtime state. Before every measured run, the profiler invalidates the in-process result cache. Golden-set queries are sampled independently, so the default report represents a warm process with uncached search results.
+
+Use `--seed` for reproducible query selection.
 
 ```bash
 npm run eval:speed-profile -- --seed 42
 ```
 
-Pass a manual query when investigating a specific slow case:
+Use `--query` to investigate one slow search.
 
 ```bash
 npm run eval:speed-profile -- \
@@ -50,41 +56,31 @@ npm run eval:speed-profile -- \
   --query "how do I connect these concepts?"
 ```
 
-Useful options:
+### Profiler options
 
-```text
---vault <path>       Vault root containing .obsidian-hybrid-search.db
---golden-set <path>  JSON golden set, same flag name as eval/evaluate.ts
---query <text>       Use the same manual query for warmup and every measured run
---mode <mode>        hybrid, semantic, fulltext, or title (default: hybrid)
---limit <n>          Search result limit (default: 10)
---runs <n>           Measured runs after warmup (default: 10)
---warmup <n>         Warmup runs not included in summary (default: 2)
---seed <n>           Deterministic golden-set query selection
---rerank             Include cross-encoder reranking
---json               Print machine-readable output
-```
+| Option         | Default                                  | Purpose                                                        |
+| -------------- | ---------------------------------------- | -------------------------------------------------------------- |
+| `--vault`      | `fixtures/obsidian-help/dataset`         | Vault with an existing search database                         |
+| `--golden-set` | `fixtures/obsidian-help/golden-set.json` | Queries sampled during the profile                             |
+| `--query`      | Random golden-set queries                | Repeat one manual query                                        |
+| `--mode`       | `hybrid`                                 | Search mode named `hybrid`, `semantic`, `fulltext`, or `title` |
+| `--limit`      | `10`                                     | Number of search results                                       |
+| `--runs`       | `10`                                     | Measured runs after warmup                                     |
+| `--warmup`     | `2`                                      | Warmup runs excluded from the report                           |
+| `--seed`       | Random                                   | Deterministic golden-set sampling                              |
+| `--rerank`     | Disabled                                 | Include cross-encoder reranking                                |
+| `--json`       | Disabled                                 | Print machine-readable output                                  |
 
-The text report shows total latency and stage-level timings:
+### Search stages
 
-```text
-stage              count  median    p95
---------------------------------------------
-embedQuery             1    430.0ms   510.0ms
-vectorSearch           1      6.0ms    10.0ms
-bm25                   1      2.0ms     4.0ms
-```
+| Stage             | Work measured                                                    |
+| ----------------- | ---------------------------------------------------------------- |
+| `embedQuery`      | Query embedding                                                  |
+| `bm25`            | FTS5 BM25 search                                                 |
+| `fuzzyTitle`      | Title and alias fuzzy search                                     |
+| `vectorSearch`    | sqlite-vec nearest-neighbor search                               |
+| `rrfFusion`       | Reciprocal Rank Fusion                                           |
+| `rerank`          | Cross-encoder reranking when enabled                             |
+| `filterAndFormat` | Filters, snippets, links, backlinks, and final result formatting |
 
-Stage meanings:
-
-- `embedQuery`: embedding the query text.
-- `bm25`: FTS5 BM25 search.
-- `fuzzyTitle`: title and alias fuzzy search.
-- `vectorSearch`: sqlite-vec KNN search.
-- `rrfFusion`: reciprocal-rank fusion.
-- `rerank`: cross-encoder reranking when `--rerank` is enabled.
-- `filterAndFormat`: scope/tag/frontmatter filters, snippets, links, backlinks, and final result shaping.
-
-The profiler imports `search()` directly and keeps the process alive across runs. This excludes CLI startup overhead by design, so compare it with `benchmark-speed.ts` rather than replacing that benchmark.
-
-Warmup runs execute a search first so model/runtime state can load. Before each measured run, the profiler invalidates the in-process search result cache. With a golden set, measured runs also use independently sampled query texts, so the default profile represents a warm process/model with uncached search results for real query variation.
+The profiler reports median and p95 latency for the complete search and for every recorded stage. Compare these numbers with the CLI benchmark rather than replacing it, because the profiler intentionally excludes process startup.

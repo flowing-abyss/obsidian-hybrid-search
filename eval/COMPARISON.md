@@ -1,55 +1,68 @@
-# OHS vs qmd — Reproduction Guide
+# Reproduce the OHS and qmd comparison
 
-This document explains how to reproduce the comparison shown in the project README.
+This guide reproduces the quality and speed comparison shown in the project README. Both tools use the same Obsidian Help vault and the same golden set.
 
 ## Requirements
 
-- Node.js ≥ 22
-- [qmd](https://github.com/tobi/qmd) installed globally: `npm install -g @tobilu/qmd`
-- The `fixtures/obsidian-help/dataset` vault (included in this repo)
+- Node.js 22 or newer
+- [qmd](https://github.com/tobi/qmd) installed globally with `npm install -g @tobilu/qmd`
+- The generated Obsidian Help fixture
 
-On first run, qmd downloads ~2.2 GB of GGUF models to `~/.cache/qmd/models/`.
+qmd downloads its local GGUF models on first use and stores them in `~/.cache/qmd/models/`.
 
-## Step 1 — Index the vault in qmd
+## 1. Prepare the fixture
+
+```bash
+npm run eval:prepare-obsidian-help
+```
+
+## 2. Index the vault in qmd
 
 ```bash
 qmd collection add fixtures/obsidian-help/dataset --name obsidian-help
 qmd embed
 ```
 
-## Step 2 — Run quality eval for OHS
+## 3. Run the OHS eval
 
 ```bash
 npm run eval -- \
   --vault fixtures/obsidian-help/dataset \
+  --golden-set fixtures/obsidian-help/golden-set.json \
   --output eval/results/ohs-no-rerank.json
 ```
 
-## Step 3 — Run quality eval for qmd
+## 4. Run the qmd eval
 
 ```bash
 npm run eval:qmd -- \
   --vault fixtures/obsidian-help/dataset \
+  --golden-set fixtures/obsidian-help/golden-set.json \
   --collection obsidian-help \
   --output eval/results/qmd-baseline.json
 ```
 
-## Step 4 — Compare quality metrics
+## 5. Compare quality
 
 ```bash
-npm run eval:compare -- eval/results/ohs-no-rerank.json eval/results/qmd-baseline.json
+npm run eval:compare -- \
+  eval/results/ohs-no-rerank.json \
+  eval/results/qmd-baseline.json
 ```
 
-## Step 5 — Benchmark query speed
+## 6. Compare query speed
 
 ```bash
-npm run eval:benchmark -- --vault fixtures/obsidian-help/dataset --collection obsidian-help
+npm run eval:speed -- \
+  --vault fixtures/obsidian-help/dataset \
+  --collection obsidian-help
 ```
 
-The benchmark warms up both tools before measuring, then runs 10 queries × 5 runs each and reports the overall median.
+The speed benchmark warms up both tools, runs ten queries five times, and compares their overall median wall time.
 
-## Notes on fairness
+## Comparison conditions
 
-- OHS runs on **CPU** (Apple Silicon); qmd runs on **GPU** (Apple Silicon Metal). The speed gap would be larger on CPU-only hardware.
-- OHS uses `Xenova/multilingual-e5-small` with no reranking. qmd uses LLM query expansion + LLM reranking — a heavier pipeline.
-- Both tools are evaluated against the same 58-query golden set (`fixtures/obsidian-help/golden-set.json`) on the same vault.
+- Both tools search the same generated vault with the same 58 queries and `k=10`.
+- OHS uses `Xenova/multilingual-e5-small` on CPU without reranking.
+- qmd uses its local query expansion and reranking pipeline.
+- Hardware acceleration affects absolute latency. Record the machine and runtime when publishing new measurements.

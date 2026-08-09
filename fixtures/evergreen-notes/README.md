@@ -1,112 +1,101 @@
-# Evergreen Notes Fixture
+# Evergreen Notes fixture
 
-This fixture is a crawled Obsidian-style vault built from Andy Matuschak's public evergreen notes. It is intended to evaluate search quality on a real, dense, personal knowledge base rather than on product documentation or synthetic conversations.
+This fixture evaluates search over Andy Matuschak's public [evergreen notes](https://notes.andymatuschak.org). It represents a dense personal knowledge base where many notes discuss adjacent ideas and the title is an important retrieval signal.
 
-The vault uses human-readable note filenames such as `notes/Mnemonic medium.md`, matching normal Obsidian usage where the file title is an important retrieval and navigation signal. Each note keeps its source page as URL-only frontmatter, for example `url: "https://notes.andymatuschak.org/zKPv6qkSErdRGqyryvgS2wS"`.
+Generated notes use readable filenames such as `notes/Mnemonic medium.md`. Each note keeps its source page in URL-only frontmatter.
 
 ## Files
 
-- `dataset/notes/` - markdown notes with title-based filenames.
-- `dataset/files/` - downloaded local attachments in a flat structure.
-- `golden-set.json` - curated query and relevance judgments.
+```text
+fixtures/evergreen-notes/
+  README.md
+  dataset/notes/    # generated Markdown notes
+  dataset/files/    # generated local attachments
+  golden-set.json   # tracked benchmark contract
+```
 
-## Reproducing The Vault
-
-The vault can be regenerated from Andy Matuschak's public notes site:
+## Prepare the dataset
 
 ```bash
 npm run eval:prepare-evergreen-notes -- --force
 ```
 
-This command crawls `https://notes.andymatuschak.org`, follows note links from a fixed seed list, writes notes under `dataset/notes/` using their page titles as filenames, converts `[[slug:::title]]` links to Obsidian-style title links, downloads referenced local images into `dataset/files/`, rewrites image references as Obsidian embeds such as `![[files/image.png]]`, and recreates `fixtures/evergreen-notes/dataset`.
+The command crawls a fixed set of public note seeds, follows note links, writes title-based Markdown files, converts internal links to Obsidian links, and downloads referenced images. It refuses to recreate paths outside `fixtures/` and leaves an existing dataset unchanged unless `--force` is present.
 
-Useful options:
+Skip image downloads when only text retrieval matters.
 
 ```bash
-# Recreate notes but skip image downloads
 npm run eval:prepare-evergreen-notes -- --force --no-images
-
-# Use a gentler crawl delay in milliseconds
-npm run eval:prepare-evergreen-notes -- --force --delay-ms 1000
-
-# Write to a different fixture vault path
-npm run eval:prepare-evergreen-notes -- --vault fixtures/evergreen-notes/dataset --force
 ```
 
-The command refuses to recreate paths outside `fixtures/`. If the vault already contains markdown files, it does nothing unless `--force` is supplied.
-
-## Running Eval
+Set a longer crawl delay when you want gentler requests to the source site.
 
 ```bash
-npm run eval -- \
-  --vault fixtures/evergreen-notes/dataset \
-  --golden-set fixtures/evergreen-notes/golden-set.json
+npm run eval:prepare-evergreen-notes -- --force --delay-ms 1000
 ```
 
-With an explicit output path:
+Use `--vault` to write the generated vault to another path inside `fixtures/`.
+
+## Run the eval
 
 ```bash
 npm run eval -- \
   --vault fixtures/evergreen-notes/dataset \
   --golden-set fixtures/evergreen-notes/golden-set.json \
-  --output eval/results/evergreen-notes-no-rerank.json
+  --k 10
 ```
 
-## Query Categories
+## Reproduce the baseline
 
-- `exact-title` - known-item lookup for a note title or canonical name. This is intentionally a minority category because it mostly tests lexical matching.
-- `keyword` - domain terms or distinctive phrases that should be retrievable with BM25 and hybrid search.
-- `conceptual` - paraphrased information needs with lower lexical overlap. These are the main semantic/hybrid quality checks.
-- `disambiguation` - queries that must distinguish among adjacent concepts, such as testing effect vs. spacing effect vs. retrieval practice.
-- `linked-neighborhood` - multi-evidence queries where several linked sibling notes are required for full credit.
-- `author-work` - citation, book, paper, or named-work lookup against citation-style notes.
-- `quote-fragment` - short remembered fragments from note bodies, useful for checking full-text behavior beyond titles.
-- `ambiguous-topic` - broad user queries where a hub note may be best but nearby leaves should receive partial credit.
+Prepare the dataset, select the default local model, and write the committed result.
 
-## Judgment Rules
+```bash
+npm run eval:prepare-evergreen-notes -- --force
 
-- `relevant_paths` are vault-relative filenames under `dataset/`, usually `notes/<Title>.md`. They are the notes that directly answer the query.
-- `partial_paths` are useful supporting, sibling, overview, or nearby notes that would be reasonable secondary hits but are not sufficient answers.
-- Required evidence goes in `relevant_paths`, not `partial_paths`.
-- In this eval system, `relevant_paths` score 1.0 and `partial_paths` score 0.5 for nDCG. MRR, Hit@k, Recall@k, evidence coverage, and AllRel@k only use `relevant_paths`.
-- Multi-evidence queries use multiple `relevant_paths` so Recall@k and AllRel@k can measure whether the search retrieved the whole answer set.
-- Paths use the generated title-based filenames exactly as stored on disk. Duplicate note titles are disambiguated with numeric suffixes such as `Title 2.md`.
+env -u OPENAI_API_KEY -u OPENAI_BASE_URL -u OPENAI_EMBEDDING_MODEL -u LOCAL_EMBEDDING_MODEL \
+  npm run eval -- \
+  --vault fixtures/evergreen-notes/dataset \
+  --golden-set fixtures/evergreen-notes/golden-set.json \
+  --output eval/results/evergreen-notes-no-rerank.json \
+  --k 10
+```
 
-## Coverage Intent
+## Query categories
 
-The set covers major clusters in the vault:
+- **`exact-title`** tests known-note lookup by title or canonical name.
+- **`keyword`** uses domain terms or distinctive phrases suited to lexical and hybrid search.
+- **`conceptual`** paraphrases an information need with less lexical overlap.
+- **`disambiguation`** separates neighboring concepts such as the testing effect, spacing effect, and retrieval practice.
+- **`linked-neighborhood`** requires several related notes for full credit.
+- **`author-work`** looks up a citation, book, paper, or named work.
+- **`quote-fragment`** searches for a short remembered fragment from a note body.
+- **`ambiguous-topic`** uses a broad query where a hub note may be the best result and nearby notes still deserve partial credit.
 
-- evergreen note-writing and Zettelkasten-style practice
-- spaced repetition, mnemonic medium, Quantum Country, and prompt design
-- reading, annotations, augmented reading, and hypertext
-- enabling environments, enacted experiences, educational games, and tools for thought
-- creative work, process orientation, focus, and pressure
-- AI risk, AI safety, and mechanistic interpretability
-- HCI/interface notes such as silent speech, Augmental, and marginal annotations
-- citation-style notes and named works
+### Judgment rules
 
-The set intentionally includes hub notes, short atomic notes, long literature/project notes, obscure local notes, exact lexical queries, paraphrases, ambiguous broad topics, and multi-note evidence requirements. Metrics should be interpreted by category, not only as one aggregate score.
+`relevant_paths` contain notes that directly answer the query. `partial_paths` contain useful supporting or neighboring notes that are not sufficient answers on their own.
 
-## Measured Baseline
+Multi-evidence queries place every required note in `relevant_paths`. Generated paths use the exact title-based filenames on disk, with numeric suffixes added when two notes share a title.
 
-Vault: `fixtures/evergreen-notes/dataset` (1,357 notes)
-Golden set: `fixtures/evergreen-notes/golden-set.json` (78 queries)
-Run: local/default eval without reranking, `k=10`
-Output: `eval/results/evergreen-notes-no-rerank.json`
+The golden set covers note-writing practice, spaced repetition, reading, hypertext, tools for thought, creative work, AI safety, HCI, citations, and named works. Read category metrics alongside the aggregate result because the benchmark intentionally mixes exact lookup, paraphrases, ambiguous topics, and multi-note evidence.
 
-| Metric    | Value     | Interpretation                                                          |
-| --------- | --------- | ----------------------------------------------------------------------- |
-| nDCG@5    | **0.722** | Strong but non-trivial top-5 ranking on a dense real knowledge vault     |
-| nDCG@10   | 0.753     | Most relevant notes appear by rank 10, with ranking still visible        |
-| MRR       | 0.874     | First fully relevant hit is usually near the top                         |
-| Hit@1     | 0.795     | About four fifths of queries put a full-credit note first                |
-| Hit@3     | 0.949     | Most queries have a full-credit note in the top 3                        |
-| Hit@5     | 0.974     | Top-5 retrieval is very high                                             |
-| Recall@10 | 0.972     | The engine generally retrieves the right evidence within 10 results      |
-| AllRel@10 | 0.949     | Most multi-evidence queries retrieve every required note within top 10   |
+## Measured baseline
 
-The hardest slices are intentionally the linked-neighborhood, quote-fragment, and disambiguation queries. Low-scoring examples usually still retrieve the relevant note by rank 10, or expose a real limitation in ranking dense neighboring notes rather than a missing path or malformed judgment.
+The committed run uses 1,357 notes, 78 queries, `k=10`, the default local model, and no reranking.
+
+| Metric    |     Value | Interpretation                                            |
+| --------- | --------: | --------------------------------------------------------- |
+| nDCG@5    | **0.722** | Strong top-five ranking in a dense knowledge vault        |
+| nDCG@10   |     0.753 | Most relevant notes appear within ten results             |
+| MRR       |     0.874 | The first fully relevant note is usually near the top     |
+| Hit@1     |     0.795 | About four fifths of queries put a full-credit note first |
+| Hit@3     |     0.949 | Most queries find a full-credit note in the top three     |
+| Hit@5     |     0.974 | Top-five retrieval is very high                           |
+| Recall@10 |     0.972 | Nearly all required evidence appears within ten results   |
+| AllRel@10 |     0.949 | Most multi-evidence queries retrieve every required note  |
+
+The hardest slices are `linked-neighborhood`, `quote-fragment`, and `disambiguation`. Low-scoring examples often retrieve the expected note lower in the result list, showing a ranking problem among closely related notes rather than a malformed judgment.
 
 ## Limitations
 
-This is still a curated search benchmark, not a complete model of every search someone would run over Andy's notes. It does not currently include cross-lingual queries because the fixture's purpose is real English-vault retrieval quality, not multilingual embedding evaluation. Some judgments are necessarily opinionated because many notes in the vault are deliberately adjacent; the `notes` field on each query records the intended distinction.
+This curated benchmark does not model every search someone might run over Andy's notes. It intentionally focuses on English retrieval and does not include cross-lingual queries. Some judgments remain subjective because many evergreen notes are deliberately adjacent, so each query's `notes` field records the intended distinction.

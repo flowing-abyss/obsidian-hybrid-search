@@ -1,280 +1,199 @@
-# Eval System
+# Evaluation
 
-Runs a golden set of queries against an indexed vault and computes nDCG, MRR, Hit@k, Recall@k.
+The eval system runs a golden set of queries against an indexed vault and measures retrieval and ranking quality.
 
 ## Quick start
 
+The default command uses the local embedding model, the Obsidian Help fixture, and `k=10`.
+
 ```bash
-# Shortest form — all defaults apply (local model, obsidian-help vault, auto-named output)
 npm run eval
-
-# Specify vault only (golden set and output are inferred)
-npm run eval -- --vault fixtures/obsidian-help/dataset
-
-# Full form — explicit control over every parameter
-npm run eval -- \
-  --vault fixtures/obsidian-help/dataset \
-  --golden-set fixtures/obsidian-help/golden-set.json \
-  --output eval/results/baseline.json \
-  --k 10
-
-# A/B comparison
-npm run eval:compare -- eval/results/baseline.json eval/results/after-change.json
 ```
 
-Defaults: `--vault fixtures/obsidian-help/dataset`, `--golden-set fixtures/obsidian-help/golden-set.json`, `--k 10`.
-Output filename is auto-generated as `eval/results/<date>_<vault>_<model>.json` when `--output` is omitted.
+Pass explicit paths when running another fixture or golden set.
 
-## Fixture Packages
+```bash
+npm run eval -- \
+  --vault /path/to/vault \
+  --golden-set /path/to/golden-set.json \
+  --output eval/results/my-run.json \
+  --k 10
+```
 
-Dataset-specific acquisition and generation instructions live next to each fixture under `fixtures/<name>/README.md`. The eval system only needs two paths: `--vault` for the markdown vault root and `--golden-set` for the query/relevance JSON.
+Add `--rerank` to rerank the retrieved candidates with the configured cross-encoder.
 
-Each fixture README owns its dataset-specific acquisition steps, categories,
-judgment rules, and interpretation notes. The eval runner treats `category` as a
-grouping key and reports the same metrics in `by_category` for every dataset.
+When `--output` is omitted, the result is saved under `eval/results/` with the date, vault, and model in its filename.
 
-Available fixture packages:
+## Command options
 
-| Fixture           | Purpose                                                                |
-| ----------------- | ---------------------------------------------------------------------- |
-| `obsidian-help`   | Product-documentation search over the official English Obsidian Help   |
-| `evergreen-notes` | Real personal-knowledge-base search over Andy Matuschak's public notes |
-| `longmemeval-s`   | Scoped memory retrieval over a large generated Obsidian-style vault    |
+| Option         | Default                                  | Purpose                          |
+| -------------- | ---------------------------------------- | -------------------------------- |
+| `--vault`      | `fixtures/obsidian-help/dataset`         | Vault to index and search        |
+| `--golden-set` | `fixtures/obsidian-help/golden-set.json` | Query and relevance judgments    |
+| `--output`     | Generated filename in `eval/results/`    | Result JSON path                 |
+| `--k`          | `10`                                     | Result depth used for evaluation |
+| `--rerank`     | Disabled                                 | Apply cross-encoder reranking    |
 
-## Configuration
+## Embedding configuration
 
-The eval script inherits the same env vars as the main server.
-Set them before running `npm run eval`.
+The eval uses the same embedding configuration as the CLI and MCP server.
 
-### Local model (default, no API key needed)
+### Local model
+
+No API credentials are needed for the default local model.
 
 ```bash
 unset OPENAI_API_KEY
-npm run eval -- --vault fixtures/obsidian-help/dataset
+unset OPENAI_BASE_URL
+unset OPENAI_EMBEDDING_MODEL
+unset LOCAL_EMBEDDING_MODEL
+npm run eval
 ```
 
-Uses `Xenova/multilingual-e5-small` (~117 MB, cached in `~/.cache/` after first download).
+The default model is `Xenova/multilingual-e5-small`. It downloads on first use and is cached in `~/.cache/huggingface/`.
 
-### OpenAI
+Set `LOCAL_EMBEDDING_MODEL` to use another model supported by `@huggingface/transformers`.
+
+### OpenAI-compatible provider
+
+Use `OPENAI_API_KEY` for OpenAI or another authenticated provider.
 
 ```bash
-export OPENAI_API_KEY=sk-...
-export EMBEDDING_MODEL=text-embedding-3-small   # or text-embedding-3-large
-npm run eval -- --vault fixtures/obsidian-help/dataset
+export OPENAI_API_KEY="sk-..."
+export OPENAI_EMBEDDING_MODEL="text-embedding-3-small"
+npm run eval
 ```
 
-### OpenRouter
+Set `OPENAI_BASE_URL` when the provider does not use the OpenAI endpoint.
 
 ```bash
-export OPENAI_API_KEY=sk-or-...
-export OPENAI_BASE_URL=https://openrouter.ai/api/v1
-export EMBEDDING_MODEL=openai/text-embedding-3-small
-npm run eval -- --vault fixtures/obsidian-help/dataset
+export OPENAI_API_KEY="sk-or-..."
+export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+export OPENAI_EMBEDDING_MODEL="openai/text-embedding-3-small"
+npm run eval
 ```
 
-### Ollama (local server)
+Local OpenAI-compatible servers can work without a real API key.
 
 ```bash
-export OPENAI_BASE_URL=http://localhost:11434/v1
-export OPENAI_API_KEY=ollama
-export EMBEDDING_MODEL=nomic-embed-text
-npm run eval -- --vault fixtures/obsidian-help/dataset
+export OPENAI_BASE_URL="http://localhost:11434/v1"
+export OPENAI_EMBEDDING_MODEL="nomic-embed-text"
+npm run eval
 ```
 
-### Important: model change wipes the DB
+Changing the embedding model invalidates the existing vector index because models can use different dimensions. The next eval rebuilds the index before searching.
 
-Each vault gets its own SQLite DB file inside the vault directory.
-If you change `EMBEDDING_MODEL`, the DB is automatically wiped and re-indexed from scratch
-(dimensions differ between models — the old vectors are incompatible).
-
-To compare results across models fairly, use separate `--output` files:
-
-```bash
-EMBEDDING_MODEL=text-embedding-3-small npm run eval -- \
-  --output eval/results/openai-small-$(date +%Y%m%d).json
-
-unset OPENAI_API_KEY && npm run eval -- \
-  --output eval/results/local-$(date +%Y%m%d).json
-
-npm run eval:compare -- \
-  eval/results/local-*.json \
-  eval/results/openai-small-*.json
-```
-
-## Metrics explained
-
-Each metric captures a different aspect of search quality. Use them together — no single number tells the full story.
-
-### nDCG@k — Normalized Discounted Cumulative Gain
-
-**What it measures:** ranking quality — does the most relevant result appear near the top?
-
-Higher rank position = smaller contribution (logarithmic discount). A relevant result at position 1 is worth much more than the same result at position 5.
-
-```
-DCG@k  = Σ rel_i / log2(i + 2)    (i is 0-based)
-nDCG@k = DCG@k / idealDCG@k       (normalized to 0–1)
-```
-
-Relevance scores: `relevant_paths` → 1.0, `partial_paths` → 0.5.
-
-- **nDCG@5**: primary metric — measures the top 5 results the user actually sees
-- **nDCG@10**: secondary — penalizes results that are present but buried
-
-Interpretation: 0.9+ is excellent, 0.7+ is good, below 0.5 is poor.
-
-### MRR — Mean Reciprocal Rank
-
-**What it measures:** where the _first_ relevant result appears, averaged across queries.
-
-```
-MRR = mean(1 / rank_of_first_relevant_result)
-```
-
-- MRR=1.0 → relevant result is always #1
-- MRR=0.5 → relevant result is on average at position 2
-- MRR=0.0 → no relevant result found in any query
-
-Use when the user is likely to click the first result and stop. More sensitive to the top-1 position than nDCG.
-
-### Hit@k
-
-**What it measures:** binary — is there _any_ relevant result in the top k?
-
-```
-Hit@k = fraction of queries where at least one relevant doc is in top k
-```
-
-- Hit@1 = 0.65 → 65% of queries have the right answer as the #1 result
-- Hit@3 = 0.85 → 85% of queries have the right answer somewhere in top 3
-- Hit@5 = 0.85 → same as Hit@3 here — top-4 and top-5 added nothing
-
-Reading the gap: if Hit@3 >> Hit@1, the right result is often at position 2–3 (ranking issue).
-If Hit@5 == Hit@3, nothing useful appears at positions 4–5.
-
-### Recall@k
-
-**What it measures:** what fraction of _all_ relevant documents are found in the top k.
-
-```
-Recall@k = |relevant ∩ top_k| / |relevant|
-```
-
-Recall@10=1.0 means every relevant document was retrieved somewhere in the top 10 — the engine _has_ the answer, it just might not be ranking it high enough.
-
-Useful for diagnosing retrieval vs. ranking problems:
-
-- High Recall@10 + low nDCG@5 → retrieval works, ranking is the problem
-- Low Recall@10 → the relevant document is not being retrieved at all (indexing or embedding issue)
-
-### Evidence Coverage and AllRel@k
-
-`evidence_coverage_k` is the per-query Recall@k value stored under a more
-diagnostic name. It is useful for datasets where one answer can require multiple
-evidence notes or sessions.
-
-`AllRel@k` is the fraction of queries where every `relevant_paths` entry appears
-within the top k. It is stricter than Hit@k and more useful for multi-evidence
-questions.
-
----
-
-## Metric benchmarks
-
-Primary metric: **nDCG@5** and **nDCG@10**.
-
-| Configuration            | nDCG      | Notes          |
-| ------------------------ | --------- | -------------- |
-| BM25-only                | 0.45–0.55 | starting point |
-| Hybrid (BM25 + semantic) | 0.58–0.65 | good result    |
-| Hybrid + cross-encoder   | 0.65–0.72 | target         |
-
-## Measured baseline
-
-Vault: `fixtures/obsidian-help/dataset` (171 notes)
-Model: `Xenova/multilingual-e5-small` (local, no API)
-Golden set: `fixtures/obsidian-help/golden-set.json` (58 queries)
-
-| Metric    | Value     | Interpretation                                                              |
-| --------- | --------- | --------------------------------------------------------------------------- |
-| nDCG@5    | **0.733** | keyword=0.866 / conceptual=0.388 / multilingual=0.415 / syntax=0.770        |
-| nDCG@10   | 0.763     | most relevant docs present somewhere in top 10                              |
-| MRR       | 0.788     | right answer is typically at position 1–2                                   |
-| Hit@1     | 0.724     | 72% of queries return the right doc as #1                                   |
-| Hit@3     | 0.828     | 83% of queries have the right doc in top 3 — gap from Hit@1 = ranking issue |
-| Hit@5     | 0.862     | positions 4–5 add a few new relevant results                                |
-| Recall@10 | 0.914     | most relevant docs are retrieved; ranking is the limiting factor            |
-
-nDCG@5=0.733 falls above the "good hybrid" range (0.58–0.65).
-Weak spot: **conceptual queries** (0.388) — paraphrased queries with no keyword overlap with the target file.
-
-### With rerank (`--rerank`)
-
-| Metric    | Value     | Interpretation                                                           |
-| --------- | --------- | ------------------------------------------------------------------------ |
-| nDCG@5    | **0.736** | slight improvement over no-rerank; reranker reorders top candidates      |
-| nDCG@10   | 0.766     | marginal gain in deeper positions                                        |
-| MRR       | 0.780     | comparable to no-rerank (reranker sometimes demotes exact alias matches) |
-| Hit@1     | 0.672     | slightly lower than no-rerank; trade-off for better top-3/5 coverage     |
-| Hit@3     | 0.862     | improved over no-rerank — reranker surfaces hidden relevant docs         |
-| Hit@5     | 0.914     | best-in-class coverage for this vault                                    |
-| Recall@10 | 0.966     | near-perfect retrieval when reranker is active                           |
-
-## Speed benchmark
-
-Speed tooling is documented in [SPEED.md](SPEED.md).
-
-- `npm run eval:speed` measures end-to-end CLI wall time.
-- `npm run eval:speed-profile` profiles one search pipeline run set by stage using `--vault` and `--golden-set`.
-
-See [COMPARISON.md](COMPARISON.md) for full OHS vs qmd reproduction instructions.
-
-## File layout
-
-```
-eval/
-├── metrics.ts                  # ndcg(), mrr(), hitAtK(), recallAtK()
-├── evaluate.ts                 # index vault + run golden set → JSON
-├── evaluate-qmd.ts             # same golden set against qmd CLI
-├── benchmark-speed.ts          # median query latency: OHS vs qmd
-├── speed-profile.ts            # detailed per-stage search latency profiler
-├── compare.ts                  # read two JSONs → delta table
-├── COMPARISON.md               # how to reproduce the OHS vs qmd comparison
-├── SPEED.md                    # speed benchmark and profiler usage
-├── golden-sets/
-│   └── personal.json           # your own golden set (gitignored)
-└── results/
-    └── *.json                  # gitignored, created locally
-```
+Use a separate output file for every model or configuration you compare.
 
 ## Golden set format
 
+A golden set is a JSON array. Each entry describes one query and the notes expected in the results.
+
 ```json
-{
-  "id": "q001",
-  "query": "how to create internal links",
-  "relevant_paths": ["Linking notes and files/Internal links.md"],
-  "partial_paths": ["Getting started/Link notes.md"],
-  "category": "keyword",
-  "notes": "core feature, exact terminology match"
-}
+[
+  {
+    "id": "q001",
+    "query": "how to create internal links",
+    "relevant_paths": ["Linking notes and files/Internal links.md"],
+    "partial_paths": ["Getting started/Link notes.md"],
+    "category": "keyword",
+    "notes": "Core feature with an exact terminology match"
+  }
+]
 ```
 
-Categories: `keyword`, `conceptual`, `multilingual`, `syntax`.
-Paths are relative to the vault root.
+| Field            | Purpose                                           |
+| ---------------- | ------------------------------------------------- |
+| `id`             | Stable query identifier                           |
+| `query`          | Text sent to hybrid search                        |
+| `relevant_paths` | Full-credit notes that answer the query           |
+| `partial_paths`  | Supporting notes that receive partial nDCG credit |
+| `category`       | Dataset-specific group used in `by_category`      |
+| `notes`          | Optional judgment context                         |
+| `scope`          | Optional vault path restriction for the query     |
 
-## Reading compare output
+Paths are relative to the vault root. `relevant_paths` receive relevance score `1.0`, while `partial_paths` receive `0.5` for nDCG. The other retrieval metrics use only `relevant_paths`.
 
+## Metrics
+
+No single metric describes search quality on its own. Read ranking and retrieval metrics together.
+
+### nDCG@k
+
+Normalized Discounted Cumulative Gain measures the order of relevant results. A relevant note contributes more when it appears near the top.
+
+```text
+DCG@k  = sum(relevance at rank i / log2(i + 2))
+nDCG@k = DCG@k / ideal DCG@k
 ```
-Metric     Baseline   After      Delta
-nDCG@5     0.603      0.648      +0.045  ✓   ← improvement ≥0.01 is marked ✓
-MRR        0.688      0.650      -0.038      ← regression
+
+Use `nDCG@5` for the first results a user is likely to inspect. Use `nDCG@k` to evaluate the full result window.
+
+### MRR
+
+Mean Reciprocal Rank measures the position of the first relevant note.
+
+```text
+MRR = mean(1 / rank of first relevant result)
 ```
 
-`|delta| ≥ 0.01` is considered meaningful at 58 queries.
-For statistically confident conclusions you need 50+ queries.
+High MRR means the first useful result usually appears near the top.
+
+### Hit@k
+
+Hit@k is the fraction of queries with at least one relevant note in the first `k` results. Compare Hit@1, Hit@3, and Hit@5 to see how often the first useful result is buried.
+
+### Recall@k
+
+Recall@k measures how many required notes appear in the first `k` results.
+
+```text
+Recall@k = relevant notes in top k / all relevant notes
+```
+
+High recall with low nDCG usually means retrieval works but ranking needs improvement.
+
+### Evidence coverage and AllRel@k
+
+`evidence_coverage_k` stores the per-query Recall@k value under a diagnostic name. `AllRel@k` is the fraction of queries where every required note appears in the first `k` results.
+
+These metrics are especially useful when one answer depends on several notes.
+
+## Result structure
+
+Every eval result contains three levels of detail.
+
+| Field         | Contents                                                            |
+| ------------- | ------------------------------------------------------------------- |
+| `meta`        | Vault, model, reranking, result depth, and index statistics         |
+| `summary`     | Aggregate metrics for the complete golden set                       |
+| `by_category` | The same metrics grouped by query category                          |
+| `per_query`   | Expected paths, returned paths, missed paths, and per-query metrics |
+
+Start with `summary`, use `by_category` to locate a weak query group, then inspect the corresponding rows in `per_query`.
+
+## Compare results
+
+Run the same golden set before and after a search change, saving each result separately.
+
+```bash
+npm run eval:compare -- \
+  eval/results/before-change.json \
+  eval/results/after-change.json
+```
+
+The comparison reports both values and their delta. A change of at least `0.01` is highlighted, but the number of queries and the affected categories still determine whether the result is meaningful.
+
+## Specialized workflows
+
+[Speed benchmarks](SPEED.md) cover CLI wall time and in-process profiling. The [OHS and qmd comparison](COMPARISON.md) contains the complete cross-tool reproduction procedure.
 
 ## Personal golden set
 
-Create `eval/golden-sets/personal.json` in the same format using queries from your
-real usage. The file is gitignored and will not be committed.
+For private evaluation, create a gitignored golden set with queries from real vault usage and pass its path explicitly.
+
+```bash
+npm run eval -- \
+  --vault /path/to/vault \
+  --golden-set eval/golden-sets/personal.json
+```

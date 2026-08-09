@@ -1,29 +1,31 @@
-# Obsidian Help Fixture
+# Obsidian Help fixture
 
-This fixture uses the English Obsidian Help vault from the official
-`obsidianmd/obsidian-help` documentation repository.
+This fixture evaluates search over the English documentation from the official [Obsidian Help repository](https://github.com/obsidianmd/obsidian-help). It covers exact product terms, conceptual questions, multilingual queries, and Obsidian syntax.
 
-## Layout
+## Files
 
 ```text
 fixtures/obsidian-help/
   README.md
-  dataset/          # generated, ignored
-  golden-set.json
+  dataset/          # generated and ignored
+  golden-set.json   # tracked benchmark contract
 ```
 
-## Prepare Dataset
+The generated vault contains only the English documentation so paths remain stable and comparable between runs.
+
+## Prepare the dataset
 
 ```bash
 npm run eval:prepare-obsidian-help
 ```
 
-The command clones the official `obsidianmd/obsidian-help` repository into a
-temporary directory, copies only `en/` into `fixtures/obsidian-help/dataset`,
-and leaves `golden-set.json` unchanged. Use `--force` to recreate an existing
-dataset.
+The command clones the official repository into a temporary directory and copies its `en/` directory into `dataset/`. Existing Markdown files are preserved unless you pass `--force`.
 
-## Run Eval
+```bash
+npm run eval:prepare-obsidian-help -- --force
+```
+
+## Run the eval
 
 ```bash
 npm run eval -- \
@@ -32,17 +34,9 @@ npm run eval -- \
   --k 10
 ```
 
-The fixture intentionally keeps only the English help vault. Other language
-copies were removed to keep the repository smaller and to make evaluation paths
-consistent with other fixture packages.
+## Reproduce the baseline
 
-## Reproduce Benchmark
-
-`dataset/` is generated from the official Obsidian Help repository and is
-ignored by git. `golden-set.json` is committed to this repository because it is
-the OHS query/relevance set.
-
-Run the default local-model quality eval:
+Prepare the fixture, unset embedding overrides, and write the two committed reference results.
 
 ```bash
 npm run eval:prepare-obsidian-help
@@ -51,67 +45,49 @@ env -u OPENAI_API_KEY -u OPENAI_BASE_URL -u OPENAI_EMBEDDING_MODEL -u LOCAL_EMBE
   npm run eval -- \
   --vault fixtures/obsidian-help/dataset \
   --golden-set fixtures/obsidian-help/golden-set.json \
-  --output eval/results/obsidian-help-local.json \
+  --output eval/results/baseline-no-rerank.json \
   --k 10
 ```
 
-The pre-push quality check also uses this fixture only:
+```bash
+env -u OPENAI_API_KEY -u OPENAI_BASE_URL -u OPENAI_EMBEDDING_MODEL -u LOCAL_EMBEDDING_MODEL \
+  npm run eval -- \
+  --vault fixtures/obsidian-help/dataset \
+  --golden-set fixtures/obsidian-help/golden-set.json \
+  --output eval/results/baseline-rerank.json \
+  --k 10 \
+  --rerank
+```
+
+The pre-push quality gate reproduces the local no-rerank configuration in a temporary result file.
 
 ```bash
 npm run eval:quality
 ```
 
-That command unsets remote embedding environment variables and runs the local
-model against the default eval paths. It also prepares
-`fixtures/obsidian-help/dataset` first if the dataset is missing.
+## Query categories
 
-## Categories
+- **`keyword`** uses terminology shared with the target page. Failures usually point to BM25, tokenization, paths, or indexing.
+- **`conceptual`** paraphrases the target page. Failures usually point to semantic retrieval or ranking.
+- **`multilingual`** asks a non-English question against the English vault. It measures cross-lingual embedding quality.
+- **`syntax`** targets Obsidian syntax or commands. Failures often mean an exact term was retrieved but ranked below broader results.
 
-`golden-set.json` uses hand-authored OHS categories:
+## Measured baseline
 
-- `keyword` — the query shares terminology with the target page; failures here
-  usually indicate BM25, tokenization, path, or indexing problems.
-- `conceptual` — the query paraphrases the target page; failures usually point
-  to semantic retrieval or ranking weakness.
-- `multilingual` — the query is not English while the vault is English; failures
-  measure cross-lingual embedding quality.
-- `syntax` — the query targets Obsidian-specific syntax or commands; failures
-  often mean exact terms are present but ranked below broader conceptual hits.
+Both committed runs use 171 notes, 58 queries, `k=10`, and the local `Xenova/multilingual-e5-small` model.
 
-## Metrics
+| Metric    | No rerank | With rerank |
+| --------- | --------: | ----------: |
+| nDCG@5    | **0.733** |   **0.736** |
+| nDCG@10   |     0.763 |       0.766 |
+| MRR       |     0.788 |       0.780 |
+| Hit@1     |     0.724 |       0.672 |
+| Hit@3     |     0.828 |       0.862 |
+| Hit@5     |     0.862 |       0.914 |
+| Recall@10 |     0.914 |       0.966 |
 
-The eval writes aggregate metrics, `by_category`, and `per_query` diagnostics.
-Use the same interpretation for every fixture:
+The no-rerank run has the stronger first result, while reranking improves top-five coverage and overall recall. Conceptual and multilingual queries remain the most difficult slices.
 
-- `nDCG@5` and `nDCG@k` measure ranking quality. A relevant page at rank 1 is
-  worth more than the same page at rank 5 or 10.
-- `MRR` measures the rank of the first relevant page. Low MRR with decent
-  Recall means the answer is present but not high enough.
-- `Hit@1`, `Hit@3`, and `Hit@5` measure whether at least one relevant page was
-  found in the top results.
-- `Recall@k` / `evidence_coverage_k` measure how many relevant pages were
-  retrieved within `k`.
-- `AllRel@k` measures the fraction of queries where every relevant page was
-  retrieved within `k`.
+## Limitations
 
-For this fixture, start diagnosis with `by_category`: weak `keyword` usually
-means basic retrieval broke; weak `conceptual` or `multilingual` means semantic
-ranking needs work. Then inspect `per_query[].missed_paths` and
-`per_query[].top_paths` to see the exact failed queries.
-
-## qmd Comparison
-
-The qmd comparison uses the same `dataset/` and `golden-set.json`:
-
-```bash
-qmd collection add fixtures/obsidian-help/dataset --name obsidian-help
-qmd embed
-
-npm run eval:qmd -- \
-  --vault fixtures/obsidian-help/dataset \
-  --golden-set fixtures/obsidian-help/golden-set.json \
-  --collection obsidian-help \
-  --output eval/results/qmd-baseline.json
-```
-
-See `eval/COMPARISON.md` for the full OHS vs qmd reproduction guide.
+The fixture evaluates English product documentation, not a personal knowledge vault. Its 58 hand-authored queries are useful for regression testing but do not represent every way someone might search Obsidian Help.

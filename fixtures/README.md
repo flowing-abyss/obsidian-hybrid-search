@@ -1,6 +1,18 @@
-# Fixture Datasets
+# Fixture datasets
 
-Each fixture dataset should be packaged as a small self-describing directory:
+Fixtures provide reproducible vaults and golden sets for evaluating different search workloads.
+
+## Available fixtures
+
+| Fixture                                      | Purpose                                                                            |
+| -------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [Obsidian Help](obsidian-help/README.md)     | Product documentation with lexical, conceptual, multilingual, and syntax queries   |
+| [Evergreen Notes](evergreen-notes/README.md) | A dense public knowledge vault with related concepts and ambiguous note boundaries |
+| [LongMemEval-S](longmemeval-s/README.md)     | Large scoped retrieval over generated conversational memory                        |
+
+## Package structure
+
+Each fixture uses the same basic layout.
 
 ```text
 fixtures/<fixture-name>/
@@ -9,36 +21,22 @@ fixtures/<fixture-name>/
   golden-set.json
 ```
 
-`dataset/` is the vault root passed to `npm run eval -- --vault`.
-`golden-set.json` is the query/relevance file passed to
-`npm run eval -- --golden-set`.
+`dataset/` is the vault passed to `npm run eval -- --vault`. `golden-set.json` contains the queries and relevance judgments passed through `--golden-set`.
 
-For small fixtures, `dataset/` may be committed. For large or externally sourced
-fixtures, keep `dataset/` generated and ignored, but commit `golden-set.json`
-when it defines the benchmark contract. The README must explain:
+Generated or externally sourced datasets stay ignored by Git. The golden set remains tracked when it defines the benchmark contract.
 
-- where the source data comes from
-- how to generate or download `dataset/`
-- how to generate `golden-set.json`
-- the exact `npm run eval` command
-- whether the result is an internal OHS retrieval eval or an external benchmark
-  submission
+## README structure
 
-Current layouts:
+Each fixture README follows the same order when a section applies.
 
-- `fixtures/obsidian-help/` generates `dataset/` from the official Obsidian Help
-  repository with `npm run eval:prepare-obsidian-help` and keeps
-  `golden-set.json` committed.
-- `fixtures/longmemeval-s/` uses the package layout above. Its generated
-  `dataset/` is prepared with `npm run eval:prepare-longmemeval-s` and ignored
-  by git; `golden-set.json` is committed so forks can run the same retrieval
-  eval without regenerating the benchmark contract.
+1. Overview
+2. Files
+3. Prepare the dataset
+4. Run the eval
+5. Reproduce the baseline
+6. Query categories
+7. Measured baseline
+8. Diagnostics
+9. Limitations
 
-Each fixture README should follow the same structure:
-
-- `Layout`
-- `Prepare Dataset`
-- `Run Eval`
-- `Reproduce Benchmark`
-- `Categories`
-- `Metrics`
+Fixture-specific preparation, interpretation, and cost guidance belong beside that fixture. Shared eval behavior and metric definitions belong in the [eval guide](../eval/README.md).
