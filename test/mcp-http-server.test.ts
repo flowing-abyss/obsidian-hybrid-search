@@ -145,6 +145,20 @@ describe('runHttpMcpServer', () => {
     assert.equal(sessionId, null);
   });
 
+  it('answers non-POST requests on /mcp with 405 and an Allow header', async () => {
+    vaultDir = createTempVault();
+    server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
+    const url = server.url;
+
+    for (const method of ['GET', 'DELETE'] as const) {
+      const res = await fetch(url, { method, headers: mcpHeaders() });
+
+      assert.equal(res.status, 405, `${method} /mcp should not be allowed`);
+      assert.equal(res.headers.get('allow'), 'POST');
+      await res.text();
+    }
+  });
+
   it('accepts a stale session header after the HTTP server restarts', async () => {
     vaultDir = createTempVault();
     server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
@@ -353,7 +367,7 @@ function requestHealthWithHost(url: string, hostHeader: string): Promise<number>
 async function callTool(url: string, name: string, args: Record<string, unknown>): Promise<string> {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { ...mcpHeaders(), 'mcp-session-id': 'stale-session-header' },
+    headers: mcpHeaders(),
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: 2,

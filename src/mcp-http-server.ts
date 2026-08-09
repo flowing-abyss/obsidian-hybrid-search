@@ -62,7 +62,9 @@ export async function runHttpMcpServer(
     }
 
     if (req.method !== 'POST') {
-      writeJson(res, 405, { error: 'method not allowed' });
+      // Stateless Streamable HTTP only answers POST: there is no SSE stream to
+      // GET and no session to DELETE. RFC 9110 requires Allow on every 405.
+      writeJson(res, 405, { error: 'method not allowed' }, { allow: 'POST' });
       return;
     }
 
@@ -146,9 +148,14 @@ function closeNodeServer(server: NodeHttpServer): Promise<void> {
   });
 }
 
-function writeJson(res: ServerResponse, status: number, body: unknown): void {
+function writeJson(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  extraHeaders: Record<string, string> = {},
+): void {
   if (res.headersSent) return;
-  res.writeHead(status, { 'content-type': 'application/json' });
+  res.writeHead(status, { 'content-type': 'application/json', ...extraHeaders });
   res.end(JSON.stringify(body));
 }
 
