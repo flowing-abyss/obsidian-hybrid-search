@@ -455,8 +455,19 @@ async function fetchUpdateStatus(): Promise<
   }
 }
 
+/**
+ * Name the CLI was invoked as, so help and usage match the binary the user typed.
+ * Falls back to the canonical name for anything else (`tsx src/cli.ts`, custom symlinks).
+ */
+function invokedName(): string {
+  const entry = process.argv[1];
+  if (!entry) return 'obsidian-hybrid-search';
+  const base = path.basename(entry).replace(/\.[cm]?[jt]s$/, '');
+  return base === 'ohs' ? 'ohs' : 'obsidian-hybrid-search';
+}
+
 const program = new Command()
-  .name('obsidian-hybrid-search')
+  .name(invokedName())
   .description('Hybrid search for your Obsidian vault')
   .version(version)
   .option(

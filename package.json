@@ -5,6 +5,7 @@
   "type": "module",
   "bin": {
     "obsidian-hybrid-search": "./dist/src/cli.js",
+    "ohs": "./dist/src/cli.js",
     "obsidian-hybrid-search-mcp": "./dist/src/server.js"
   },
   "scripts": {

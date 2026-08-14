@@ -135,13 +135,13 @@ export OBSIDIAN_VAULT_PATH="/path/to/your/vault"
 Open a new terminal and index the vault once.
 
 ```bash
-obsidian-hybrid-search reindex
+ohs reindex
 ```
 
 You can now search from any directory.
 
 ```bash
-obsidian-hybrid-search "zettelkasten"
+ohs "zettelkasten"
 ```
 
 ### Run from a vault
@@ -150,8 +150,8 @@ Alternatively, run the CLI without an environment variable from any directory in
 
 ```bash
 cd /path/to/your/vault
-obsidian-hybrid-search reindex
-obsidian-hybrid-search "zettelkasten"
+ohs reindex
+ohs "zettelkasten"
 ```
 
 From outside the vault, set `OBSIDIAN_VAULT_PATH` or pass `--db /path/to/vault/.obsidian-hybrid-search.db` explicitly.
@@ -180,131 +180,131 @@ The CLI supports four search modes called `hybrid`, `fulltext`, `semantic`, and 
 
 ```bash
 # Hybrid search (default)
-obsidian-hybrid-search "zettelkasten atomic notes"
+ohs "zettelkasten atomic notes"
 
 # Fulltext BM25 search
-obsidian-hybrid-search "permanent notes" --mode fulltext
+ohs "permanent notes" --mode fulltext
 
 # Fuzzy title search (fast, typo-tolerant)
-obsidian-hybrid-search "zettleksten" --mode title
+ohs "zettleksten" --mode title
 
 # Semantic / vector search
-obsidian-hybrid-search "how to build a knowledge graph" --mode semantic
+ohs "how to build a knowledge graph" --mode semantic
 
 # Limit results and set a score threshold
-obsidian-hybrid-search "productivity systems" --limit 5 --threshold 0.3
+ohs "productivity systems" --limit 5 --threshold 0.3
 
 # Restrict to a subfolder
-obsidian-hybrid-search "daily review" --scope notes/periodic/
-obsidian-hybrid-search "daily review" --folder notes/periodic/    # alias for --scope
+ohs "daily review" --scope notes/periodic/
+ohs "daily review" --folder notes/periodic/    # alias for --scope
 
 # Restrict to multiple subfolders (OR)
-obsidian-hybrid-search "productivity" --scope notes/pkm/ --scope notes/2024/
+ohs "productivity" --scope notes/pkm/ --scope notes/2024/
 
 # Exclude a subfolder
-obsidian-hybrid-search "programming" --scope notes/ --scope -notes/archive/
+ohs "programming" --scope notes/ --scope -notes/archive/
 
 # Filter by tag
-obsidian-hybrid-search "productivity" --tag pkm
-obsidian-hybrid-search "machine learning" --tag note/basic/primary
+ohs "productivity" --tag pkm
+ohs "machine learning" --tag note/basic/primary
 
 # Filter by multiple tags (AND include, exclude with -)
-obsidian-hybrid-search "learning" --tag pkm --tag work
+ohs "learning" --tag pkm --tag work
 
 # Filter by frontmatter / properties (exact match, case-insensitive)
-obsidian-hybrid-search "notes" --frontmatter status:todo
-obsidian-hybrid-search "notes" --prop priority:high          # --prop is alias for --frontmatter
+ohs "notes" --frontmatter status:todo
+ohs "notes" --prop priority:high          # --prop is alias for --frontmatter
 
 # Filter by multiple frontmatter fields (AND)
-obsidian-hybrid-search "notes" --frontmatter status:todo --frontmatter priority:high
+ohs "notes" --frontmatter status:todo --frontmatter priority:high
 
 # Exclude by frontmatter value
-obsidian-hybrid-search "notes" --frontmatter -status:done
+ohs "notes" --frontmatter -status:done
 
 # Filter-only mode: no query, just filters (returns all matching notes sorted by title)
-obsidian-hybrid-search --frontmatter status:todo
-obsidian-hybrid-search --folder notes/2024/
-obsidian-hybrid-search --tag pkm
-obsidian-hybrid-search --frontmatter status:done --tag archived
+ohs --frontmatter status:todo
+ohs --folder notes/2024/
+ohs --tag pkm
+ohs --frontmatter status:done --tag archived
 
 # Unlimited results in filter-only mode (default limit is 10)
-obsidian-hybrid-search --folder notes/ --limit 0
+ohs --folder notes/ --limit 0
 
 # Find semantically similar notes
-obsidian-hybrid-search --path notes/pkm/zettelkasten.md
+ohs --path notes/pkm/zettelkasten.md
 
 # Graph traversal: show notes linked to/from this note
 # Results show depth: -1/-2 = backlinks, 0 = source, +1/+2 = outgoing links
-obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related
-obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --depth 2
+ohs --path notes/pkm/zettelkasten.md --related
+ohs --path notes/pkm/zettelkasten.md --related --depth 2
 
 # Only outgoing links (what this note references)
-obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --direction outgoing
+ohs --path notes/pkm/zettelkasten.md --related --direction outgoing
 
 # Only backlinks (who references this note)
-obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --direction backlinks
+ohs --path notes/pkm/zettelkasten.md --related --direction backlinks
 
 # Traverse standard Markdown note links instead of Obsidian wikilinks
-obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --link-type markdown
+ohs --path notes/pkm/zettelkasten.md --related --link-type markdown
 
 # Traverse both wikilinks and standard Markdown note links
-obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --link-type all
+ohs --path notes/pkm/zettelkasten.md --related --link-type all
 
 # Longer context around each link
-obsidian-hybrid-search --path notes/pkm/zettelkasten.md --related --snippet-length 500
+ohs --path notes/pkm/zettelkasten.md --related --snippet-length 500
 
 # Rerank results with a cross-encoder model (improves precision, ~1-3s extra latency)
 # Downloads bge-reranker-v2-m3 ONNX (~570 MB) on first use, cached in ~/.cache/huggingface/
-obsidian-hybrid-search "zettelkasten atomic notes" --rerank
+ohs "zettelkasten atomic notes" --rerank
 
 # Show tags and aliases alongside results
-obsidian-hybrid-search "zettelkasten" --extended
+ohs "zettelkasten" --extended
 
 # JSON output (for scripting)
-obsidian-hybrid-search "spaced repetition" --json
+ohs "spaced repetition" --json
 
 # Output only paths (one per line) — useful for piping into read
-obsidian-hybrid-search --frontmatter id:OHS-4 --only-paths
+ohs --frontmatter id:OHS-4 --only-paths
 ohs read ${(f)"$(ohs search --frontmatter status:todo --only-paths)"}  # zsh: read all matching notes
 
 # Output absolute filesystem paths
-obsidian-hybrid-search "zettelkasten" --only-absolute-paths
+ohs "zettelkasten" --only-absolute-paths
 
 # Open results in Obsidian (each in a new tab)
-obsidian-hybrid-search "zettelkasten" --open
+ohs "zettelkasten" --open
 
 # Reindex the vault
-obsidian-hybrid-search reindex
+ohs reindex
 
 # Force full reindex
-obsidian-hybrid-search reindex --force
+ohs reindex --force
 
 # Reindex a single file
-obsidian-hybrid-search reindex notes/pkm/zettelkasten.md
+ohs reindex notes/pkm/zettelkasten.md
 
 # Show indexing status
-obsidian-hybrid-search status
+ohs status
 
 # Show recent indexing activity
-obsidian-hybrid-search status --recent
+ohs status --recent
 
 # Show chunks that failed to embed
-obsidian-hybrid-search status --errors
+ohs status --errors
 
 # Read a note by path (outputs body content without frontmatter)
-obsidian-hybrid-search read notes/pkm/zettelkasten.md
+ohs read notes/pkm/zettelkasten.md
 
 # Read raw file from vault (with frontmatter, like cat)
-obsidian-hybrid-search read notes/pkm/zettelkasten.md --raw
+ohs read notes/pkm/zettelkasten.md --raw
 
 # Read multiple notes (separator between each)
-obsidian-hybrid-search read notes/pkm/zettelkasten.md notes/pkm/evergreen-notes.md
+ohs read notes/pkm/zettelkasten.md notes/pkm/evergreen-notes.md
 
 # Cap content length
-obsidian-hybrid-search read notes/pkm/zettelkasten.md --snippet-length 2000
+ohs read notes/pkm/zettelkasten.md --snippet-length 2000
 
 # Structured output with all metadata
-obsidian-hybrid-search read notes/pkm/zettelkasten.md --json
+ohs read notes/pkm/zettelkasten.md --json
 ```
 
 ### Shell aliases
@@ -312,13 +312,12 @@ obsidian-hybrid-search read notes/pkm/zettelkasten.md --json
 Add to your `~/.zshrc` or `~/.bashrc` for quick access:
 
 ```bash
-alias ohs='obsidian-hybrid-search'
-alias ohss='obsidian-hybrid-search --mode semantic'
-alias ohst='obsidian-hybrid-search --mode title'
-alias ohsf='obsidian-hybrid-search --mode fulltext'
-alias ohsr='obsidian-hybrid-search read'
-alias ohsi='obsidian-hybrid-search reindex'
-alias ohsst='obsidian-hybrid-search status'
+alias ohss='ohs --mode semantic'
+alias ohst='ohs --mode title'
+alias ohsf='ohs --mode fulltext'
+alias ohsr='ohs read'
+alias ohsi='ohs reindex'
+alias ohsst='ohs status'
 ```
 
 Then reload (`source ~/.zshrc`) and use:
@@ -431,7 +430,7 @@ Use this when multiple MCP clients should share one long-lived search/indexing p
 Start or reuse the background server:
 
 ```bash
-OBSIDIAN_VAULT_PATH="/path/to/your/vault" obsidian-hybrid-search serve
+OBSIDIAN_VAULT_PATH="/path/to/your/vault" ohs serve
 ```
 
 `serve` starts the MCP server over HTTP by default; `serve --http` is the explicit equivalent. The command prints the server URL, PID, log path, and a client config snippet. The default bind address is `127.0.0.1:3939`.
@@ -451,10 +450,10 @@ Then add this to a URL-based MCP client config (`.mcp.json`, `claude_desktop_con
 Manage the server:
 
 ```bash
-obsidian-hybrid-search serve status
-obsidian-hybrid-search serve stop
-obsidian-hybrid-search serve --foreground
-obsidian-hybrid-search serve --http --foreground
+ohs serve status
+ohs serve stop
+ohs serve --foreground
+ohs serve --http --foreground
 ```
 
 HTTP mode uses stateless MCP Streamable HTTP. It does not issue or validate `Mcp-Session-Id`, so an MCP client can continue making tool calls after the daemon restarts even if it still sends a stale session header. This mode is intended for the server's request/response tools and does not provide persistent SSE streams, server-initiated notifications, or SSE resume.
@@ -464,7 +463,7 @@ If port 3939 is already in use, the command exits with an error instead of choos
 When binding beyond localhost, allow every hostname or address that MCP clients will use.
 
 ```bash
-obsidian-hybrid-search serve \
+ohs serve \
   --host 0.0.0.0 \
   --allowed-host 192.168.1.20:3939 \
   --allowed-host notes.example.com:3939
