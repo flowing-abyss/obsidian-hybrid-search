@@ -50,9 +50,25 @@ import { handleStdioLine } from './stdio-server.js';
 
 const execAsync = promisify(exec);
 
-const { version } = JSON.parse(
-  readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf-8'),
-) as { version: string };
+/**
+ * Read the package version from the nearest package.json above this module.
+ * The depth differs between the compiled layout (dist/src/) and running the
+ * sources directly (src/), so the file is located rather than assumed.
+ */
+function readPackageVersion(): string {
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  while (true) {
+    const candidate = path.join(dir, 'package.json');
+    if (existsSync(candidate)) {
+      return (JSON.parse(readFileSync(candidate, 'utf-8')) as { version: string }).version;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) throw new Error('Could not locate package.json for the CLI version');
+    dir = parent;
+  }
+}
+
+const version = readPackageVersion();
 
 function failCliValidation(err: unknown): never {
   console.error('Error:', err instanceof Error ? err.message : String(err));
