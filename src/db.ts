@@ -1308,6 +1308,25 @@ export function getFailedChunks(limit = 100): FailedChunk[] {
 }
 
 /**
+ * Vault-relative paths of notes holding at least one chunk the provider rejected.
+ * Unlike getFailedChunks this is unbounded, because it drives a repair pass that
+ * must cover every affected note rather than a preview.
+ */
+export function getNotesWithFailedChunks(): string[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT n.path
+       FROM chunks c
+       JOIN notes n ON n.id = c.note_id
+       WHERE c.embedding_status = 'failed'
+       ORDER BY n.path`,
+    )
+    .all() as Array<{ path: string }>;
+  return rows.map((row) => row.path);
+}
+
+/**
  * Returns paths of notes that should be removed because they now match ignore patterns.
  * Stores new patterns in settings. Returns empty array if patterns unchanged.
  */

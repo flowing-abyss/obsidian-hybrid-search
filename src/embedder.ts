@@ -271,10 +271,27 @@ function isOllamaEndpoint(): boolean {
   return url.includes('11434') || url.includes('ollama');
 }
 
-// Use API mode when an API key is set OR when a custom base URL is configured
-// (e.g. Ollama, LM Studio, local OpenAI-compatible servers — no key required)
-function useApiMode(): boolean {
+/**
+ * Use API mode when an API key is set OR when a custom base URL is configured
+ * (e.g. Ollama, LM Studio, local OpenAI-compatible servers — no key required).
+ *
+ * Single source of truth: the same question is asked by the CLI and the mcp runtime
+ * when they name the active model, and three copies of it would drift.
+ */
+export function useRemoteEmbeddings(): boolean {
   return !!(config.apiKey || process.env.OPENAI_BASE_URL);
+}
+
+/**
+ * Model this process would embed with right now, which is not necessarily the model
+ * the index was built with — that one lives in the `embedding_model` setting.
+ */
+export function activeModelName(): string {
+  return useRemoteEmbeddings() ? config.apiModel : `local:${config.localModel}`;
+}
+
+function useApiMode(): boolean {
+  return useRemoteEmbeddings();
 }
 
 // E5 model family (intfloat/Xenova e5-*) uses asymmetric prefixes ("query:"/"passage:").

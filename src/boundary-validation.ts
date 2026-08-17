@@ -59,6 +59,11 @@ export const StatusToolArgumentsSchema = z.object({
   include_activity: z.boolean().optional(),
 });
 
+export const StdioStatusRequestSchema = z.object({
+  id: z.string().optional(),
+  action: z.literal('status'),
+});
+
 export const StdioRequestSchema = z.object({
   id: z.string().optional(),
   query: z.string(),
