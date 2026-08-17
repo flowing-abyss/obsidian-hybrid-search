@@ -282,6 +282,9 @@ ohs reindex --force
 # Reindex a single file
 ohs reindex notes/pkm/zettelkasten.md
 
+# Retry only the notes whose chunks failed to embed
+ohs reindex --errors
+
 # Show indexing status
 ohs status
 
