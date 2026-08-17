@@ -24,7 +24,13 @@ import {
   wipeDatabaseFiles,
   wipeDatabaseSidecars,
 } from './db.js';
-import { getContextLength, getEmbeddingDim, primeEmbeddingDim } from './embedder.js';
+import {
+  activeModelName,
+  getContextLength,
+  getEmbeddingDim,
+  primeEmbeddingDim,
+  useRemoteEmbeddings,
+} from './embedder.js';
 import {
   getIndexingStatus,
   indexFileWithRecovery,
@@ -101,8 +107,7 @@ export async function createMcpRuntime(): Promise<McpRuntime> {
   // Warn if model differs but do NOT wipe — the MCP server is read-oriented.
   // Wiping here would destroy the index whenever env vars are missing at startup.
   // Model-change wipe is intentionally restricted to the reindex command.
-  const modelName =
-    config.apiKey || process.env.OPENAI_BASE_URL ? config.apiModel : `local:${config.localModel}`;
+  const modelName = activeModelName();
   const storedModel = getStoredModel();
   if (storedModel && storedModel !== modelName) {
     console.error(
@@ -330,14 +335,17 @@ function callStatusTool(a: Record<string, unknown>, runtime: McpRuntime): McpToo
   const output: Record<string, unknown> = {
     total: stats.total,
     indexed: stats.indexed,
+    notes_without_chunks: stats.withoutChunks,
     pending: indexingStatus.queued,
     chunks: stats.chunks,
+    failed_chunks: stats.failedChunks,
     links: stats.links,
     last_indexed: stats.lastIndexed,
     db_size_mb:
       stats.dbSizeBytes !== null ? Math.round((stats.dbSizeBytes / 1024 / 1024) * 10) / 10 : null,
-    api_base_url: config.apiBaseUrl,
+    api_base_url: useRemoteEmbeddings() ? config.apiBaseUrl : null,
     model: stats.embeddingModel,
+    active_model: activeModelName(),
     embedding_dim: stats.embeddingDim,
     context_length: runtime.contextLength,
     version: runtime.version,

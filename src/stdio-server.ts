@@ -2,15 +2,18 @@ import {
   formatValidationError,
   parseStringArrayParam,
   StdioRequestSchema,
+  StdioStatusRequestSchema,
   type SearchOptionsBoundary,
 } from './boundary-validation.js';
 import type { SearchOptions, SearchResult } from './searcher.js';
 
 export type SearchFunction = (query: string, options?: SearchOptions) => Promise<SearchResult[]>;
+export type StatusFunction = () => Promise<Record<string, unknown>> | Record<string, unknown>;
 
 export interface StdioResponse {
   id: string;
   results?: SearchResult[];
+  status?: Record<string, unknown>;
   error?: string;
 }
 
@@ -21,12 +24,15 @@ export interface StdioResponse {
  * Protocol:
  *   Request:  {"id":"1","query":"zettelkasten","options":{...}}
  *   Response: {"id":"1","results":[...]}
+ *   Request:  {"id":"2","action":"status"}
+ *   Response: {"id":"2","status":{...}}
  *   Error:    {"id":"1","error":"message"}
  */
 export async function handleStdioLine(
   line: string,
   searchFn: SearchFunction,
   writeLine: (s: string) => void,
+  statusFn?: StatusFunction,
 ): Promise<void> {
   const trimmed = line.trim();
   if (!trimmed) return;
@@ -36,6 +42,17 @@ export async function handleStdioLine(
     const raw: unknown = JSON.parse(trimmed);
     if (isRecord(raw) && typeof raw.id === 'string') {
       id = raw.id;
+    }
+
+    // Status requests are matched first and separately so that search requests keep
+    // reporting field-level validation errors rather than an opaque union error.
+    if (StdioStatusRequestSchema.safeParse(raw).success) {
+      if (!statusFn) {
+        writeLine(JSON.stringify({ id, error: 'status is not available on this server' }));
+        return;
+      }
+      writeLine(JSON.stringify({ id, status: await statusFn() }));
+      return;
     }
 
     const parsed = StdioRequestSchema.safeParse(raw);

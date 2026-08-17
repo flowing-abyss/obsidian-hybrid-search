@@ -72,6 +72,46 @@ function parseResponse(raw: string | null): StdioResponse {
 
 // ─── Protocol-level tests ─────────────────────────────────────────────────────
 
+describe('handleStdioLine — status action', () => {
+  /** Run handleStdioLine with a status function wired in. */
+  async function processStatusLine(
+    line: string,
+    statusFn?: () => Record<string, unknown>,
+  ): Promise<StdioResponse> {
+    let output: string | null = null;
+    await handleStdioLine(
+      line,
+      search,
+      (s) => {
+        output = s;
+      },
+      statusFn,
+    );
+    return parseResponse(output);
+  }
+
+  it('returns the status payload for an action request', async () => {
+    const resp = await processStatusLine('{"id":"9","action":"status"}', () => ({
+      total: 2,
+      failed_chunks: 0,
+    }));
+    assert.strictEqual(resp.id, '9');
+    assert.deepStrictEqual(resp.status, { total: 2, failed_chunks: 0 });
+    assert.strictEqual(resp.results, undefined);
+  });
+
+  it('reports an error when the server exposes no status function', async () => {
+    const resp = await processStatusLine('{"id":"10","action":"status"}');
+    assert.strictEqual(resp.id, '10');
+    assert.ok(resp.error?.includes('status is not available'));
+  });
+
+  it('treats an unknown action as a search request so validation stays specific', async () => {
+    const resp = await processStatusLine('{"id":"11","action":"explode"}', () => ({}));
+    assert.ok(resp.error?.includes('query'));
+  });
+});
+
 describe('handleStdioLine — protocol', () => {
   it('empty line produces no output', async () => {
     const output = await processLine('');
