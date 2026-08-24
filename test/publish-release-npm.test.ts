@@ -1,15 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -73,16 +65,14 @@ function createProject(): { npmLog: string; root: string } {
     `${JSON.stringify({ name: 'example-package', version: '1.2.3' }, null, 2)}\n`,
   );
 
-  const fakeNpm = path.join(fakeBin, 'npm');
+  const fakeNpm = path.join(root, 'fake-npm.mjs');
   writeFileSync(
     fakeNpm,
-    `#!/usr/bin/env node
-import { appendFileSync } from 'node:fs';
+    `import { appendFileSync } from 'node:fs';
 appendFileSync(process.env.FAKE_NPM_LOG, JSON.stringify(process.argv.slice(2)) + '\\n');
 process.exit(Number(process.env.FAKE_NPM_EXIT_CODE));
 `,
   );
-  chmodSync(fakeNpm, 0o755);
   cleanupTasks.push(() => rmSync(root, { force: true, recursive: true }));
 
   return { npmLog, root };
@@ -98,10 +88,11 @@ async function runHelper(
     cwd: root,
     env: {
       ...process.env,
-      PATH: `${path.join(root, 'bin')}${path.delimiter}${process.env.PATH ?? ''}`,
+      PATH: path.join(root, 'bin'),
       FAKE_NPM_LOG: npmLog,
       FAKE_NPM_EXIT_CODE: '0',
       NPM_CONFIG_REGISTRY: registry,
+      npm_execpath: path.join(root, 'fake-npm.mjs'),
       NPM_VISIBILITY_DELAY_MS: '0',
       NPM_VISIBILITY_MAX_ATTEMPTS: '3',
       ...overrides,

@@ -55,8 +55,14 @@ async function exactVersionStatus(url, expectedVersion) {
 }
 
 function publishPackage() {
-  const result = spawnSync('npm', ['publish', '--provenance', '--access', 'public'], {
+  const publishArgs = ['publish', '--provenance', '--access', 'public'];
+  const npmCli = process.env.npm_execpath;
+  const command =
+    npmCli === undefined ? (process.platform === 'win32' ? 'npm.cmd' : 'npm') : process.execPath;
+  const args = npmCli === undefined ? publishArgs : [npmCli, ...publishArgs];
+  const result = spawnSync(command, args, {
     env: process.env,
+    shell: npmCli === undefined && process.platform === 'win32',
     stdio: 'inherit',
   });
   if (result.error !== undefined) throw result.error;
