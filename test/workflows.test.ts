@@ -9,7 +9,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
 type WorkflowStep = {
+  env?: Record<string, unknown>;
   if?: string;
+  id?: string;
   name?: string;
   uses?: string;
   run?: string;
@@ -225,5 +227,39 @@ describe('GitHub Actions workflows', () => {
     assert.match(verifyCi.run ?? '', /status"\s*=\s*"completed"/);
     assert.match(verifyCi.run ?? '', /sleep 20/);
     assert.doesNotMatch(verifyCi.run ?? '', /Wait for CI to pass, then re-run this release/);
+  });
+
+  it('makes npm publication rerunnable and waits for exact-version visibility', () => {
+    const workflow = readWorkflow('.github/workflows/release.yml');
+    const npmRelease = stepByName(
+      workflow,
+      'release',
+      'Publish npm package and wait for registry visibility',
+    );
+
+    assert.equal(npmRelease.run, 'node scripts/publish-release-npm.mjs');
+    assert.equal(npmRelease.env?.NODE_AUTH_TOKEN, '${{ secrets.NPM_TOKEN }}');
+
+    const stepNames = workflow.jobs.release?.steps.map((step) => step.name);
+    const npmReleaseIndex = stepNames?.indexOf(npmRelease.name) ?? -1;
+    const mcpReleaseIndex = stepNames?.indexOf('Publish to MCP Registry') ?? -1;
+    assert.ok(npmReleaseIndex >= 0);
+    assert.ok(mcpReleaseIndex > npmReleaseIndex);
+  });
+
+  it('targets an explicit matching tag when a release is dispatched manually', () => {
+    const workflow = readWorkflow('.github/workflows/release.yml');
+    const workflowDispatch = workflow.on?.workflow_dispatch as
+      { inputs?: Record<string, Record<string, unknown>> } | undefined;
+    assert.equal(workflowDispatch?.inputs?.release_tag?.required, true);
+    assert.equal(workflowDispatch?.inputs?.release_tag?.type, 'string');
+
+    const resolveTag = stepByName(workflow, 'release', 'Resolve release tag');
+    assert.equal(resolveTag.id, 'release-tag');
+    assert.match(resolveTag.run ?? '', /DISPATCH_TAG:-\$GITHUB_REF_NAME/);
+    assert.match(resolveTag.run ?? '', /"v\$package_version"/);
+
+    const createRelease = stepByName(workflow, 'release', 'Create GitHub Release');
+    assert.equal(createRelease.with?.tag_name, '${{ steps.release-tag.outputs.tag }}');
   });
 });
