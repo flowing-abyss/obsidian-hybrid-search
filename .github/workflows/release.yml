@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*.*.*'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to recover (for example, v0.15.1)
+        required: true
+        type: string
 
 jobs:
   release:
@@ -16,6 +21,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Resolve release tag
+        id: release-tag
+        env:
+          DISPATCH_TAG: ${{ inputs.release_tag }}
+        run: |
+          release_tag="${DISPATCH_TAG:-$GITHUB_REF_NAME}"
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "$release_tag" != "v$package_version" ]; then
+            echo "Release tag $release_tag does not match package version $package_version."
+            exit 1
+          fi
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
 
       - name: Wait for CI to pass for this commit
         env:
@@ -74,8 +92,8 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Publish to npm
-        run: npm publish --provenance --access public
+      - name: Publish npm package and wait for registry visibility
+        run: node scripts/publish-release-npm.mjs
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -92,3 +110,4 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
+          tag_name: ${{ steps.release-tag.outputs.tag }}
