@@ -84,10 +84,13 @@ async function runHelper(
   npmLog: string,
   overrides: Record<string, string> = {},
 ): Promise<{ status: number | null; stderr: string; stdout: string }> {
+  const cleanEnvironment = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => name.toLowerCase() !== 'npm_execpath'),
+  );
   const child = spawn(process.execPath, [RELEASE_SCRIPT], {
     cwd: root,
     env: {
-      ...process.env,
+      ...cleanEnvironment,
       PATH: path.join(root, 'bin'),
       FAKE_NPM_LOG: npmLog,
       FAKE_NPM_EXIT_CODE: '0',
