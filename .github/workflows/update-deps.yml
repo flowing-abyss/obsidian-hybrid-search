@@ -24,6 +24,13 @@ jobs:
           node-version: 22
           cache: npm
 
+      # Node 22 bundles npm 10, whose arborist crashes in #loadPeerSet with
+      # "Cannot read properties of null (reading 'edgesOut')" while resolving
+      # the peer graph of the current devDependencies, so `npm update` never
+      # gets to write a lockfile. npm 11+ resolves the same tree fine.
+      - name: Install npm 12
+        run: npm install -g npm@12
+
       - name: Install dependencies
         run: npm ci
 

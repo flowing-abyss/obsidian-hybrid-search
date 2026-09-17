@@ -138,6 +138,7 @@ The `docs/` directory is local-only and gitignored. Do not add files from it to 
 - `_indexQueue` is module-level state. Tests that index files concurrently can interfere with one another.
 - The unit suite uses `isolate: false`. `test/setup-module-isolation.ts` resets modules before every file so vault-bound modules do not leak between suites. Do not remove it.
 - `noUncheckedIndexedAccess` is enabled. Use non-null assertions only when bounds are proven.
+- npm 12 blocks dependency install scripts unless they are listed in `allowScripts` in `package.json`. A new dependency that builds a native addon has to be approved with `npm install-scripts approve <pkg> --no-allow-scripts-pin`, otherwise its binary is missing and `openDb` fails at runtime.
 
 ## Testing the Local Embedding Model
 

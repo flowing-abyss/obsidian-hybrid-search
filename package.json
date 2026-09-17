@@ -118,5 +118,11 @@
     "*.{json,md,yml,yaml}": [
       "prettier --write"
     ]
+  },
+  "allowScripts": {
+    "better-sqlite3": true,
+    "onnxruntime-node": true,
+    "esbuild": true,
+    "protobufjs": true
   }
 }
