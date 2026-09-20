@@ -4,7 +4,6 @@ import path from 'node:path';
 import { config } from './config.js';
 
 const OPERATIONAL_IGNORE_PATTERNS = ['.obsidian/**', '.obsidian-hybrid-search.db*'];
-const DIRECTORY_SENTINEL = '__obsidian_hybrid_search_directory_probe__.md';
 // Bump when explicit-pattern matching changes. Notes that only the new matcher ignores
 // are then swept as newly ignored (links kept) rather than as files deleted from disk.
 const IGNORE_MATCHER_VERSION = 2;
@@ -70,18 +69,15 @@ function normalizeExplicitPattern(pattern: string): string {
   return stripTrailingSlashes(stripLeadingSlashes(normalized));
 }
 
-// `dir/**` does not match `dir/` itself under gitignore rules, so folder globs also get
-// a directory form. A lone segment is unanchored in gitignore, hence the leading slash
-// that keeps `plugin-*/**` at the vault root.
+// `dir/**` does not match `dir/` itself under gitignore rules, so patterns of that shape
+// also get a directory form. A lone segment is unanchored in gitignore, hence the leading
+// slash that keeps `plugin-*/**` and `.obsidian/**` at the vault root.
 function globDirectoryForm(pattern: string): string[] {
   if (!pattern.endsWith('/**')) return [];
   const dir = pattern.slice(0, -3);
   return [dir.includes('/') ? `${dir}/` : `/${dir}/`];
 }
 
-// Explicit patterns decide directories on their own and must not go through the
-// DIRECTORY_SENTINEL probe: a glob such as `**/_*` or `Archive/*.md` matches the probe
-// file and would prune directories whose notes it does not ignore.
 function createExplicitMatcher(patterns: readonly string[]): ExplicitMatcher {
   const normalized = patterns.map(normalizeExplicitPattern).filter(Boolean);
   const rootAnchored = normalized.filter((pattern) => !isGlobPattern(pattern));
@@ -102,18 +98,17 @@ function createExplicitMatcher(patterns: readonly string[]): ExplicitMatcher {
 }
 
 function createMatcher(patterns: readonly string[]): Ignore {
-  const matcher = ignore();
   const normalized = patterns.map(normalizePattern).filter(Boolean);
-  if (normalized.length > 0) matcher.add(normalized);
-  return matcher;
+  return ignore().add(normalized.flatMap((pattern) => [pattern, ...globDirectoryForm(pattern)]));
 }
 
+// A directory is pruned only when a rule matches the directory itself. Probing it with
+// a made-up file name is not equivalent: `_*` or `*.md` match the probe in every folder,
+// and a `!` rule can re-include a real note next to it.
 function matcherIgnores(matcher: Ignore, relPath: string): boolean {
   const normalized = normalizeRelPath(relPath);
   if (!normalized) return false;
-  if (matcher.ignores(normalized)) return true;
-  if (normalized.endsWith('/')) return matcher.ignores(normalized + DIRECTORY_SENTINEL);
-  return false;
+  return matcher.ignores(normalized);
 }
 
 function toLayerRelativePath(relPath: string, baseRelPath: string): string | null {
@@ -221,13 +216,12 @@ function includeMayMatchDescendant(
     const normalized = stripLeadingSlashes(normalizePattern(pattern));
     if (!normalized) return false;
     if (normalized === dir || normalized.startsWith(prefix)) return true;
-    if (normalized.includes('*')) {
-      const literalPrefix = normalized.split('*', 1)[0] ?? '';
-      return (
-        literalPrefix === '' || literalPrefix.startsWith(prefix) || prefix.startsWith(literalPrefix)
-      );
-    }
-    return false;
+    const wildcardAt = normalized.search(/[*?[\\]/);
+    if (wildcardAt === -1) return false;
+    const literalPrefix = normalized.slice(0, wildcardAt);
+    return (
+      literalPrefix === '' || literalPrefix.startsWith(prefix) || prefix.startsWith(literalPrefix)
+    );
   });
 }
 

@@ -1,5 +1,5 @@
 /**
- * Contract for OBSIDIAN_IGNORE_PATTERNS (issue #52).
+ * Contract for OBSIDIAN_IGNORE_PATTERNS (issue #52) and for .gitignore rules.
  *
  * A pattern that silently matches nothing is the failure mode this file guards
  * against: the user sees no error, and generated folders end up in search results.
@@ -10,6 +10,7 @@
  *       matches its own example.
  *  C3 – End to end: real files on disk, real scan, real index, real search.
  *  C4 – Upgrade: notes indexed by an older matcher are swept as newly ignored.
+ *  C5 – .gitignore rules obey the same directory invariant, on disk and end to end.
  */
 
 import assert from 'node:assert/strict';
@@ -62,6 +63,11 @@ function policyFor(ignorePatterns: string[]) {
 }
 
 const sorted = (paths: string[]): string[] => [...paths].sort((a, b) => a.localeCompare(b));
+
+function ancestorDirs(notePath: string): string[] {
+  const segments = notePath.split('/').slice(0, -1);
+  return segments.map((_, i) => segments.slice(0, i + 1).join('/') + '/');
+}
 
 function indexedPaths(): string[] {
   return sorted(
@@ -182,7 +188,7 @@ const CASES: Case[] = [
     ignored: ['notes/Attic/a.md'],
     kept: ['notes/attic/a.md'],
   },
-  // These match the internal directory-probe file name; they must not prune folders.
+  // File patterns that would match any made-up probe file; they must not prune folders.
   {
     pattern: '**/_*',
     ignored: ['notes/_draft.md', '_private/a.md', 'notes/_private/'],
@@ -217,9 +223,7 @@ describe('C1 – ignore pattern semantics', () => {
     for (const { pattern, kept } of CASES) {
       const policy = policyFor([pattern]);
       for (const p of kept) {
-        const segments = p.split('/').slice(0, -1);
-        for (let i = 1; i <= segments.length; i++) {
-          const dir = segments.slice(0, i).join('/') + '/';
+        for (const dir of ancestorDirs(p)) {
           assert.equal(policy.isIgnored(dir), false, `${pattern} prunes ${dir} but keeps ${p}`);
         }
       }
@@ -390,6 +394,182 @@ describe('C3/C4 – real vault, real index', () => {
       process.env.OBSIDIAN_IGNORE_PATTERNS = 'templates/**';
       await indexVaultSync();
       assert.ok(indexedPaths().includes('Memory/app/graphify-out/report.md'));
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C5 – .gitignore rules and directories
+//
+// A directory may be pruned only when a rule matches the directory itself. Asking
+// whether a made-up file inside it would be ignored is not the same question: `_*`
+// or `*.md` say yes for every folder, and a `!` rule can re-include a real note.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface GitignoreCase {
+  gitignore: string;
+  nested?: Record<string, string>;
+  include?: string[];
+  ignored: string[];
+  kept: string[];
+  pruned?: string[];
+}
+
+const GITIGNORE_CASES: GitignoreCase[] = [
+  {
+    gitignore: '_*\n',
+    ignored: ['notes/_draft.md', '_private/a.md'],
+    kept: ['notes/x.md', 'notes/sub/y.md', 'root.md'],
+    pruned: ['_private/'],
+  },
+  {
+    gitignore: '*.md\n!notes/x.md\n',
+    ignored: ['root.md', 'notes/other.md'],
+    kept: ['notes/x.md'],
+  },
+  {
+    gitignore: 'foo/*\n!foo/keep.md\n',
+    ignored: ['foo/drop.md'],
+    kept: ['foo/keep.md', 'notes/x.md'],
+  },
+  {
+    gitignore: '*probe*\n',
+    ignored: ['notes/probe-results.md'],
+    kept: ['notes/x.md'],
+  },
+  // Rules that do name a directory keep pruning it.
+  {
+    gitignore: 'node_modules/\nbuild\n**/cache/\n',
+    ignored: ['node_modules/pkg/r.md', 'a/node_modules/r.md', 'build/out.md', 'a/cache/c.md'],
+    kept: ['notes/x.md', 'a/cached.md'],
+    pruned: ['node_modules/', 'a/node_modules/', 'build/', 'a/cache/'],
+  },
+  // `out/` itself stays walkable, as in git, where `!out/keep.md` would still be legal.
+  {
+    gitignore: 'out/**\n',
+    ignored: ['out/a.md', 'out/deep/b.md'],
+    kept: ['notes/out/a.md'],
+    pruned: ['out/deep/'],
+  },
+  // A nested .gitignore can re-include what a parent rule hides.
+  {
+    gitignore: '_*\n',
+    nested: { sub: '!_keep.md\n' },
+    ignored: ['sub/_drop.md', '_keep.md'],
+    kept: ['sub/_keep.md'],
+  },
+  // Include patterns rescue a gitignored folder whatever wildcard they start with.
+  {
+    gitignore: 'notes/\n',
+    include: ['no?es/*.md'],
+    ignored: ['notes/deep/y.md'],
+    kept: ['notes/x.md'],
+  },
+  {
+    gitignore: 'notes/\n',
+    include: ['[a-n]otes/*.md'],
+    ignored: ['notes/deep/y.md'],
+    kept: ['notes/x.md'],
+  },
+];
+
+describe('C5 – .gitignore rules and directories', () => {
+  const gitignoreVault = mkdtempSync(path.join(tmpdir(), 'ohs-ignore-contract-gi-'));
+
+  afterAll(() => rmSync(gitignoreVault, { recursive: true, force: true }));
+
+  function gitignorePolicy({ gitignore, nested = {}, include = [] }: Partial<GitignoreCase>) {
+    rmSync(gitignoreVault, { recursive: true, force: true });
+    mkdirSync(gitignoreVault, { recursive: true });
+    writeFileSync(path.join(gitignoreVault, '.gitignore'), gitignore ?? '');
+    for (const [dir, content] of Object.entries(nested)) {
+      mkdirSync(path.join(gitignoreVault, dir), { recursive: true });
+      writeFileSync(path.join(gitignoreVault, dir, '.gitignore'), content);
+    }
+    return createIgnorePolicy({
+      vaultPath: gitignoreVault,
+      ignorePatterns: [],
+      includePatterns: include,
+      respectGitignore: true,
+    });
+  }
+
+  for (const testCase of GITIGNORE_CASES) {
+    const { gitignore, nested, include, ignored, kept, pruned = [] } = testCase;
+    it(JSON.stringify({ gitignore, nested, include }), () => {
+      const policy = gitignorePolicy(testCase);
+      for (const p of ignored) assert.equal(policy.isIgnored(p), true, `should ignore ${p}`);
+      for (const p of pruned) assert.equal(policy.isIgnored(p), true, `should prune ${p}`);
+      for (const p of kept) {
+        assert.equal(policy.isIgnored(p), false, `should keep ${p}`);
+        for (const dir of ancestorDirs(p)) {
+          assert.equal(policy.isIgnored(dir), false, `prunes ${dir} but keeps ${p}`);
+        }
+      }
+    });
+  }
+
+  it('still prunes the internal .obsidian folder', () => {
+    const policy = gitignorePolicy({});
+    assert.equal(policy.isIgnored('.obsidian/'), true);
+    assert.equal(policy.isIgnored('.obsidian/plugins/'), true);
+    assert.equal(policy.isIgnored('notes/.obsidian/'), false);
+  });
+
+  describe('end to end', () => {
+    const FILES: Record<string, string> = {
+      'GI/notes/x.md': 'gitignore survivor zqgisurvivor',
+      'GI/notes/sub/y.md': 'gitignore survivor zqgisurvivor',
+      'GI/notes/_draft.md': 'gitignore hidden zqgihidden',
+      'GI/foo/keep.md': 'gitignore survivor zqgisurvivor',
+      'GI/foo/drop.md': 'gitignore hidden zqgihidden',
+      'GI/node_modules/pkg/r.md': 'gitignore hidden zqgihidden',
+    };
+    const SURVIVORS = ['GI/foo/keep.md', 'GI/notes/sub/y.md', 'GI/notes/x.md'];
+
+    beforeAll(() => {
+      for (const [rel, content] of Object.entries(FILES)) {
+        const full = path.join(vaultDir, rel);
+        mkdirSync(path.dirname(full), { recursive: true });
+        writeFileSync(full, `# ${path.basename(rel, '.md')}\n\n${content}\n`);
+      }
+      writeFileSync(
+        path.join(vaultDir, 'GI', '.gitignore'),
+        '_*\nfoo/*\n!foo/keep.md\nnode_modules/\n',
+      );
+      openDb();
+      initVecTable(EMBEDDING.length);
+    });
+
+    beforeEach(() => {
+      process.env.OBSIDIAN_IGNORE_PATTERNS = 'templates/**';
+      process.env.OBSIDIAN_RESPECT_GITIGNORE = 'true';
+    });
+
+    afterAll(() => {
+      process.env.OBSIDIAN_RESPECT_GITIGNORE = 'false';
+      rmSync(path.join(vaultDir, 'GI'), { recursive: true, force: true });
+    });
+
+    it('scans, indexes and finds exactly the notes git would keep', async () => {
+      const scanned = sorted(
+        scanVault()
+          .map((f) => path.relative(vaultDir, f).replaceAll(path.sep, '/'))
+          .filter((p) => p.startsWith('GI/')),
+      );
+      assert.deepEqual(scanned, SURVIVORS);
+
+      const result = await indexVaultSync(true);
+      assert.equal(result.errors.length, 0);
+      assert.deepEqual(
+        indexedPaths().filter((p) => p.startsWith('GI/')),
+        SURVIVORS,
+      );
+
+      bumpIndexVersion();
+      assert.deepEqual(await search('zqgihidden', { mode: 'fulltext' }), []);
+      const found = await search('zqgisurvivor', { mode: 'fulltext' });
+      assert.deepEqual(sorted(found.map((h) => h.path)), SURVIVORS);
     });
   });
 });
