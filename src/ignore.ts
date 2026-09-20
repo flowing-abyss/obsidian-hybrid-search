@@ -5,6 +5,9 @@ import { config } from './config.js';
 
 const OPERATIONAL_IGNORE_PATTERNS = ['.obsidian/**', '.obsidian-hybrid-search.db*'];
 const DIRECTORY_SENTINEL = '__obsidian_hybrid_search_directory_probe__.md';
+// Bump when explicit-pattern matching changes. Notes that only the new matcher ignores
+// are then swept as newly ignored (links kept) rather than as files deleted from disk.
+const IGNORE_MATCHER_VERSION = 2;
 
 interface GitignoreLayer {
   baseRelPath: string;
@@ -12,7 +15,7 @@ interface GitignoreLayer {
   matcher: Ignore;
 }
 
-interface LegacyMatcher {
+interface ExplicitMatcher {
   ignores(relPath: string): boolean;
 }
 
@@ -47,11 +50,53 @@ function matchesLegacyIgnorePattern(relPath: string, pattern: string): boolean {
   return normalized === normalizedPattern || normalized.startsWith(normalizedPattern + '/');
 }
 
-function createLegacyMatcher(patterns: readonly string[]): LegacyMatcher {
-  const normalized = patterns.map(normalizePattern).filter(Boolean);
+// The root-anchored matcher compares everything except a trailing `/**` or a leading
+// `*.` as a literal string, so a wildcard anywhere else (`**/node_modules/**`,
+// `Archive/*/old/**`) can never match a real path. Those patterns get gitignore
+// semantics instead. Negations stay literal: stored patterns are restored sorted, so
+// an order-dependent `!` rule would behave differently between the CLI and the server.
+function isGlobPattern(normalizedPattern: string): boolean {
+  if (normalizedPattern.startsWith('!')) return false;
+  let literal = normalizedPattern;
+  if (literal.endsWith('/**')) literal = literal.slice(0, -3);
+  else if (literal.startsWith('*.')) literal = literal.slice(1);
+  return literal.includes('*') || literal.includes('?');
+}
+
+function normalizeExplicitPattern(pattern: string): string {
+  const normalized = normalizePattern(pattern).replace(/^\.\/+/, '');
+  if (isGlobPattern(normalized)) return normalized;
+  // `/templates/**`, `./templates/**` and `templates/` all mean the root-level folder.
+  return stripTrailingSlashes(stripLeadingSlashes(normalized));
+}
+
+// `dir/**` does not match `dir/` itself under gitignore rules, so folder globs also get
+// a directory form. A lone segment is unanchored in gitignore, hence the leading slash
+// that keeps `plugin-*/**` at the vault root.
+function globDirectoryForm(pattern: string): string[] {
+  if (!pattern.endsWith('/**')) return [];
+  const dir = pattern.slice(0, -3);
+  return [dir.includes('/') ? `${dir}/` : `/${dir}/`];
+}
+
+// Explicit patterns decide directories on their own and must not go through the
+// DIRECTORY_SENTINEL probe: a glob such as `**/_*` or `Archive/*.md` matches the probe
+// file and would prune directories whose notes it does not ignore.
+function createExplicitMatcher(patterns: readonly string[]): ExplicitMatcher {
+  const normalized = patterns.map(normalizeExplicitPattern).filter(Boolean);
+  const rootAnchored = normalized.filter((pattern) => !isGlobPattern(pattern));
+  // Case-sensitive, like the root-anchored patterns next to it.
+  const globMatcher = ignore({ ignorecase: false }).add(
+    normalized.filter(isGlobPattern).flatMap((pattern) => [pattern, ...globDirectoryForm(pattern)]),
+  );
   return {
     ignores(relPath: string): boolean {
-      return normalized.some((pattern) => matchesLegacyIgnorePattern(relPath, pattern));
+      const normalizedPath = normalizeRelPath(relPath);
+      if (!normalizedPath) return false;
+      return (
+        rootAnchored.some((pattern) => matchesLegacyIgnorePattern(normalizedPath, pattern)) ||
+        globMatcher.ignores(normalizedPath)
+      );
     },
   };
 }
@@ -63,7 +108,7 @@ function createMatcher(patterns: readonly string[]): Ignore {
   return matcher;
 }
 
-function matcherIgnores(matcher: Ignore | LegacyMatcher, relPath: string): boolean {
+function matcherIgnores(matcher: Ignore, relPath: string): boolean {
   const normalized = normalizeRelPath(relPath);
   if (!normalized) return false;
   if (matcher.ignores(normalized)) return true;
@@ -97,8 +142,8 @@ function readGitignoreLayer(dir: string, baseRelPath: string): GitignoreLayer | 
 
 function loadGitignoreLayers(
   vaultPath: string,
-  operationalExcludes: Ignore | LegacyMatcher,
-  explicitExcludes: Ignore | LegacyMatcher,
+  operationalExcludes: Ignore,
+  explicitExcludes: ExplicitMatcher,
   includePatterns: readonly string[],
   respectGitignore: boolean,
 ): GitignoreLayer[] {
@@ -128,7 +173,7 @@ function loadGitignoreLayers(
       );
       const childDirPath = childRelPath + '/';
       if (matcherIgnores(operationalExcludes, childDirPath)) continue;
-      if (matcherIgnores(explicitExcludes, childRelPath + '/')) continue;
+      if (explicitExcludes.ignores(childDirPath)) continue;
       if (
         gitignoreIgnores(activeLayers, childDirPath) &&
         !includeMayMatchDescendant(childDirPath, includePatterns)
@@ -211,7 +256,7 @@ export function createIgnorePolicy(
   const includePatterns = options.includePatterns ?? config.includePatterns;
   const respectGitignore = options.respectGitignore ?? config.respectGitignore;
   const operationalExcludes = createMatcher(OPERATIONAL_IGNORE_PATTERNS);
-  const explicitExcludes = createLegacyMatcher(ignorePatterns);
+  const explicitExcludes = createExplicitMatcher(ignorePatterns);
   const includes = createMatcher(includePatterns);
   const gitignoreLayers = loadGitignoreLayers(
     vaultPath,
@@ -225,7 +270,7 @@ export function createIgnorePolicy(
     isIgnored(relPath: string): boolean {
       const normalized = normalizeRelPath(relPath);
       if (matcherIgnores(operationalExcludes, normalized)) return true;
-      if (matcherIgnores(explicitExcludes, normalized)) return true;
+      if (explicitExcludes.ignores(normalized)) return true;
       const ignoredByGitignore = gitignoreIgnores(gitignoreLayers, normalized);
       if (!ignoredByGitignore) return false;
       if (normalized.endsWith('/') && includeMayMatchDescendant(normalized, includePatterns)) {
@@ -235,6 +280,7 @@ export function createIgnorePolicy(
     },
     signature(): string {
       return JSON.stringify({
+        matcherVersion: IGNORE_MATCHER_VERSION,
         operationalPatterns: sortedPatterns(OPERATIONAL_IGNORE_PATTERNS),
         ignorePatterns: sortedPatterns(ignorePatterns),
         includePatterns: sortedPatterns(includePatterns),

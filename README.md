@@ -503,6 +503,7 @@ Set `OBSIDIAN_PREFIX` to add a prefix to every tool name. For example, `myvault_
 - Use `folder/**` to ignore a directory and all its contents.
 - Use `*.canvas` to ignore files by extension.
 - Use `exact/path.md` to ignore a specific file.
+- Use `**/node_modules/**` to ignore a directory at any depth.
 
 Root and nested `.gitignore` files are respected by default. Set `OBSIDIAN_RESPECT_GITIGNORE=false` to disable this behavior. Use `OBSIDIAN_INCLUDE_PATTERNS` to re-include Markdown notes that are ignored only by `.gitignore`. Include patterns do not override `OBSIDIAN_IGNORE_PATTERNS` or internal exclusions.
 
