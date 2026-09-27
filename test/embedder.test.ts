@@ -44,6 +44,69 @@ describe('LOCAL_MODEL constant', () => {
   });
 });
 
+describe('local embedding model inference options', () => {
+  afterEach(() => {
+    process.env.OPENAI_API_KEY = 'test-key';
+    process.env.OPENAI_BASE_URL = 'https://api.test/v1';
+    delete process.env.LOCAL_EMBEDDING_MODEL;
+    huggingFaceMocks.pipeline.mockReset();
+    clearOllamaSemaphore();
+  });
+
+  it.each([
+    ['hotchpotch/bekko-embedding-v1-a8m', 'fp32', 'mean'],
+    ['hotchpotch/bekko-embedding-v1-a25m', 'fp32', 'mean'],
+    ['onnx-community/granite-embedding-97m-multilingual-r2-ONNX', 'q8', 'cls'],
+    ['custom/other-model', 'q8', 'mean'],
+    ['toString', 'q8', 'mean'],
+  ] as const)('embeds with the %s model profile', async (model, dtype, pooling) => {
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_BASE_URL;
+    process.env.LOCAL_EMBEDDING_MODEL = model;
+    clearOllamaSemaphore();
+    const pipeline = Object.assign(
+      vi.fn().mockResolvedValue({ data: new Float32Array([0.1, 0.2]) }),
+      { tokenizer: { encode: vi.fn(() => [101, 11, 102]) } },
+    );
+    huggingFaceMocks.pipeline.mockResolvedValue(pipeline);
+
+    const [document] = await embedDetailed(['document text'], 'document');
+    const [query] = await embedDetailed(['query text'], 'query');
+
+    assert.equal(document?.ok, true);
+    assert.equal(query?.ok, true);
+    assert.deepEqual(huggingFaceMocks.pipeline.mock.calls[0], [
+      'feature-extraction',
+      model,
+      { device: 'cpu', dtype },
+    ]);
+    assert.deepEqual(pipeline.mock.calls, [
+      ['document text', { pooling, normalize: true }],
+      ['query text', { pooling, normalize: true }],
+    ]);
+  });
+
+  it('keeps asymmetric E5 prefixes and normalized mean pooling', async () => {
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_BASE_URL;
+    process.env.LOCAL_EMBEDDING_MODEL = 'Xenova/multilingual-e5-small';
+    clearOllamaSemaphore();
+    const pipeline = Object.assign(
+      vi.fn().mockResolvedValue({ data: new Float32Array([0.1, 0.2]) }),
+      { tokenizer: { encode: vi.fn(() => [101, 11, 102]) } },
+    );
+    huggingFaceMocks.pipeline.mockResolvedValue(pipeline);
+
+    await embedDetailed(['document text'], 'document');
+    await embedDetailed(['query text'], 'query');
+
+    assert.deepEqual(pipeline.mock.calls, [
+      ['passage: document text', { pooling: 'mean', normalize: true }],
+      ['query: query text', { pooling: 'mean', normalize: true }],
+    ]);
+  });
+});
+
 describe('embed() — success', () => {
   const fakeEmbedding = new Array(384).fill(0.1);
 

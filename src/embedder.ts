@@ -6,6 +6,7 @@ import {
   OllamaEmbeddingResponseSchema,
 } from './boundary-validation.js';
 import { config } from './config.js';
+import { getLocalModelProfile } from './local-model-profile.js';
 import {
   createEstimatedTokenCounter,
   createOpenAiTokenCounter,
@@ -243,9 +244,7 @@ async function getLocalPipeline() {
         // device:'cpu' avoids silent fp32 fallback that occurs when 'auto' selects
         // an EP (CoreML/CUDA) that doesn't support the model's ONNX opsets.
         device: 'cpu',
-        // dtype:'q8' loads model_quantized.onnx (~30 MB) instead of the fp32
-        // model.onnx (~470 MB), halving RSS with no meaningful quality drop.
-        dtype: 'q8',
+        dtype: getLocalModelProfile(config.localModel).dtype,
       });
     })();
   }
@@ -909,6 +908,7 @@ async function embedLocal(
 ): Promise<(Float32Array | null)[]> {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
   const pipeline = initializedPipeline ?? (await getLocalPipeline());
+  const { pooling } = getLocalModelProfile(config.localModel);
   const results: (Float32Array | null)[] = [];
 
   for (let i = 0; i < texts.length; i += config.batchSize) {
@@ -916,7 +916,7 @@ async function embedLocal(
     const batchResults = await Promise.all(
       batch.map(async (text) => {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call -- @huggingface/transformers has no TypeScript types for pipeline output
-        const output = await pipeline(text, { pooling: 'mean', normalize: true });
+        const output = await pipeline(text, { pooling, normalize: true });
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
         return new Float32Array(output.data);
       }),
