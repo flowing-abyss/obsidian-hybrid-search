@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+export const DEFAULT_RERANKER_MODEL = 'onnx-community/gte-multilingual-reranker-base';
+
 export const config = {
   get obsidianPrefix(): string {
     return process.env.OBSIDIAN_PREFIX ?? '';
@@ -38,7 +40,7 @@ export const config = {
     return process.env.LOCAL_EMBEDDING_MODEL ?? 'Xenova/multilingual-e5-small';
   },
   get rerankerModel(): string {
-    return process.env.RERANKER_MODEL ?? 'onnx-community/bge-reranker-v2-m3-ONNX';
+    return process.env.RERANKER_MODEL ?? DEFAULT_RERANKER_MODEL;
   },
   get dbPath(): string {
     const v = process.env.OBSIDIAN_VAULT_PATH;
