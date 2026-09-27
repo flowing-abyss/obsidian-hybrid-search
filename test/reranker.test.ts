@@ -22,6 +22,16 @@ vi.mock('@huggingface/transformers', () => ({
     ),
   },
   AutoModel: { from_pretrained: vi.fn() },
+  PreTrainedModel: { from_pretrained: vi.fn() },
+}));
+
+// Device selection is tested against real persistent state in reranker-device.test.ts.
+vi.mock('../src/reranker-device.js', () => ({
+  RerankerDevice: class {
+    scoreAll(_query: string, _candidates: unknown[], cpu: () => Promise<number[]>) {
+      return cpu();
+    }
+  },
 }));
 
 type ScoreFn = (
@@ -29,7 +39,11 @@ type ScoreFn = (
 ) => Promise<Array<Array<{ label: string; score: number }>>>;
 
 interface MockedSequenceClassification {
-  from_pretrained: ReturnType<typeof vi.fn>;
+  from_pretrained: ReturnType<
+    typeof vi.fn<
+      (name: string, options?: { progress_callback?: (value: unknown) => void }) => Promise<unknown>
+    >
+  >;
 }
 
 async function getMockedTokenizer(): Promise<MockedSequenceClassification> {
@@ -48,9 +62,9 @@ async function getMockedSequenceClassification(): Promise<MockedSequenceClassifi
 
 async function getMockedAutoModel(): Promise<MockedSequenceClassification> {
   const transformers = (await import('@huggingface/transformers')) as unknown as {
-    AutoModel: MockedSequenceClassification;
+    PreTrainedModel: MockedSequenceClassification;
   };
-  return transformers.AutoModel;
+  return transformers.PreTrainedModel;
 }
 
 const { CrossEncoderReranker, reranker } = await import('../src/reranker.js');
@@ -338,9 +352,40 @@ describe('CrossEncoderReranker._loadModel', () => {
 });
 
 describe('GTE default reranker', () => {
+  it('keeps tokenizer fetching in the download phase after native model loading', async () => {
+    const { loadRerankerModel } = await import('../src/reranker-model.js');
+    const phases: unknown[] = [];
+    const model = await getMockedAutoModel();
+    model.from_pretrained.mockImplementation((_name, options) => {
+      assert.ok(options?.progress_callback);
+      options.progress_callback({ status: 'done', file: 'onnx/model_fp16.onnx' });
+      return Promise.resolve(vi.fn());
+    });
+    const tokenizer = await getMockedTokenizer();
+    tokenizer.from_pretrained.mockImplementation((_name, options) => {
+      assert.equal(phases.at(-1), 'download');
+      assert.ok(options?.progress_callback);
+      options.progress_callback({ status: 'done', file: 'tokenizer_config.json' });
+      assert.equal(
+        phases.at(-1),
+        'download',
+        'one completed file must not shorten another file download',
+      );
+      return Promise.resolve(vi.fn());
+    });
+    await loadRerankerModel(
+      'onnx-community/gte-multilingual-reranker-base',
+      256,
+      'webgpu',
+      (phase) => phases.push(phase),
+    );
+    assert.ok(phases.includes('loading'));
+  });
+
   it('scores paired inputs with raw GTE logits through the CPU int8 generic model', async () => {
     const AutoTokenizer = await getMockedTokenizer();
     const AutoModel = await getMockedAutoModel();
+    AutoModel.from_pretrained.mockClear();
     const tokenizerFn = vi.fn().mockReturnValue({ __encoded: true });
     AutoTokenizer.from_pretrained.mockResolvedValue(tokenizerFn);
     AutoModel.from_pretrained.mockResolvedValue(
@@ -391,6 +436,20 @@ describe('GTE default reranker', () => {
 });
 
 describe('CrossEncoderReranker.ensureLoaded failure', () => {
+  it('keeps recoverable reranking diagnostics out of terminal output', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const r = new CrossEncoderReranker('mock-model');
+      (r as unknown as Record<string, unknown>)['_loadModel'] = () => {
+        throw new Error('model failed');
+      };
+      assert.deepEqual(await r.scoreAll('q', [{ title: 'A', snippet: 'a' }]), [0]);
+      assert.equal(stderr.mock.calls.length, 0);
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
   it('returns zeros when model load fails', async () => {
     const r = new CrossEncoderReranker('mock-model');
     (r as unknown as Record<string, unknown>)['_loadModel'] = () => {

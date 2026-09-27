@@ -9,10 +9,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
+import { getLocalStateDirectory } from './local-state.js';
 import { normalizeAllowedHosts } from './mcp-http-server.js';
 
 export interface McpState {
@@ -56,8 +56,7 @@ export interface McpHealthInfo {
 }
 
 export function getMcpPaths(): McpPaths {
-  const cacheHome = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
-  const dir = path.join(cacheHome, 'obsidian-hybrid-search');
+  const dir = getLocalStateDirectory();
   return {
     dir,
     statePath: path.join(dir, 'mcp-state.json'),
