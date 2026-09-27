@@ -104,7 +104,7 @@ query, while still exercising retrieval over a large generated memory vault.
 - **Multi-query fan-out**
   - pass multiple queries at once (`ohs "q1" "q2"` or `queries[]` in MCP); results are merged via RRF, so a note that ranks well in any one query floats to the top; useful when the note may use different vocabulary than the query
 - **Cross-encoder reranking**
-  - `--rerank` re-scores results with `bge-reranker-v2-m3` (ONNX int8, ~570 MB download once); improves precision for conceptual and multilingual queries; applied after multi-query merge
+  - `--rerank` re-scores results with `gte-multilingual-reranker-base` (ONNX int8, ~341 MB download once); improves precision for conceptual and multilingual queries; applied after multi-query merge
 - **Local embeddings**
   - works offline via `@huggingface/transformers` (no API key required); default model: Xenova/multilingual-e5-small, 100+ languages
 - **Remote embeddings**
@@ -254,7 +254,7 @@ ohs --path notes/pkm/zettelkasten.md --related --link-type all
 ohs --path notes/pkm/zettelkasten.md --related --snippet-length 500
 
 # Rerank results with a cross-encoder model (improves precision, ~1-3s extra latency)
-# Downloads bge-reranker-v2-m3 ONNX (~570 MB) on first use, cached in ~/.cache/huggingface/
+# Downloads gte-multilingual-reranker-base ONNX (~341 MB) on first use, cached in ~/.cache/huggingface/
 ohs "zettelkasten atomic notes" --rerank
 
 # Show tags and aliases alongside results

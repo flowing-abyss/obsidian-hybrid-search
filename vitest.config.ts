@@ -16,7 +16,11 @@ export default defineConfig({
     // runs a real (unmocked) chokidar watcher whose shared module state would
     // leak into the isolate:false suite — both run standalone via their own
     // npm scripts (test:integration / test:e2e-watcher).
-    exclude: ['test/integration.test.ts', 'test/indexer-watcher-live-e2e.test.ts'],
+    exclude: [
+      'test/integration.test.ts',
+      'test/indexer-watcher-live-e2e.test.ts',
+      'test/reranker-real-model.test.ts',
+    ],
     coverage: {
       provider: 'v8',
       include: ['src/**'],

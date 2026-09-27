@@ -3,6 +3,7 @@ import { afterEach, describe, it, vi } from 'vitest';
 
 // Set vault path before any imports that read config
 process.env.OBSIDIAN_VAULT_PATH = '/tmp/ohs-reranker-test';
+delete process.env.RERANKER_MODEL;
 
 vi.mock('@huggingface/transformers', () => ({
   env: { cacheDir: '' },
@@ -20,6 +21,7 @@ vi.mock('@huggingface/transformers', () => ({
       }),
     ),
   },
+  AutoModel: { from_pretrained: vi.fn() },
 }));
 
 type ScoreFn = (
@@ -30,6 +32,13 @@ interface MockedSequenceClassification {
   from_pretrained: ReturnType<typeof vi.fn>;
 }
 
+async function getMockedTokenizer(): Promise<MockedSequenceClassification> {
+  const transformers = (await import('@huggingface/transformers')) as unknown as {
+    AutoTokenizer: MockedSequenceClassification;
+  };
+  return transformers.AutoTokenizer;
+}
+
 async function getMockedSequenceClassification(): Promise<MockedSequenceClassification> {
   const transformers = (await import('@huggingface/transformers')) as unknown as {
     AutoModelForSequenceClassification: MockedSequenceClassification;
@@ -37,7 +46,14 @@ async function getMockedSequenceClassification(): Promise<MockedSequenceClassifi
   return transformers.AutoModelForSequenceClassification;
 }
 
-const { CrossEncoderReranker } = await import('../src/reranker.js');
+async function getMockedAutoModel(): Promise<MockedSequenceClassification> {
+  const transformers = (await import('@huggingface/transformers')) as unknown as {
+    AutoModel: MockedSequenceClassification;
+  };
+  return transformers.AutoModel;
+}
+
+const { CrossEncoderReranker, reranker } = await import('../src/reranker.js');
 
 // ─── Mock pipeline factory ────────────────────────────────────────────────────
 // Simulates @huggingface/transformers text-classification output:
@@ -211,6 +227,53 @@ describe('CrossEncoderReranker.ensureLoaded deduplication', () => {
 describe('CrossEncoderReranker._loadModel', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it('forwards query and document pairs with padding, truncation, and the default 128-token cap', async () => {
+    const AutoTokenizer = await getMockedTokenizer();
+    const AutoModelForSequenceClassification = await getMockedSequenceClassification();
+    const tokenizerFn = vi.fn().mockReturnValue({ __encoded: true });
+    AutoTokenizer.from_pretrained.mockResolvedValue(tokenizerFn);
+    AutoModelForSequenceClassification.from_pretrained.mockClear();
+
+    const r = new CrossEncoderReranker('onnx-community/bge-reranker-v2-m3-ONNX');
+    const scoreFn = await (r as unknown as { _loadModel: () => Promise<unknown> })._loadModel();
+    await (scoreFn as ScoreFn)([
+      { text: 'first query', text_pair: 'first document' },
+      { text: 'second query', text_pair: 'second document' },
+    ]);
+
+    assert.deepStrictEqual(tokenizerFn.mock.calls, [
+      [
+        ['first query', 'second query'],
+        {
+          text_pair: ['first document', 'second document'],
+          padding: true,
+          truncation: true,
+          max_length: 128,
+        },
+      ],
+    ]);
+    assert.deepStrictEqual(AutoModelForSequenceClassification.from_pretrained.mock.calls, [
+      ['onnx-community/bge-reranker-v2-m3-ONNX', { dtype: 'int8', device: 'cpu' }],
+    ]);
+  });
+
+  it.each([256, 512])('passes an explicit %i-token cap to the tokenizer', async (maxLength) => {
+    const AutoTokenizer = await getMockedTokenizer();
+    const tokenizerFn = vi.fn().mockReturnValue({ __encoded: true });
+    AutoTokenizer.from_pretrained.mockResolvedValue(tokenizerFn);
+
+    const r = new CrossEncoderReranker('test-model', maxLength);
+    const scoreFn = await (r as unknown as { _loadModel: () => Promise<unknown> })._loadModel();
+    await (scoreFn as ScoreFn)([{ text: 'query', text_pair: 'document' }]);
+
+    assert.deepStrictEqual(tokenizerFn.mock.calls, [
+      [
+        ['query'],
+        { text_pair: ['document'], padding: true, truncation: true, max_length: maxLength },
+      ],
+    ]);
+  });
+
   it('returns a scoring function that extracts single-label logits', async () => {
     const AutoModelForSequenceClassification = await getMockedSequenceClassification();
     const modelFn = vi.fn().mockResolvedValue({
@@ -271,6 +334,59 @@ describe('CrossEncoderReranker._loadModel', () => {
 
     assert.strictEqual(result[0]![0]!.score, 0.5);
     assert.strictEqual(result[1]![0]!.score, 0);
+  });
+});
+
+describe('GTE default reranker', () => {
+  it('scores paired inputs with raw GTE logits through the CPU int8 generic model', async () => {
+    const AutoTokenizer = await getMockedTokenizer();
+    const AutoModel = await getMockedAutoModel();
+    const tokenizerFn = vi.fn().mockReturnValue({ __encoded: true });
+    AutoTokenizer.from_pretrained.mockResolvedValue(tokenizerFn);
+    AutoModel.from_pretrained.mockResolvedValue(
+      vi.fn().mockResolvedValue({ logits: { data: new Float32Array([2, -3]), dims: [2, 1] } }),
+    );
+
+    const scores = await reranker.scoreAll('internal links', [
+      { title: 'Links', snippet: 'Use internal links to connect notes' },
+      { title: 'Bread', snippet: 'Bread is baked in an oven' },
+    ]);
+
+    assert.deepStrictEqual(scores, [2, -3]);
+    assert.deepStrictEqual(AutoModel.from_pretrained.mock.calls, [
+      ['onnx-community/gte-multilingual-reranker-base', { dtype: 'int8', device: 'cpu' }],
+    ]);
+    assert.deepStrictEqual(tokenizerFn.mock.calls, [
+      [
+        ['internal links', 'internal links'],
+        {
+          text_pair: [
+            'Links\n\nUse internal links to connect notes',
+            'Bread\n\nBread is baked in an oven',
+          ],
+          padding: true,
+          truncation: true,
+          max_length: 256,
+        },
+      ],
+    ]);
+  });
+
+  it.each([
+    { name: 'missing logits', logits: undefined },
+    { name: 'wrong label count', logits: { data: new Float32Array([2, -3, 4, 5]), dims: [2, 2] } },
+    { name: 'wrong batch count', logits: { data: new Float32Array([2]), dims: [1, 1] } },
+    { name: 'short data', logits: { data: new Float32Array([2]), dims: [2, 1] } },
+    { name: 'nonfinite data', logits: { data: new Float32Array([2, Number.NaN]), dims: [2, 1] } },
+  ])('falls back when GTE returns $name', async ({ logits }) => {
+    const AutoModel = await getMockedAutoModel();
+    AutoModel.from_pretrained.mockResolvedValue(vi.fn().mockResolvedValue({ logits }));
+    const r = new CrossEncoderReranker('onnx-community/gte-multilingual-reranker-base');
+    const scores = await r.scoreAll('query', [
+      { title: 'A', snippet: 'first' },
+      { title: 'B', snippet: 'second' },
+    ]);
+    assert.deepStrictEqual(scores, [0, 0]);
   });
 });
 
