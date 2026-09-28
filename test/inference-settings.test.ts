@@ -92,7 +92,9 @@ describe('local CPU preference', () => {
     settings.saveCpuThreads(9);
     assert.deepEqual(JSON.parse(fs.readFileSync(stateFile, 'utf8')), { version: 1, threads: 9 });
     assert.deepEqual(fs.readdirSync(path.dirname(stateFile)), ['inference-settings.json']);
-    assert.equal(fs.statSync(stateFile).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(stateFile).mode & 0o777, 0o600);
+    }
   });
 
   it('preserves old state and snapshot when replacement fails', async () => {

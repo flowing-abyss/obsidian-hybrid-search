@@ -35,13 +35,13 @@ beforeEach(() => {
   vi.stubEnv('XDG_CACHE_HOME', cache);
   delete process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_BASE_URL;
-  const fakePipeline = Object.assign(async () => ({ data: new Float32Array([1, 2]) }), {
+  const fakePipeline = Object.assign(() => Promise.resolve({ data: new Float32Array([1, 2]) }), {
     tokenizer: { model_max_length: 512, encode: () => [1, 2] },
     model: { config: { max_position_embeddings: 512 } },
   });
   calls.pipeline.mockResolvedValue(fakePipeline);
-  calls.defaultModel.mockResolvedValue(async () => ({}));
-  calls.otherModel.mockResolvedValue(async () => ({}));
+  calls.defaultModel.mockResolvedValue(() => Promise.resolve({}));
+  calls.otherModel.mockResolvedValue(() => Promise.resolve({}));
 });
 
 afterEach(() => {
@@ -98,6 +98,35 @@ it('passes preference to both CPU reranker loaders and excludes it from webgpu',
   assert.equal('session_options' in (gpuOptions ?? {}), false);
 });
 
+it('uses saved threads in the actual CPU loader after GPU load failure', async () => {
+  (await import('../src/inference-settings.js')).saveCpuThreads(7);
+  calls.defaultModel.mockResolvedValue(() =>
+    Promise.resolve({ logits: { data: new Float32Array([0.75]), dims: [1, 1] } }),
+  );
+  const { RerankerDevice } = await import('../src/reranker-device.js');
+  const { loadRerankerModel } = await import('../src/reranker-model.js');
+  const gpu = {
+    probe: () => Promise.resolve(true),
+    load: () => Promise.reject(new Error('GPU load failed')),
+    scoreAll: () => Promise.resolve([99]),
+    close: () => Promise.resolve(),
+  };
+  const route = new RerankerDevice('onnx-community/gte-multilingual-reranker-base', 256, gpu);
+  const candidates = [{ title: 'Note', snippet: 'Body' }];
+  const scores = await route.scoreAll('query', candidates, async () => {
+    const cpu = await loadRerankerModel(
+      'onnx-community/gte-multilingual-reranker-base',
+      256,
+      'cpu',
+    );
+    const rows = await cpu([{ text: 'query', text_pair: 'Note\n\nBody' }]);
+    return rows.map((row) => row[0]?.score ?? 0);
+  });
+  assert.deepEqual(scores, [0.75]);
+  const options = calls.defaultModel.mock.calls[0]?.[1] as ModelOptions | undefined;
+  assert.deepEqual(options?.session_options, { intraOpNumThreads: 7 });
+});
+
 it('leaves remote embedding requests unchanged and does not create local sessions', async () => {
   (await import('../src/inference-settings.js')).saveCpuThreads(4);
   process.env.OPENAI_API_KEY = 'key';
@@ -105,7 +134,7 @@ it('leaves remote embedding requests unchanged and does not create local session
   const fetch = vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
-    json: async () => ({ data: [{ embedding: [1, 2], index: 0 }] }),
+    json: () => Promise.resolve({ data: [{ embedding: [1, 2], index: 0 }] }),
   });
   vi.stubGlobal('fetch', fetch);
   try {
