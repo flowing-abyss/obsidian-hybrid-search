@@ -145,6 +145,7 @@ function loadGitignoreLayers(
   explicitExcludes: ExplicitMatcher,
   includePatterns: readonly string[],
   respectGitignore: boolean,
+  allowedAncestors?: ReadonlySet<string>,
 ): GitignoreLayer[] {
   if (!respectGitignore) return [];
   const layers: GitignoreLayer[] = [];
@@ -170,6 +171,7 @@ function loadGitignoreLayers(
       const childRelPath = normalizeRelPath(
         baseRelPath ? `${baseRelPath}/${entry.name}` : entry.name,
       );
+      if (allowedAncestors && !allowedAncestors.has(childRelPath)) continue;
       const childDirPath = childRelPath + '/';
       if (matcherIgnores(operationalExcludes, childDirPath)) continue;
       if (explicitExcludes.ignores(childDirPath)) continue;
@@ -277,33 +279,11 @@ export function createIgnorePolicy(
     respectGitignore?: boolean;
   } = {},
 ): IgnorePolicy {
-  const vaultPath = options.vaultPath ?? config.vaultPath;
-  const ignorePatterns = options.ignorePatterns ?? config.ignorePatterns;
-  const includePatterns = options.includePatterns ?? config.includePatterns;
-  const respectGitignore = options.respectGitignore ?? config.respectGitignore;
-  const operationalExcludes = createMatcher(OPERATIONAL_IGNORE_PATTERNS);
-  const explicitExcludes = createExplicitMatcher(ignorePatterns);
-  const includes = createMatcher(includePatterns);
-  const gitignoreLayers = loadGitignoreLayers(
-    vaultPath,
-    operationalExcludes,
-    explicitExcludes,
-    includePatterns,
-    respectGitignore,
-  );
+  const policy = createPolicyComponents(options);
+  const { ignorePatterns, includePatterns, respectGitignore, gitignoreLayers } = policy;
 
   return {
-    isIgnored(relPath: string): boolean {
-      const normalized = normalizeRelPath(relPath);
-      if (matcherIgnores(operationalExcludes, normalized)) return true;
-      if (explicitExcludes.ignores(normalized)) return true;
-      const ignoredByGitignore = gitignoreIgnores(gitignoreLayers, normalized);
-      if (!ignoredByGitignore) return false;
-      if (normalized.endsWith('/') && includeMayMatchDescendant(normalized, includePatterns)) {
-        return false;
-      }
-      return !matcherIgnores(includes, normalized);
-    },
+    isIgnored: policy.isIgnored,
     signature(): string {
       return JSON.stringify({
         matcherVersion: IGNORE_MATCHER_VERSION,
@@ -320,6 +300,72 @@ export function createIgnorePolicy(
       });
     },
   };
+}
+
+function createPolicyComponents(
+  options: NonNullable<Parameters<typeof createIgnorePolicy>[0]>,
+  allowedAncestors?: ReadonlySet<string>,
+) {
+  const vaultPath = options.vaultPath ?? config.vaultPath;
+  const ignorePatterns = options.ignorePatterns ?? config.ignorePatterns;
+  const includePatterns = options.includePatterns ?? config.includePatterns;
+  const respectGitignore = options.respectGitignore ?? config.respectGitignore;
+  const operationalExcludes = createMatcher(OPERATIONAL_IGNORE_PATTERNS);
+  const explicitExcludes = createExplicitMatcher(ignorePatterns);
+  const includes = createMatcher(includePatterns);
+  const gitignoreLayers = loadGitignoreLayers(
+    vaultPath,
+    operationalExcludes,
+    explicitExcludes,
+    includePatterns,
+    respectGitignore,
+    allowedAncestors,
+  );
+
+  return {
+    isIgnored: (relPath: string): boolean => {
+      const normalized = normalizeRelPath(relPath);
+      if (matcherIgnores(operationalExcludes, normalized)) return true;
+      if (explicitExcludes.ignores(normalized)) return true;
+      const ignoredByGitignore = gitignoreIgnores(gitignoreLayers, normalized);
+      if (!ignoredByGitignore) return false;
+      if (normalized.endsWith('/') && includeMayMatchDescendant(normalized, includePatterns)) {
+        return false;
+      }
+      return !matcherIgnores(includes, normalized);
+    },
+    ignorePatterns,
+    includePatterns,
+    respectGitignore,
+    gitignoreLayers,
+  };
+}
+
+function fileAncestorPaths(relativePaths: readonly string[]): ReadonlySet<string> | undefined {
+  const ancestors = new Set<string>();
+  for (const relativePath of relativePaths) {
+    const normalized = normalizeRelPath(relativePath);
+    if (
+      !normalized ||
+      path.isAbsolute(relativePath) ||
+      path.win32.isAbsolute(relativePath) ||
+      normalized.split('/').some((part) => !part || part === '.' || part === '..')
+    ) {
+      return undefined;
+    }
+    const parts = normalized.split('/');
+    for (let length = 1; length < parts.length; length++) {
+      ancestors.add(parts.slice(0, length).join('/'));
+    }
+  }
+  return ancestors;
+}
+
+export function createIgnorePolicyForFiles(
+  relativePaths: readonly string[],
+): Pick<IgnorePolicy, 'isIgnored'> {
+  const components = createPolicyComponents({}, fileAncestorPaths(relativePaths));
+  return { isIgnored: components.isIgnored };
 }
 
 export function isIgnored(relPath: string): boolean {

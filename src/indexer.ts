@@ -32,7 +32,7 @@ import {
   getContextLength,
   getDocumentTokenPolicy,
 } from './embedder.js';
-import { createIgnorePolicy, type IgnorePolicy } from './ignore.js';
+import { createIgnorePolicy, createIgnorePolicyForFiles, type IgnorePolicy } from './ignore.js';
 import { extractMarkdownReferences, resolveMarkdownNoteLinks } from './markdown-references.js';
 import { bumpIndexVersion } from './searcher.js';
 
@@ -80,7 +80,7 @@ async function indexBatch(
   force: boolean,
 ): Promise<IndexResult> {
   const result: IndexResult = { indexed: 0, skipped: 0, errors: [] };
-  const policy = createIgnorePolicy();
+  const policy = createIgnorePolicyForFiles(files.map(toVaultRelativePath));
   await Promise.all(
     files.map(async (f) => {
       const status = await indexFile(f, contextLength, force, policy);
@@ -199,7 +199,7 @@ export async function indexFile(
   fullPath: string,
   contextLength?: number,
   force = false,
-  policy = createIgnorePolicy(),
+  policy: Pick<IgnorePolicy, 'isIgnored'> = createIgnorePolicy(),
 ): Promise<'indexed' | 'skipped' | { error: string }> {
   try {
     const stat = statSync(fullPath);
