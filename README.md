@@ -275,6 +275,7 @@ ohs "zettelkasten" --open
 
 # Reindex the vault
 ohs reindex
+ohs reindex --threads 4  # Limit local CPU inference to 4 threads
 
 # Force full reindex
 ohs reindex --force
