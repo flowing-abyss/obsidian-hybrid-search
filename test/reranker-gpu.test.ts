@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it, vi } from 'vitest';
+import { enableModelDownloadProgress } from '../src/model-download-progress.js';
 import { RerankerGpu } from '../src/reranker-gpu.js';
 
 const workerUrl = new URL('./fixtures/reranker-worker.ts', import.meta.url);
@@ -16,6 +17,35 @@ afterEach(() => {
   fs.rmSync(directory, { recursive: true, force: true });
 });
 describe('isolated GPU worker', () => {
+  it.each(['download-success', 'download-failure'])(
+    'shows and clears child progress after %s',
+    async (mode) => {
+      const originalStderrTTY = process.stderr.isTTY;
+      const originalStdoutTTY = process.stdout.isTTY;
+      const chunks: string[] = [];
+      const output = vi
+        .spyOn(process.stderr, 'write')
+        .mockImplementation((chunk: string | Uint8Array) => {
+          chunks.push(String(chunk));
+          return true;
+        });
+      process.stderr.isTTY = true;
+      process.stdout.isTTY = true;
+      enableModelDownloadProgress();
+      const gpu = new RerankerGpu(mode, 256, { workerUrl });
+      try {
+        if (mode === 'download-success') await gpu.load();
+        else await assert.rejects(gpu.load());
+        assert.match(chunks.join(''), /25%/);
+        assert.equal(chunks.at(-1), '\r\x1b[2K');
+      } finally {
+        await gpu.close();
+        process.stderr.isTTY = originalStderrTTY;
+        process.stdout.isTTY = originalStdoutTTY;
+        output.mockRestore();
+      }
+    },
+  );
   it('reuses a worker for model loading and multiple requests', async () => {
     const gpu = new RerankerGpu('healthy', 256, { workerUrl });
     try {

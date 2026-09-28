@@ -55,6 +55,7 @@ import { ensureMcpServer, formatMcpInfo, getMcpStatus, stopMcpServer } from './m
 import { isAmbiguousNotePathError, readNotes, search } from './searcher.js';
 import { buildStatusPayload } from './status-payload.js';
 import { handleStdioLine } from './stdio-server.js';
+import { enableModelDownloadProgress } from './model-download-progress.js';
 
 const execAsync = promisify(exec);
 
@@ -571,6 +572,17 @@ program.hook('preAction', async (_thisCommand, actionCommand) => {
 
   const opts = program.opts<{ db?: string }>();
   discoverConfig(opts.db);
+  const output = actionCommand.opts<{
+    json?: boolean;
+    onlyPaths?: boolean;
+    onlyAbsolutePaths?: boolean;
+  }>();
+  const interactiveCommand =
+    actionCommand.name() === 'search' ||
+    (actionCommand.name() === 'reindex' && actionCommand.args.length === 0);
+  if (interactiveCommand && !output.json && !output.onlyPaths && !output.onlyAbsolutePaths) {
+    enableModelDownloadProgress();
+  }
 });
 
 program

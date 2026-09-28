@@ -1,4 +1,9 @@
 import { fork, type ChildProcess } from 'node:child_process';
+import {
+  createDownloadIndicator,
+  type DownloadProgress,
+  type DownloadReporter,
+} from './model-download-progress.js';
 import type { RerankCandidate } from './reranker.js';
 
 export interface WorkerRequest {
@@ -15,6 +20,7 @@ interface WorkerReply {
   ok?: boolean;
   value?: unknown;
   progress?: 'download' | 'loading';
+  download?: DownloadProgress | null;
 }
 
 interface GpuOptions {
@@ -44,8 +50,13 @@ export class RerankerGpu {
 
   async load(): Promise<void> {
     if (this.loaded) return;
-    await this.request('load', 10_000);
-    this.loaded = true;
+    const download = createDownloadIndicator('Downloading reranker model');
+    try {
+      await this.request('load', 10_000, {}, download);
+      this.loaded = true;
+    } finally {
+      download(null);
+    }
   }
 
   async scoreAll(query: string, candidates: RerankCandidate[]): Promise<number[]> {
@@ -115,6 +126,7 @@ export class RerankerGpu {
     type: WorkerRequest['type'],
     timeoutMs: number,
     input: Pick<WorkerRequest, 'query' | 'candidates'> = {},
+    onDownload?: DownloadReporter,
   ): Promise<unknown> {
     if (this.pending) return Promise.reject(new Error('GPU requests must be serialized'));
     const child = this.start();
@@ -140,6 +152,8 @@ export class RerankerGpu {
         if (!raw || typeof raw !== 'object') return;
         const reply = raw as WorkerReply;
         if (reply.id !== id) return;
+        // UI updates never alter native loading or download inactivity deadlines.
+        if (type === 'load' && 'download' in reply) onDownload?.(reply.download ?? null);
         if (type === 'load' && reply.progress) {
           // Downloads have an inactivity budget; native loading has its own deadline.
           arm(reply.progress === 'download' ? 60_000 : timeoutMs);

@@ -6,6 +6,7 @@ import {
   OllamaEmbeddingResponseSchema,
 } from './boundary-validation.js';
 import { config } from './config.js';
+import { createDownloadIndicator, trackModelDownload } from './model-download-progress.js';
 import {
   createEstimatedTokenCounter,
   createOpenAiTokenCounter,
@@ -238,15 +239,25 @@ async function getLocalPipeline() {
       // @huggingface/transformers v3 does not read HF_HOME — env.cacheDir must be set explicitly.
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- @huggingface/transformers has no TypeScript types
       hf.env.cacheDir = getCacheDir();
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return -- @huggingface/transformers has no TypeScript types
-      return hf.pipeline('feature-extraction', config.localModel, {
-        // device:'cpu' avoids silent fp32 fallback that occurs when 'auto' selects
-        // an EP (CoreML/CUDA) that doesn't support the model's ONNX opsets.
-        device: 'cpu',
-        // dtype:'q8' loads model_quantized.onnx (~30 MB) instead of the fp32
-        // model.onnx (~470 MB), halving RSS with no meaningful quality drop.
-        dtype: 'q8',
-      });
+      const download = trackModelDownload(
+        config.localModel,
+        getCacheDir(),
+        createDownloadIndicator('Downloading embedding model'),
+      );
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return -- @huggingface/transformers has no TypeScript types
+        return await hf.pipeline('feature-extraction', config.localModel, {
+          // device:'cpu' avoids silent fp32 fallback that occurs when 'auto' selects
+          // an EP (CoreML/CUDA) that doesn't support the model's ONNX opsets.
+          device: 'cpu',
+          // dtype:'q8' loads model_quantized.onnx (~30 MB) instead of the fp32
+          // model.onnx (~470 MB), halving RSS with no meaningful quality drop.
+          dtype: 'q8',
+          progress_callback: download.update,
+        });
+      } finally {
+        download.finish();
+      }
     })();
   }
   try {

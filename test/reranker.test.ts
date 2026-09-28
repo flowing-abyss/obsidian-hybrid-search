@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Set vault path before any imports that read config
 process.env.OBSIDIAN_VAULT_PATH = '/tmp/ohs-reranker-test';
 delete process.env.RERANKER_MODEL;
 
 vi.mock('@huggingface/transformers', () => ({
-  env: { cacheDir: '' },
+  env: { cacheDir: '', logLevel: 30 },
+  LogLevel: { ERROR: 40 },
   AutoTokenizer: {
     from_pretrained: vi.fn().mockResolvedValue(
       // Mock tokenizer function
@@ -266,9 +267,10 @@ describe('CrossEncoderReranker._loadModel', () => {
         },
       ],
     ]);
-    assert.deepStrictEqual(AutoModelForSequenceClassification.from_pretrained.mock.calls, [
-      ['onnx-community/bge-reranker-v2-m3-ONNX', { dtype: 'int8', device: 'cpu' }],
-    ]);
+    expect(AutoModelForSequenceClassification.from_pretrained).toHaveBeenCalledWith(
+      'onnx-community/bge-reranker-v2-m3-ONNX',
+      expect.objectContaining({ dtype: 'int8', device: 'cpu' }),
+    );
   });
 
   it.each([256, 512])('passes an explicit %i-token cap to the tokenizer', async (maxLength) => {
@@ -398,9 +400,10 @@ describe('GTE default reranker', () => {
     ]);
 
     assert.deepStrictEqual(scores, [2, -3]);
-    assert.deepStrictEqual(AutoModel.from_pretrained.mock.calls, [
-      ['onnx-community/gte-multilingual-reranker-base', { dtype: 'int8', device: 'cpu' }],
-    ]);
+    expect(AutoModel.from_pretrained).toHaveBeenCalledWith(
+      'onnx-community/gte-multilingual-reranker-base',
+      expect.objectContaining({ dtype: 'int8', device: 'cpu' }),
+    );
     assert.deepStrictEqual(tokenizerFn.mock.calls, [
       [
         ['internal links', 'internal links'],
