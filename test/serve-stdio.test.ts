@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, it } from 'vitest';
+import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 import type { SearchFunction, StdioResponse } from '../src/stdio-server.js';
 import { handleStdioLine } from '../src/stdio-server.js';
 
@@ -105,10 +105,116 @@ describe('handleStdioLine — status action', () => {
     assert.strictEqual(resp.id, '10');
     assert.ok(resp.error?.includes('status is not available'));
   });
+});
 
-  it('treats an unknown action as a search request so validation stays specific', async () => {
-    const resp = await processStatusLine('{"id":"11","action":"explode"}', () => ({}));
-    assert.ok(resp.error?.includes('query'));
+describe('handleStdioLine — explicit action dispatch', () => {
+  async function dispatch(request: unknown) {
+    const searchFn = vi.fn<SearchFunction>().mockResolvedValue([]);
+    const statusFn = vi.fn(() => ({ total: 2 }));
+    const lines: string[] = [];
+    await handleStdioLine(JSON.stringify(request), searchFn, (line) => lines.push(line), statusFn);
+    assert.equal(lines.length, 1);
+    return { response: parseResponse(lines[0] ?? null), searchFn, statusFn };
+  }
+
+  for (const action of ['reindex', '', 'SEARCH', ' status ', null, false, 0, 1, [], {}]) {
+    for (const fields of [{}, { query: 'alpha' }, { query: 42, options: { limit: 'x' } }]) {
+      it(`rejects action ${JSON.stringify(action)} with ${JSON.stringify(fields)}`, async () => {
+        const { response, searchFn, statusFn } = await dispatch({ id: 'bad', action, ...fields });
+        assert.deepEqual(response, {
+          id: 'bad',
+          error:
+            typeof action === 'string'
+              ? `unknown action: ${action}`
+              : 'Invalid stdio request: action must be a string',
+        });
+        assert.equal(searchFn.mock.calls.length, 0);
+        assert.equal(statusFn.mock.calls.length, 0);
+      });
+    }
+  }
+
+  for (const id of [undefined, 9, '']) {
+    for (const action of ['reindex', false]) {
+      it(`preserves ID convention for ${JSON.stringify({ id, action })}`, async () => {
+        const { response, searchFn, statusFn } = await dispatch({ id, action, query: 42 });
+        assert.deepEqual(response, {
+          id: typeof id === 'string' ? id : 'unknown',
+          error:
+            typeof action === 'string'
+              ? `unknown action: ${action}`
+              : 'Invalid stdio request: action must be a string',
+        });
+        assert.equal(searchFn.mock.calls.length, 0);
+        assert.equal(statusFn.mock.calls.length, 0);
+      });
+    }
+  }
+
+  for (const action of [undefined, 'search']) {
+    it(`routes ${String(action)} to search`, async () => {
+      const { response, searchFn, statusFn } = await dispatch({
+        id: 'search',
+        action,
+        query: 'alpha',
+        options: { mode: 'fulltext', limit: 3 },
+      });
+      assert.deepEqual(response, { id: 'search', results: [] });
+      assert.deepEqual(searchFn.mock.calls, [['alpha', { mode: 'fulltext', limit: 3 }]]);
+      assert.equal(statusFn.mock.calls.length, 0);
+    });
+    it(`validates missing query for ${String(action)}`, async () => {
+      const { response, searchFn, statusFn } = await dispatch({ id: 'missing', action });
+      assert.equal(response.id, 'missing');
+      assert.match(response.error ?? '', /^Invalid stdio request: query /);
+      assert.equal(searchFn.mock.calls.length, 0);
+      assert.equal(statusFn.mock.calls.length, 0);
+    });
+  }
+
+  it('status ignores unrelated invalid search fields', async () => {
+    const { response, searchFn, statusFn } = await dispatch({
+      id: 'status',
+      action: 'status',
+      query: 42,
+      options: { limit: 'x' },
+    });
+    assert.deepEqual(response, { id: 'status', status: { total: 2 } });
+    assert.equal(searchFn.mock.calls.length, 0);
+    assert.equal(statusFn.mock.calls.length, 1);
+  });
+
+  for (const fields of [{}, { query: 'alpha' }, { query: 42, options: { limit: 'x' } }]) {
+    it(`validates only status fields for ${JSON.stringify(fields)}`, async () => {
+      const { response, searchFn, statusFn } = await dispatch({
+        id: 9,
+        action: 'status',
+        ...fields,
+      });
+      assert.equal(response.id, 'unknown');
+      assert.match(response.error ?? '', /^Invalid stdio request: id /);
+      assert.doesNotMatch(response.error ?? '', /query|options/);
+      assert.equal(searchFn.mock.calls.length, 0);
+      assert.equal(statusFn.mock.calls.length, 0);
+    });
+  }
+
+  it('keeps status callback exceptions inside the response envelope', async () => {
+    const lines: string[] = [];
+    const searchFn = vi.fn<SearchFunction>().mockResolvedValue([]);
+    await handleStdioLine(
+      '{"id":"status-error","action":"status"}',
+      searchFn,
+      (line) => lines.push(line),
+      () => {
+        throw new Error('status failed');
+      },
+    );
+    assert.deepEqual(
+      lines.map((line) => parseResponse(line)),
+      [{ id: 'status-error', error: 'status failed' }],
+    );
+    assert.equal(searchFn.mock.calls.length, 0);
   });
 });
 
