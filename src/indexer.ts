@@ -397,8 +397,9 @@ async function resolveAllLinks(): Promise<void> {
     content: string;
     frontmatter: string;
   }[];
+  const resolve = createWikilinkResolver();
   for (const note of notes) {
-    const links = resolveWikilinks((note.frontmatter || '') + '\n' + note.content, note.path);
+    const links = resolve((note.frontmatter || '') + '\n' + note.content, note.path);
     upsertLinks(note.path, links);
   }
 }
@@ -906,12 +907,16 @@ function minPositiveIndex(first: number, second: number, fallback: number): numb
   return indexes.length > 0 ? Math.min(...indexes) : fallback;
 }
 
-// eslint-disable-next-line sonarjs/cognitive-complexity -- wikilink resolution requires O(N) alias/title lookups
-export function resolveWikilinks(content: string, fromPath: string): string[] {
-  const db = getDb();
-  const raw = parseWikilinks(content);
-  if (raw.length === 0) return [];
+interface WikiCatalog {
+  pathSet: Set<string>;
+  titleMap: Map<string, string>;
+  basenameMap: Map<string, string>;
+  suffixMap: Map<string, string>;
+  aliasMap: Map<string, string>;
+}
 
+function loadWikiCatalog(): WikiCatalog {
+  const db = getDb();
   // Load all paths, titles and aliases once — O(1) lookups instead of N queries
   const allNotes = db.prepare('SELECT path, title, aliases FROM notes').all() as {
     path: string;
@@ -961,6 +966,12 @@ export function resolveWikilinks(content: string, fromPath: string): string[] {
     }
   }
 
+  return { pathSet, titleMap, basenameMap, suffixMap, aliasMap };
+}
+
+function resolveWikiTargets(raw: string[], fromPath: string, catalog: WikiCatalog): string[] {
+  const { pathSet, titleMap, basenameMap, suffixMap, aliasMap } = catalog;
+
   const resolved: string[] = [];
   for (const rawTarget of raw) {
     const target = rawTarget.normalize('NFD');
@@ -1006,4 +1017,18 @@ export function resolveWikilinks(content: string, fromPath: string): string[] {
   }
 
   return [...new Set(resolved)];
+}
+
+function createWikilinkResolver(): (content: string, fromPath: string) => string[] {
+  let catalog: WikiCatalog | undefined;
+  return (content, fromPath) => {
+    const raw = parseWikilinks(content);
+    if (raw.length === 0) return [];
+    catalog ??= loadWikiCatalog();
+    return resolveWikiTargets(raw, fromPath, catalog);
+  };
+}
+
+export function resolveWikilinks(content: string, fromPath: string): string[] {
+  return createWikilinkResolver()(content, fromPath);
 }
