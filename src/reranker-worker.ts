@@ -48,6 +48,9 @@ async function execute(message: WorkerRequest): Promise<unknown> {
       (progress) => {
         process.send?.({ id: message.id, progress });
       },
+      (download) => {
+        process.send?.({ id: message.id, download });
+      },
     );
     return true;
   }

@@ -1,6 +1,11 @@
 import os from 'node:os';
 import path from 'node:path';
 import { DEFAULT_RERANKER_MODEL } from './config.js';
+import {
+  createDownloadIndicator,
+  trackModelDownload,
+  type DownloadReporter,
+} from './model-download-progress.js';
 
 export interface RerankerInput {
   text: string;
@@ -29,7 +34,8 @@ interface ModelLoader {
   ): Promise<Model>;
 }
 interface Transformers {
-  env: { cacheDir: string };
+  env: { cacheDir: string; logLevel: number };
+  LogLevel: { ERROR: number };
   AutoTokenizer: {
     from_pretrained(
       name: string,
@@ -45,40 +51,61 @@ export async function loadRerankerModel(
   maxLength: number,
   device: 'cpu' | 'webgpu',
   progress?: (phase: 'download' | 'loading') => void,
+  onDownload?: DownloadReporter,
 ): Promise<RerankerPipeline> {
-  const { AutoTokenizer, PreTrainedModel, AutoModelForSequenceClassification, env } =
+  const { AutoTokenizer, PreTrainedModel, AutoModelForSequenceClassification, env, LogLevel } =
     (await import('@huggingface/transformers')) as unknown as Transformers;
   env.cacheDir = path.join(os.homedir(), '.cache', 'huggingface');
+  // Progress metadata probes warn about GTE's supported encoder-only fallback.
+  // Keep library diagnostics at error level without changing the model config.
+  env.logLevel = Math.max(env.logLevel, LogLevel.ERROR);
   // AutoModel delegates GTE's unknown "new" architecture to this same base class,
   // but prints a warning first. Loading it directly preserves the ONNX graph.
   const loader =
     modelName === DEFAULT_RERANKER_MODEL ? PreTrainedModel : AutoModelForSequenceClassification;
   let tokenizer: Tokenizer;
   let model: Model;
-  if (device === 'webgpu') {
-    // GPU routing is limited to GTE's single embedded-data ONNX artifact. Keep
-    // tokenizer downloads outside native session creation so concurrent file
-    // completion cannot shorten another download's budget or extend a GPU hang.
-    progress?.('download');
-    model = await loader.from_pretrained(modelName, {
-      dtype: 'fp16',
-      device,
-      progress_callback: (raw) => {
-        const event = raw as { status?: string; file?: string };
-        if (event.status === 'done' && event.file?.endsWith('.onnx')) progress?.('loading');
-        else if (['initiate', 'download', 'progress'].includes(event.status ?? ''))
+  const download = trackModelDownload(
+    modelName,
+    env.cacheDir,
+    onDownload ?? createDownloadIndicator('Downloading reranker model'),
+  );
+  try {
+    if (device === 'webgpu') {
+      // GPU routing is limited to GTE's single embedded-data ONNX artifact. Keep
+      // tokenizer downloads outside native session creation so concurrent file
+      // completion cannot shorten another download's budget or extend a GPU hang.
+      progress?.('download');
+      model = await loader.from_pretrained(modelName, {
+        dtype: 'fp16',
+        device,
+        progress_callback: (raw) => {
+          download.update(raw);
+          const event = raw as { status?: string; file?: string };
+          if (event.status === 'done' && event.file?.endsWith('.onnx')) progress?.('loading');
+          else if (['initiate', 'download', 'progress'].includes(event.status ?? ''))
+            progress?.('download');
+        },
+      });
+      progress?.('download');
+      tokenizer = await AutoTokenizer.from_pretrained(modelName, {
+        progress_callback: (raw) => {
+          download.update(raw);
           progress?.('download');
-      },
-    });
-    progress?.('download');
-    tokenizer = await AutoTokenizer.from_pretrained(modelName, {
-      progress_callback: () => progress?.('download'),
-    });
-  } else {
-    [tokenizer, model] = await Promise.all([
-      AutoTokenizer.from_pretrained(modelName),
-      loader.from_pretrained(modelName, { dtype: 'int8', device }),
-    ]);
+        },
+      });
+    } else {
+      [tokenizer, model] = await Promise.all([
+        AutoTokenizer.from_pretrained(modelName, { progress_callback: download.update }),
+        loader.from_pretrained(modelName, {
+          dtype: 'int8',
+          device,
+          progress_callback: download.update,
+        }),
+      ]);
+    }
+  } finally {
+    download.finish();
   }
   return async (inputs) => {
     const encoded = tokenizer(
