@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { it } from 'vitest';
+import { it, vi } from 'vitest';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const cli = path.join(root, 'dist/src/cli.js');
@@ -79,6 +79,19 @@ it('keeps CLI MCP responses valid and model downloads silent even with terminal 
       fs.writeFileSync(path.join(vault, `${name}.md`), `# ${name}\nInternal links connect notes.`);
     }
     await client.connect(transport, { timeout: 5000 });
+    // MCP accepts requests before its initial background indexing has finished.
+    await vi.waitFor(
+      async () => {
+        const status = await client.callTool({ name: 'status', arguments: {} }, undefined, {
+          timeout: 2000,
+        });
+        assert.ok(!status.isError);
+        const content = status.content as Array<{ type: string; text?: string }>;
+        const payload = JSON.parse(content[0]?.text ?? '') as { indexed: number };
+        assert.equal(payload.indexed, 3);
+      },
+      { timeout: 5000, interval: 50 },
+    );
     const response = await client.callTool(
       {
         name: 'search',
