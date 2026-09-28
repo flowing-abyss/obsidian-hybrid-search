@@ -994,7 +994,13 @@ describe('issue #55 – index entry points and saved-version migration', () => {
     assert.equal(result.indexed, 0);
     assert.deepEqual(savedRows(survivorPaths), before);
     assert.deepEqual(linkRows(), linksBefore);
-    cleanupStaleNotes(new Set(scanVault().map((f) => path.relative(vaultDir, f).normalize('NFD'))));
+    cleanupStaleNotes(
+      new Set(
+        scanVault().map((f) =>
+          path.relative(vaultDir, f).split(path.sep).join('/').normalize('NFD'),
+        ),
+      ),
+    );
     const repeated = await indexVaultSync();
     assert.deepEqual(repeated.errors, []);
     assert.equal(repeated.indexed, 0);
