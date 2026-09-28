@@ -130,12 +130,14 @@ describe('final wiki-link repair catalog', () => {
     getDb()
       .prepare('UPDATE notes SET title = ?, aliases = ? WHERE path = ?')
       .run('New Title', '{invalid JSON', 'target.md');
-    assert.deepEqual(resolveWikilinks('[[new title]] [[new alias]]', 'source.md'), ['target.md']);
+    assert.deepEqual(resolveWikilinks('[[new title]]', 'source.md'), ['target.md']);
+    assert.deepEqual(resolveWikilinks('[[new alias]]', 'source.md'), []);
 
     getDb()
       .prepare('UPDATE notes SET title = ?, aliases = ? WHERE path = ?')
       .run('Changed Title', '["new alias"]', 'target.md');
-    assert.deepEqual(resolveWikilinks('[[new title]] [[new alias]]', 'source.md'), ['target.md']);
+    assert.deepEqual(resolveWikilinks('[[new title]]', 'source.md'), []);
+    assert.deepEqual(resolveWikilinks('[[new alias]]', 'source.md'), ['target.md']);
     assert.deepEqual(resolveWikilinks('[[changed title]]', 'source.md'), ['target.md']);
   });
 
