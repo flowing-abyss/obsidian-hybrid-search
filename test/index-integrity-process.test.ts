@@ -1,11 +1,11 @@
 import Database from 'better-sqlite3';
 import assert from 'node:assert/strict';
-import { execFile, spawn } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as sqliteVec from 'sqlite-vec';
 import { afterEach, beforeEach, it } from 'vitest';
 
@@ -18,6 +18,7 @@ let unavailable = false;
 let bDim = 8;
 let requests: Array<{ model: string; input: string[] }> = [];
 let server: ReturnType<typeof createServer>;
+let activeWriter: { child: ChildProcess; closed: Promise<void> } | undefined;
 
 beforeEach(async () => {
   vault = mkdtempSync(path.join(tmpdir(), 'ohs-integrity-process-'));
@@ -64,6 +65,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  if (activeWriter) await stopWriter(activeWriter);
   await new Promise<void>((resolve, reject) =>
     server.close((err) => (err ? reject(err) : resolve())),
   );
@@ -76,6 +78,82 @@ function cleanProviderEnv(): NodeJS.ProcessEnv {
     if (/^(OPENAI_|LOCAL_EMBEDDING_|OBSIDIAN_)/.test(key)) delete env[key];
   }
   return env;
+}
+
+function startWriter(script: string): {
+  child: ChildProcess;
+  closed: Promise<void>;
+  stderr: () => string;
+} {
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: vault,
+    env: { ...cleanProviderEnv(), OBSIDIAN_VAULT_PATH: vault },
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+  });
+  let output = '';
+  child.stderr?.on('data', (chunk: Buffer) => {
+    output += chunk.toString('utf8');
+  });
+  const closed = new Promise<void>((resolve) =>
+    child.once('close', () => {
+      if (activeWriter?.child === child) activeWriter = undefined;
+      resolve();
+    }),
+  );
+  activeWriter = { child, closed };
+  return { child, closed, stderr: () => output };
+}
+
+function waitForWriterMessage(
+  child: ChildProcess,
+  phase: string,
+  stderr: () => string,
+  timeoutMs = 5_000,
+): Promise<{ kind: string; error?: string }> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.off('message', onMessage);
+      child.off('error', onError);
+      child.off('exit', onExit);
+    };
+    const fail = (reason: string) => {
+      cleanup();
+      const output = stderr();
+      reject(new Error(reason + (output ? '\n' + output : '')));
+    };
+    const onMessage = (message: unknown) => {
+      cleanup();
+      resolve(message as { kind: string; error?: string });
+    };
+    const onError = (error: Error) => fail(`Writer failed before ${phase}: ${error.message}`);
+    const onExit = (code: number | null) => fail(`Writer exited before ${phase}: ${code}`);
+    const timer = setTimeout(() => fail(`Writer timed out waiting for ${phase}`), timeoutMs);
+    child.once('message', onMessage);
+    child.once('error', onError);
+    child.once('exit', onExit);
+  });
+}
+
+async function stopWriter(writer: { child: ChildProcess; closed: Promise<void> }): Promise<void> {
+  const { child, closed } = writer;
+  if (child.exitCode === null && child.signalCode === null) child.kill();
+  const escalation = setTimeout(() => child.kill('SIGKILL'), 1_000);
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      closed,
+      new Promise<never>((_, reject) => {
+        deadline = setTimeout(
+          () => reject(new Error('Writer did not close after termination')),
+          4_000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(escalation);
+    clearTimeout(deadline);
+  }
 }
 
 function runCli(
@@ -270,7 +348,7 @@ it('ordinary fresh reindex retains provider-failure behavior without implicit fo
 it('an already-open writer reads a changed model marker inside its write transaction', async () => {
   await seedA();
   const script = `
-    import { openDb, closeDb, upsertNote } from ${JSON.stringify(path.join(ROOT, 'dist/src/db.js'))};
+    import { openDb, closeDb, upsertNote } from ${JSON.stringify(pathToFileURL(path.join(ROOT, 'dist/src/db.js')).href)};
     openDb();
     process.send({ kind: 'ready' });
     process.on('message', (message) => {
@@ -285,20 +363,11 @@ it('an already-open writer reads a changed model marker inside its write transac
       } finally { closeDb(); process.disconnect(); }
     });
   `;
-  const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
-    cwd: vault,
-    env: { ...cleanProviderEnv(), OBSIDIAN_VAULT_PATH: vault },
-    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-  });
+  const writer = startWriter(script);
+  const { child, stderr } = writer;
   try {
-    await new Promise<void>((resolve, reject) => {
-      child.once('error', reject);
-      child.once('exit', (code) => reject(new Error(`Writer exited before ready: ${code}`)));
-      child.once('message', (message: { kind: string }) => {
-        if (message.kind === 'ready') resolve();
-        else reject(new Error(`Writer did not open: ${JSON.stringify(message)}`));
-      });
-    });
+    const ready = await waitForWriterMessage(child, 'ready', stderr);
+    assert.equal(ready.kind, 'ready', JSON.stringify(ready));
     const db = new Database(path.join(vault, '.obsidian-hybrid-search.db'));
     try {
       db.prepare("UPDATE settings SET value='model-B' WHERE key='embedding_model'").run();
@@ -306,16 +375,39 @@ it('an already-open writer reads a changed model marker inside its write transac
       db.close();
     }
     const before = snapshot();
-    const result = await new Promise<{ kind: string; error?: string }>((resolve, reject) => {
-      child.once('error', reject);
-      child.once('exit', (code) => reject(new Error(`Writer exited before reply: ${code}`)));
-      child.once('message', resolve);
-      child.send('write');
-    });
+    const reply = waitForWriterMessage(child, 'reply', stderr);
+    child.send('write');
+    const result = await reply;
     assert.equal(result.kind, 'rejected', JSON.stringify(result));
     assert.match(result.error ?? '', /model.*mismatch/i);
     assert.deepEqual(snapshot(), before);
   } finally {
-    child.kill();
+    await stopWriter(writer);
+  }
+});
+
+it('a stalled child times out and closes before the vault is removed', async () => {
+  const writer = startWriter('setInterval(() => {}, 1000);');
+  try {
+    await assert.rejects(
+      waitForWriterMessage(writer.child, 'ready', writer.stderr, 150),
+      /timed out waiting for ready/,
+    );
+  } finally {
+    await stopWriter(writer);
+  }
+});
+
+it('an early child exit includes stderr in the IPC failure', async () => {
+  const writer = startWriter(
+    "process.stderr.write('synthetic writer failure\\n'); process.exit(7);",
+  );
+  try {
+    await assert.rejects(
+      waitForWriterMessage(writer.child, 'ready', writer.stderr),
+      /exited before ready: 7[\s\S]*synthetic writer failure/,
+    );
+  } finally {
+    await stopWriter(writer);
   }
 });
