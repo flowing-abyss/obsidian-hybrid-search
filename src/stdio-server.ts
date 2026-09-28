@@ -44,15 +44,30 @@ export async function handleStdioLine(
       id = raw.id;
     }
 
-    // Status requests are matched first and separately so that search requests keep
-    // reporting field-level validation errors rather than an opaque union error.
-    if (StdioStatusRequestSchema.safeParse(raw).success) {
-      if (!statusFn) {
-        writeLine(JSON.stringify({ id, error: 'status is not available on this server' }));
+    if (isRecord(raw) && Object.hasOwn(raw, 'action')) {
+      if (typeof raw.action !== 'string') {
+        writeLine(JSON.stringify({ id, error: 'Invalid stdio request: action must be a string' }));
         return;
       }
-      writeLine(JSON.stringify({ id, status: await statusFn() }));
-      return;
+      if (raw.action !== 'search' && raw.action !== 'status') {
+        writeLine(JSON.stringify({ id, error: `unknown action: ${raw.action}` }));
+        return;
+      }
+      if (raw.action === 'status') {
+        const parsed = StdioStatusRequestSchema.safeParse(raw);
+        if (!parsed.success) {
+          writeLine(
+            JSON.stringify({ id, error: formatValidationError('stdio request', parsed.error) }),
+          );
+          return;
+        }
+        if (!statusFn) {
+          writeLine(JSON.stringify({ id, error: 'status is not available on this server' }));
+          return;
+        }
+        writeLine(JSON.stringify({ id, status: await statusFn() }));
+        return;
+      }
     }
 
     const parsed = StdioRequestSchema.safeParse(raw);
