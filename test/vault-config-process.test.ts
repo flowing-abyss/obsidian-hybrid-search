@@ -49,12 +49,15 @@ type Snapshot = {
   fts: unknown[];
 };
 type Request = { model: string; input: string[]; path: string };
-type ChildHandle = {
+type ProcessWatch = {
+  exited: () => boolean;
+  stderr: () => string;
+  error: () => Error | undefined;
+};
+type ChildHandle = ProcessWatch & {
   child: ChildProcess;
   close: Promise<void>;
   stdout: () => string;
-  stderr: () => string;
-  error: () => Error | undefined;
   stop(): Promise<void>;
 };
 
@@ -117,12 +120,36 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  for (const cleanup of cleanupCallbacks) await cleanup();
-  for (const child of children) await child.stop();
-  await new Promise<void>((resolve, reject) =>
-    provider.close((error) => (error ? reject(error) : resolve())),
-  );
-  rmSync(root, { recursive: true, force: true });
+  const failures: unknown[] = [];
+  for (const cleanup of [...cleanupCallbacks]) {
+    try {
+      await cleanup();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  for (const child of [...children]) {
+    try {
+      await child.stop();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  try {
+    await new Promise<void>((resolve, reject) =>
+      provider.close((error) => (error ? reject(error) : resolve())),
+    );
+  } catch (error) {
+    failures.push(error);
+  }
+  if (cleanupCallbacks.size === 0 && children.size === 0) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length > 0) throw new AggregateError(failures, 'fixture teardown failed');
 });
 
 function childEnv(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -221,10 +248,11 @@ function setDbSetting(vault: string, key: string, value: string): void {
   }
 }
 
-function deleteDbSetting(vault: string, key: string): void {
-  const db = new Database(path.join(vault, DB_NAME));
+function changeLocatorSetting(dbFile: string, key: string, value?: string): void {
+  const db = new Database(dbFile);
   try {
-    db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+    if (value === undefined) db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+    else db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
   } finally {
     db.close();
   }
@@ -283,13 +311,20 @@ function startChild(
   child.once('error', (error: Error) => {
     processError = error;
   });
-  const close = new Promise<void>((resolve) => child.once('close', () => resolve()));
+  let closed = false;
+  const close = new Promise<void>((resolve) =>
+    child.once('close', () => {
+      closed = true;
+      resolve();
+    }),
+  );
   const handle: ChildHandle = {
     child,
     close,
     stdout: () => stdout,
     stderr: () => stderr,
     error: () => processError,
+    exited: () => child.exitCode !== null || child.signalCode !== null,
     async stop() {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
       const escalation = setTimeout(() => child.kill('SIGKILL'), 1_000);
@@ -304,7 +339,7 @@ function startChild(
       } finally {
         clearTimeout(escalation);
         clearTimeout(deadline);
-        children.delete(handle);
+        if (closed) children.delete(handle);
       }
     },
   };
@@ -314,16 +349,16 @@ function startChild(
 
 async function pollUntil(
   check: () => boolean | Promise<boolean>,
-  handle?: ChildHandle,
+  handle?: ProcessWatch,
 ): Promise<void> {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const processError = handle?.error();
     if (processError) throw processError;
-    if (await check()) return;
-    if (handle && (handle.child.exitCode !== null || handle.child.signalCode !== null)) {
+    if (handle?.exited()) {
       throw new Error(`child exited before completion: ${handle.stderr()}`);
     }
+    if (await check()) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`timed out waiting for startup completion: ${handle?.stderr() ?? ''}`);
@@ -512,7 +547,12 @@ async function startStdioMcp(
   args: string[],
   cwd: string,
   env: NodeJS.ProcessEnv,
-): Promise<{ client: Client; stop(): Promise<void>; stderr(): string }> {
+): Promise<{
+  client: Client;
+  close: Promise<void>;
+  monitor: ProcessWatch;
+  stop(): Promise<void>;
+}> {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [executable, ...args],
@@ -523,38 +563,71 @@ async function startStdioMcp(
     stderr: 'pipe',
   });
   let stderr = '';
+  let processError: Error | undefined;
+  let closed = false;
+  const close = new Promise<void>((resolve) => {
+    transport.onclose = () => {
+      closed = true;
+      resolve();
+    };
+  });
+  transport.onerror = (error) => {
+    processError = error;
+  };
   transport.stderr?.on('data', (chunk: Buffer) => {
     stderr += chunk.toString('utf8');
   });
   const client = new Client({ name: 'vault-config-process-test', version: '1.0.0' });
+  const monitor: ProcessWatch = {
+    exited: () => closed,
+    error: () => processError,
+    stderr: () => stderr,
+  };
+  let childPid: number | null = null;
+  let sdkClose: Promise<void> | undefined;
+  let closeError: unknown;
+  let closeFailed = false;
   const stop = async () => {
-    const pid = transport.pid;
+    const pid = childPid ?? transport.pid;
+    sdkClose ??= client.close().catch((error: unknown) => {
+      closeFailed = true;
+      closeError = error;
+    });
+    const signal = (name: NodeJS.Signals) => {
+      if (closed || pid === null) return;
+      try {
+        process.kill(pid, name);
+      } catch {
+        /* The fixture child already exited. */
+      }
+    };
+    signal('SIGTERM');
+    const escalation = setTimeout(() => signal('SIGKILL'), 1_000);
     let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
-        client.close(),
+        close,
         new Promise<never>((_, reject) => {
           deadline = setTimeout(
-            () => reject(new Error(`MCP child did not close: ${stderr}`)),
+            () => reject(new Error(`MCP child did not close within 4 seconds: ${stderr}`)),
             4_000,
           );
         }),
       ]);
-    } finally {
-      clearTimeout(deadline);
-      if (pid !== null) {
-        try {
-          process.kill(pid, 'SIGTERM');
-        } catch {
-          /* Already closed. */
-        }
+      await sdkClose;
+      if (closeFailed) {
+        throw closeError instanceof Error ? closeError : new Error(String(closeError));
       }
-      cleanupCallbacks.delete(stop);
+    } finally {
+      clearTimeout(escalation);
+      clearTimeout(deadline);
+      if (closed) cleanupCallbacks.delete(stop);
     }
   };
   cleanupCallbacks.add(stop);
   await client.connect(transport, { timeout: 5_000 });
-  return { client, stop, stderr: () => stderr };
+  childPid = transport.pid;
+  return { client, close, monitor, stop };
 }
 
 async function freePort(): Promise<number> {
@@ -583,7 +656,7 @@ async function connectHttp(port: number): Promise<{ client: Client; stop(): Prom
   };
 }
 
-async function waitForIndex(handle?: ChildHandle): Promise<void> {
+async function waitForIndex(handle?: ProcessWatch): Promise<void> {
   await pollUntil(() => dbSetting(vaultA, 'last_indexed') !== 'before-startup', handle);
 }
 
@@ -623,10 +696,12 @@ it.each(restartCases)(
         env,
       );
       try {
-        await waitForIndex();
+        await waitForIndex(mcp.monitor);
         assertAStatus(await mcpStatus(mcp.client));
       } finally {
         await mcp.stop();
+        await mcp.close;
+        assert.ok(mcp.monitor.exited(), 'MCP child must close before snapshot reads');
       }
     } else {
       let port = await freePort();
@@ -850,31 +925,40 @@ it('fresh no-env .obsidian vault supports ordinary reindex and serve', async () 
   }
 }, 30_000);
 
-it('no-env copy.db locator uses canonical A defaults', async () => {
+it('no-env copy.db locator uses canonical A defaults despite B locator settings', async () => {
   const { beforeA, beforeB, beforeSearch } = await seedPair(LEGACY_CLI);
-  copyFileSync(path.join(vaultA, DB_NAME), path.join(vaultB, 'copy.db'));
+  const locator = path.join(vaultB, 'copy.db');
+  copyFileSync(path.join(vaultB, DB_NAME), locator);
+  changeLocatorSetting(locator, 'vault_path', vaultA);
   requests = [];
-  const status = await cliStatus(vaultB, {}, ['--db', path.join(vaultB, 'copy.db')]);
+  const status = await cliStatus(vaultB, {}, ['--db', locator]);
   assert.equal(status.vault, vaultA);
   assertAStatus(status);
   await assertPreserved(beforeA, beforeB, beforeSearch);
 }, 20_000);
 
-it('no-env locator without vault metadata stays in its directory', async () => {
-  await seedVault(vaultB, 'model-B', endpointB, 'keep.md', LEGACY_CLI);
-  deleteDbSetting(vaultB, 'vault_path');
-  const status = await cliStatus(vaultB, {}, ['--db', path.join(vaultB, DB_NAME)]);
+it('no-env copy.db locator without vault metadata uses B canonical defaults', async () => {
+  const { beforeA, beforeB } = await seedPair(LEGACY_CLI);
+  const locator = path.join(vaultB, 'copy.db');
+  copyFileSync(path.join(vaultA, DB_NAME), locator);
+  changeLocatorSetting(locator, 'vault_path');
+  const status = await cliStatus(vaultB, {}, ['--db', locator]);
   assert.equal(status.vault, vaultB);
   assert.equal(status.api_base_url, endpointB);
   assert.equal(status.active_model, 'model-B');
+  assert.deepEqual(status.ignore_patterns, ['keep.md']);
+  assert.deepEqual(snapshot(vaultA), beforeA);
+  assert.deepEqual(snapshot(vaultB), beforeB);
 }, 20_000);
 
 it('a locator with missing canonical A DB uses fresh A defaults', async () => {
   await seedVault(vaultA, 'model-A', endpointA, '', LEGACY_CLI);
   await seedVault(vaultB, 'model-B', endpointB, 'keep.md', LEGACY_CLI);
-  copyFileSync(path.join(vaultA, DB_NAME), path.join(vaultB, 'copy.db'));
+  const locator = path.join(vaultB, 'copy.db');
+  copyFileSync(path.join(vaultB, DB_NAME), locator);
+  changeLocatorSetting(locator, 'vault_path', vaultA);
   rmSync(path.join(vaultA, DB_NAME));
-  const status = await cliStatus(vaultB, {}, ['--db', path.join(vaultB, 'copy.db')]);
+  const status = await cliStatus(vaultB, {}, ['--db', locator]);
   assert.equal(status.vault, vaultA);
   assert.equal(status.api_base_url, null);
   assert.equal(status.active_model, 'local:Xenova/multilingual-e5-small');
