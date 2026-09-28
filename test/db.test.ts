@@ -64,6 +64,8 @@ const {
 const { searchBm25, searchFuzzyTitle, search } = await import('../src/searcher.js');
 const { isIgnored } = await import('../src/ignore.js');
 
+const { config } = await import('../src/config.js');
+
 // ─── Shared test fixtures ────────────────────────────────────────────────────
 
 const fakeEmbedding = new Float32Array([0.1, 0.2, 0.3, 0.4]);
@@ -1129,6 +1131,17 @@ describe('applyDbConfigDefaults', () => {
     }
   }
 
+  it('hydrates explicitly empty API URL and model from stored nonempty defaults', () => {
+    withCleanEnv(() => {
+      process.env.OPENAI_BASE_URL = '';
+      process.env.OPENAI_EMBEDDING_MODEL = '';
+      saveConfigMeta({ vaultPath: vaultDir, apiBaseUrl: OLLAMA_URL, apiModel: 'nomic-embed-text' });
+      applyDbConfigDefaults();
+      assert.equal(process.env.OPENAI_BASE_URL, OLLAMA_URL);
+      assert.equal(process.env.OPENAI_EMBEDDING_MODEL, 'nomic-embed-text');
+    });
+  });
+
   it('sets OPENAI_BASE_URL from DB when env var is absent and stored URL is non-default', () => {
     withCleanEnv(() => {
       saveConfigMeta({ vaultPath: vaultDir, apiBaseUrl: OLLAMA_URL, apiModel: 'nomic-embed-text' });
@@ -1391,6 +1404,56 @@ describe('restoreIgnorePatterns', () => {
     if (saved !== undefined) process.env.OBSIDIAN_IGNORE_PATTERNS = saved;
     else delete process.env.OBSIDIAN_IGNORE_PATTERNS;
   });
+});
+
+describe('actual DB ignore defaults', () => {
+  for (const { name, stored, explicit, expected } of [
+    {
+      name: 'preserves an explicit empty override',
+      stored: '["keep.md"]',
+      explicit: '',
+      expected: '',
+    },
+    {
+      name: 'restores saved patterns when absent',
+      stored: '["keep.md"]',
+      explicit: undefined,
+      expected: 'keep.md',
+    },
+    { name: 'restores an empty saved list', stored: '[]', explicit: undefined, expected: '' },
+    {
+      name: 'ignores malformed saved JSON',
+      stored: '{bad',
+      explicit: undefined,
+      expected: undefined,
+    },
+  ]) {
+    it(name, () => {
+      const savedEnv = process.env.OBSIDIAN_IGNORE_PATTERNS;
+      const savedSetting = getDb()
+        .prepare("SELECT value FROM settings WHERE key='ignore_patterns'")
+        .get() as { value: string } | undefined;
+      try {
+        getDb()
+          .prepare('INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)')
+          .run('ignore_patterns', stored);
+        if (explicit === undefined) delete process.env.OBSIDIAN_IGNORE_PATTERNS;
+        else process.env.OBSIDIAN_IGNORE_PATTERNS = explicit;
+        closeDb();
+        openDb();
+        assert.equal(process.env.OBSIDIAN_IGNORE_PATTERNS, expected);
+        if (expected === '') assert.deepEqual(config.ignorePatterns, []);
+      } finally {
+        if (savedEnv === undefined) delete process.env.OBSIDIAN_IGNORE_PATTERNS;
+        else process.env.OBSIDIAN_IGNORE_PATTERNS = savedEnv;
+        if (savedSetting)
+          getDb()
+            .prepare('INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)')
+            .run('ignore_patterns', savedSetting.value);
+        else getDb().prepare("DELETE FROM settings WHERE key='ignore_patterns'").run();
+      }
+    });
+  }
 });
 
 // ─── Markdown links and URLs ─────────────────────────────────────────────────
