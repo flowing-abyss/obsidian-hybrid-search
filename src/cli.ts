@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // organize-imports-ignore
 import './preflight.js';
-import Database from 'better-sqlite3';
 import Table from 'cli-table3';
 import { Command } from 'commander';
 import { exec } from 'node:child_process';
@@ -55,6 +54,7 @@ import { isAmbiguousNotePathError, readNotes, search } from './searcher.js';
 import { buildStatusPayload } from './status-payload.js';
 import { handleStdioLine } from './stdio-server.js';
 import { enableModelDownloadProgress } from './model-download-progress.js';
+import { discoverConfig } from './vault-config.js';
 
 const execAsync = promisify(exec);
 
@@ -249,92 +249,6 @@ interface ServeOpts {
   allowedHost?: string[];
   allowAnyHost?: boolean;
   foreground?: boolean;
-}
-
-/** Walk up from cwd looking for a file/dir with the given name. Returns the containing dir or undefined. */
-function walkUpFind(name: string): string | undefined {
-  let dir = process.cwd();
-  while (true) {
-    if (existsSync(path.join(dir, name))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) return undefined;
-    dir = parent;
-  }
-}
-
-/**
- * Find .obsidian-hybrid-search.db by walking up from dir,
- * read vault_path / api_base_url / api_model from its settings table,
- * and inject them into process.env (only if not already set).
- */
-function discoverConfig(dbPathOpt?: string): void {
-  let dbFile: string | undefined = dbPathOpt;
-
-  if (!dbFile) {
-    const vaultDir = walkUpFind('.obsidian-hybrid-search.db');
-    if (vaultDir) dbFile = path.join(vaultDir, '.obsidian-hybrid-search.db');
-  }
-
-  if (!dbFile) {
-    if (!process.env.OBSIDIAN_VAULT_PATH) {
-      const inferredVault = walkUpFind('.obsidian');
-      if (inferredVault) {
-        process.env.OBSIDIAN_VAULT_PATH = inferredVault;
-      } else {
-        console.error(
-          'Error: Could not find .obsidian-hybrid-search.db\n' +
-            'Run this command from inside your Obsidian vault, use --db <path>, or set OBSIDIAN_VAULT_PATH.',
-        );
-        process.exit(1);
-      }
-    }
-    return; // env vars already set — proceed normally
-  }
-
-  try {
-    // Open read-only without sqlite-vec (settings table needs no vector extension)
-    const db = new Database(dbFile, { readonly: true });
-    const get = (key: string) =>
-      (
-        db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
-          { value: string } | undefined
-      )?.value;
-
-    const vaultPath = get('vault_path');
-    const apiBaseUrl = get('api_base_url');
-    const apiModel = get('api_model');
-    const ignorePatternsJson = get('ignore_patterns');
-    db.close();
-
-    // Env vars take precedence over DB-stored values
-    if (vaultPath && !process.env.OBSIDIAN_VAULT_PATH) {
-      process.env.OBSIDIAN_VAULT_PATH = vaultPath;
-    }
-    // Only restore a non-default base URL — the default 'https://api.openai.com/v1'
-    // must not be written to process.env, because modelName detection in init()
-    // treats any truthy OPENAI_BASE_URL as "remote API configured" and skips local model.
-    if (apiBaseUrl && apiBaseUrl !== 'https://api.openai.com/v1' && !process.env.OPENAI_BASE_URL) {
-      process.env.OPENAI_BASE_URL = apiBaseUrl;
-    }
-    if (apiModel && !process.env.OPENAI_EMBEDDING_MODEL) {
-      process.env.OPENAI_EMBEDDING_MODEL = apiModel;
-    }
-    if (ignorePatternsJson && !process.env.OBSIDIAN_IGNORE_PATTERNS) {
-      try {
-        const patterns = JSON.parse(ignorePatternsJson) as string[];
-        process.env.OBSIDIAN_IGNORE_PATTERNS = patterns.join(',');
-      } catch {
-        // Invalid JSON, ignore
-      }
-    }
-
-    // Fallback: infer vault path from DB location if not stored in settings
-    if (!process.env.OBSIDIAN_VAULT_PATH) {
-      process.env.OBSIDIAN_VAULT_PATH = path.dirname(dbFile);
-    }
-  } catch {
-    // DB unreadable — let normal startup errors surface
-  }
 }
 
 async function init(): Promise<number> {

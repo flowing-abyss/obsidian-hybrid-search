@@ -496,7 +496,7 @@ function cleanupNfcPaths(db: DB): void {
 }
 
 function restoreIgnorePatterns(db: DB): void {
-  if (!process.env.OBSIDIAN_IGNORE_PATTERNS) {
+  if (process.env.OBSIDIAN_IGNORE_PATTERNS === undefined) {
     const stored = db.prepare("SELECT value FROM settings WHERE key = 'ignore_patterns'").get() as
       { value: string } | undefined;
     if (stored?.value) {

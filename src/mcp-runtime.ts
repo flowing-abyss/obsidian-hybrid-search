@@ -14,6 +14,7 @@ import {
 } from './boundary-validation.js';
 import { config } from './config.js';
 import {
+  applyDbConfigDefaults,
   getStats,
   getStoredEmbeddingDim,
   getStoredModel,
@@ -42,6 +43,7 @@ import {
   withIndexingDbLock,
 } from './indexer.js';
 import { isAmbiguousNotePathError, readNotes, search } from './searcher.js';
+import { validateVaultPath } from './vault-config.js';
 
 const _dir = dirname(fileURLToPath(import.meta.url));
 
@@ -94,8 +96,10 @@ export async function checkForUpdates(version = packageVersion): Promise<void> {
 }
 
 export async function createMcpRuntime(): Promise<McpRuntime> {
-  // Phase 1: open database
+  // Phase 1: validate the selected vault and restore its actual database defaults
+  validateVaultPath(process.env.OBSIDIAN_VAULT_PATH);
   openDb();
+  applyDbConfigDefaults();
 
   // Persist config metadata so the DB is self-describing
   saveConfigMeta({
