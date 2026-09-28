@@ -310,6 +310,16 @@ ohs read notes/pkm/zettelkasten.md --snippet-length 2000
 ohs read notes/pkm/zettelkasten.md --json
 ```
 
+### Reindexing and embedding models
+
+Ordinary `reindex` preserves the existing index when the configured embedding model differs from the model recorded in the database. Rejected updates keep the last successfully indexed note, including its vectors. Restore the original model configuration and run `reindex` again; unchanged files are still skipped.
+
+To intentionally change models or recreate the complete index, run `reindex --force` without a path. The command checks that the configured model can produce an embedding and uses its current vector dimension before replacing the database. If that preparation fails, the existing database is preserved. Once rebuilding starts, later per-note provider failures follow the usual failed-chunk behavior. For the MCP reindex tool, `force: true` without a path has the same full-replacement meaning.
+
+`reindex <path> --force` retries that file even if unchanged; it does not recreate the database or authorize a model change. `reindex --errors` retries notes with failed embeddings and also preserves the model compatibility check. An MCP reindex with both a path and `force: true` likewise retries only that file.
+
+Existing indexes without a recorded model remain usable without migration or mandatory reindex. Their model identity is unknown, so equal-dimension model changes cannot always be detected. These checks prevent future incompatible writes; they do not restore vectors already lost or change query behavior under a mismatched model configuration.
+
 ### Shell aliases
 
 Add to your `~/.zshrc` or `~/.bashrc` for quick access:

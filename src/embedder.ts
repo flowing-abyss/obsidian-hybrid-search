@@ -196,10 +196,12 @@ export async function getContextLength(): Promise<number> {
   return cachedContextLength;
 }
 
-export async function getEmbeddingDim(): Promise<number> {
-  if (cachedDim !== null) return cachedDim;
+export async function getEmbeddingDim(options: { refresh?: boolean } = {}): Promise<number> {
+  if (!options.refresh && cachedDim !== null) return cachedDim;
   const [embedding] = await embed(['dimension probe']);
-  if (!embedding) throw new Error('[embedder] dimension probe failed — embedding returned null');
+  if (!embedding || embedding.length === 0 || !embedding.every(Number.isFinite)) {
+    throw new Error('[embedder] dimension probe failed — no valid embedding returned');
+  }
   cachedDim = embedding.length;
   return cachedDim;
 }

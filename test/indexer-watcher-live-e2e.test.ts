@@ -22,7 +22,19 @@ const { closeDb, openDb, initVecTable, getDb } = await import('../src/db.js');
 const { config } = await import('../src/config.js');
 const embedder = await import('../src/embedder.js');
 vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
+vi.spyOn(embedder, 'embedDetailed').mockImplementation((texts: string[]) =>
+  Promise.resolve(
+    texts.map(() => ({
+      ok: true as const,
+      embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
+    })),
+  ),
+);
 vi.spyOn(embedder, 'getContextLength').mockResolvedValue(512);
+vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
+  limit: 508,
+  count: (text) => Math.ceil(Array.from(text).length / 4),
+});
 const { indexVaultSync, startWatcher } = await import('../src/indexer.js');
 
 // Shrink the 5s per-file debounce so the live test finishes quickly.
@@ -53,7 +65,16 @@ beforeAll(async () => {
   writeFileSync(path.join(abs('archive'), 'old.md'), '# gitignored');
   mkdirSync(abs('keep'), { recursive: true });
 
-  await indexVaultSync();
+  const result = await indexVaultSync();
+  assert.deepEqual(result.errors, [], 'initial indexing must not reject any notes');
+  const vectors = getDb().prepare('SELECT vec_length(embedding) AS dim FROM vec_chunks').all() as {
+    dim: number;
+  }[];
+  assert.ok(vectors.length > 0, 'initial indexing must persist embeddings');
+  assert.ok(
+    vectors.every((vector) => vector.dim === 4),
+    'embeddings must use the test dimension',
+  );
   startWatcher(512);
   await wait(600); // let the real watcher settle
 }, 30_000);

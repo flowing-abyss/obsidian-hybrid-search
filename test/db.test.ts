@@ -47,7 +47,6 @@ const {
   getNoteByPath,
   getDb,
   deleteNote,
-  checkModelChanged,
   getStats,
   getPathsToRemoveForIgnoreChange,
   saveConfigMeta,
@@ -880,52 +879,12 @@ describe('getPathsToRemoveForIgnoreChange', () => {
   });
 });
 
-// ─── checkModelChanged ───────────────────────────────────────────────────────
-
-describe('checkModelChanged', () => {
-  it('returns false when model unchanged', () => {
-    checkModelChanged('test-model-x');
-    assert.equal(checkModelChanged('test-model-x'), false, 'same model should return false');
-  });
-
-  it('returns true and wipes notes when model changes', () => {
-    // Set to model-A (may wipe DB if previous model differs)
-    checkModelChanged('test-model-a');
-    // Re-init vec table since checkModelChanged may have wiped it
-    initVecTable(4);
-    upsertNote({
-      path: 'model-test.md',
-      title: 'Model Test',
-      tags: [],
-      content: 'model test content',
-      mtime: Date.now(),
-      hash: 'mt',
-      chunks: [{ text: 'model test content', embedding: fakeEmbedding }],
-    });
-    const before = searchBm25('model test', 10);
-    assert.ok(
-      before.some((r) => r.path === 'model-test.md'),
-      'note should exist before model change',
-    );
-
-    const changed = checkModelChanged('test-model-b');
-    assert.equal(changed, true, 'different model should return true');
-
-    const after = searchBm25('model test', 10);
-    assert.ok(
-      !after.some((r) => r.path === 'model-test.md'),
-      'notes should be wiped after model change',
-    );
-  });
-});
-
 // ─── NFD path storage ────────────────────────────────────────────────────────
 
 describe('NFD path storage', () => {
   const nfdPath = 'notes/caf\u00e9-note.md'.normalize('NFD');
 
   beforeAll(() => {
-    // Vec table was wiped by model change above — recreate
     initVecTable(4);
     upsertNote({
       path: nfdPath,
@@ -1309,10 +1268,12 @@ describe('getStoredModel', () => {
     assert.equal(model, null);
   });
 
-  it('returns the stored model after checkModelChanged stores it', () => {
+  it('returns the recorded model', () => {
     wipeDatabaseFiles();
     openDb();
-    checkModelChanged('test-model-a');
+    getDb()
+      .prepare("INSERT INTO settings (key, value) VALUES ('embedding_model', 'test-model-a')")
+      .run();
     const model = getStoredModel();
     assert.equal(model, 'test-model-a');
   });
@@ -1540,28 +1501,36 @@ describe('markdown link and URL storage', () => {
 // ─── initVecTable dimension change ───────────────────────────────────────────
 
 describe('initVecTable', () => {
-  it('recreates vec table when dimension changes', () => {
+  it('preserves vec table, chunks, and dimension setting when dimension changes', () => {
     wipeDatabaseFiles();
     openDb();
     initVecTable(4);
 
-    // Insert a vector
+    upsertNote({
+      path: 'dimension.md',
+      title: 'Dimension',
+      tags: [],
+      content: 'Existing chunk',
+      mtime: 1,
+      hash: 'dimension-hash',
+      chunks: [{ text: 'Existing chunk', embedding: fakeEmbedding }],
+    });
     const db = getDb();
-    db.prepare('INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)').run(
-      BigInt(1),
-      new Float32Array([0.1, 0.2, 0.3, 0.4]),
-    );
-
-    // Verify it exists
-    const before = db.prepare('SELECT chunk_id FROM vec_chunks LIMIT 1').get();
-    assert.ok(before, 'vec_chunks should have data with dim=4');
-
-    // Change dimension
+    const beforeVectors = db
+      .prepare('SELECT chunk_id, hex(embedding) AS bytes FROM vec_chunks')
+      .all();
+    const beforeChunks = db.prepare('SELECT * FROM chunks').all();
+    const beforeDim = db.prepare("SELECT value FROM settings WHERE key = 'embedding_dim'").get();
     initVecTable(8);
-
-    // Old data should be gone
-    const after = db.prepare('SELECT chunk_id FROM vec_chunks LIMIT 1').get();
-    assert.equal(after, undefined, 'vec_chunks should be empty after dimension change');
+    assert.deepEqual(
+      db.prepare('SELECT chunk_id, hex(embedding) AS bytes FROM vec_chunks').all(),
+      beforeVectors,
+    );
+    assert.deepEqual(db.prepare('SELECT * FROM chunks').all(), beforeChunks);
+    assert.deepEqual(
+      db.prepare("SELECT value FROM settings WHERE key = 'embedding_dim'").get(),
+      beforeDim,
+    );
   });
 });
 

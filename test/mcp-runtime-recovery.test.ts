@@ -16,7 +16,15 @@ const embedder = await import('../src/embedder.js');
 vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
 vi.spyOn(embedder, 'getContextLength').mockResolvedValue(512);
 
-const { closeDb, openDb, initVecTable, isLikelyDatabaseCorruption } = await import('../src/db.js');
+const {
+  closeDb,
+  openDb,
+  initVecTable,
+  isLikelyDatabaseCorruption,
+  getDb,
+  upsertNote,
+  getNoteByPath,
+} = await import('../src/db.js');
 const { indexVaultSync } = await import('../src/indexer.js');
 const { createMcpRuntime } = await import('../src/mcp-runtime.js');
 
@@ -169,6 +177,35 @@ describe('createMcpRuntime — lifecycle', () => {
     if (status.state === 'update_available') {
       assert.ok(typeof status.latestVersion === 'string');
       assert.ok(status.latestVersion.length > 0);
+    }
+  });
+});
+
+describe('legacy dimension startup', () => {
+  it('retains an existing vector table with missing metadata without probing', async () => {
+    upsertNote({
+      path: 'legacy.md',
+      title: 'Legacy',
+      tags: [],
+      content: 'Legacy content',
+      mtime: 1,
+      hash: 'legacy',
+      chunks: [{ text: 'Legacy content', embedding: new Float32Array([1, 0, 0, 0]) }],
+    });
+    getDb().prepare("DELETE FROM settings WHERE key = 'embedding_dim'").run();
+    const before = getNoteByPath('legacy.md');
+    const vectors = getDb().prepare('SELECT * FROM vec_chunks').all();
+    const dim = vi
+      .spyOn(embedder, 'getEmbeddingDim')
+      .mockRejectedValue(new Error('startup must not probe'));
+    try {
+      const runtime = await createMcpRuntime();
+      assert.equal(runtime.embeddingDim, null);
+      assert.equal(dim.mock.calls.length, 0);
+      assert.deepEqual(getNoteByPath('legacy.md'), before);
+      assert.deepEqual(getDb().prepare('SELECT * FROM vec_chunks').all(), vectors);
+    } finally {
+      dim.mockRestore();
     }
   });
 });

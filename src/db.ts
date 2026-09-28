@@ -581,31 +581,21 @@ function unlinkIfExists(filePath: string): void {
 
 export function initVecTable(dim: number): void {
   const db = getDb();
-
-  const stored = db.prepare("SELECT value FROM settings WHERE key = 'embedding_dim'").get() as
-    { value: string } | undefined;
-  const storedDim = stored ? parseInt(stored.value) : null;
-
-  const vecExists = db
-    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_chunks'")
-    .get();
-
-  if (vecExists && storedDim === dim) return;
-
-  if (vecExists) {
-    db.exec('DROP TABLE IF EXISTS vec_chunks');
-    // Clear chunks too since vectors are gone
-    db.exec('DELETE FROM chunks');
+  if (hasVecTable()) return;
+  if (!Number.isSafeInteger(dim) || dim <= 0) {
+    throw new Error(`Embedding dimension must be a positive safe integer: ${dim}`);
   }
-
-  db.exec(`CREATE VIRTUAL TABLE vec_chunks USING vec0(
-    chunk_id INTEGER PRIMARY KEY,
-    embedding float[${dim}]
-  )`);
-
-  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_dim', ?)").run(
-    String(dim),
-  );
+  const initialize = db.transaction(() => {
+    if (hasVecTable()) return;
+    db.exec(`CREATE VIRTUAL TABLE vec_chunks USING vec0(
+      chunk_id INTEGER PRIMARY KEY,
+      embedding float[${dim}]
+    )`);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_dim', ?)").run(
+      String(dim),
+    );
+  });
+  initialize.immediate();
 }
 
 /**
@@ -618,8 +608,8 @@ export function getStoredEmbeddingDim(): number | null {
   const stored = db.prepare("SELECT value FROM settings WHERE key = 'embedding_dim'").get() as
     { value: string } | undefined;
   if (!stored) return null;
-  const dim = parseInt(stored.value, 10);
-  return dim > 0 ? dim : null;
+  const dim = Number(stored.value);
+  return Number.isSafeInteger(dim) && dim > 0 ? dim : null;
 }
 
 export function hasVecTable(): boolean {
@@ -718,71 +708,82 @@ export function resolveNotePath(input: string): NotePathResolution | undefined {
   return { type: 'ambiguous', candidates: rows.map((row) => row.path) };
 }
 
-export function upsertNote(note: {
-  path: string;
-  title: string;
-  tags: string[];
-  aliases?: string[];
-  content: string;
-  frontmatter?: Record<string, unknown>;
-  mtime: number;
-  hash: string;
-  chunks: {
-    text: string;
-    headingPath?: string | null;
-    embedding: Float32Array | null;
-    charStart?: number | null;
-    charEnd?: number | null;
-  }[];
-}): void {
+export function upsertNote(
+  note: {
+    path: string;
+    title: string;
+    tags: string[];
+    aliases?: string[];
+    content: string;
+    frontmatter?: Record<string, unknown>;
+    mtime: number;
+    hash: string;
+    chunks: {
+      text: string;
+      headingPath?: string | null;
+      embedding: Float32Array | null;
+      charStart?: number | null;
+      charEnd?: number | null;
+    }[];
+  },
+  context?: { modelName: string },
+): void {
   const db = getDb();
-  const aliases = note.aliases?.filter((alias): alias is string => typeof alias === 'string') ?? [];
-  const aliasesJson = aliases.length > 0 ? JSON.stringify(aliases) : null;
+  const write = db.transaction(() => {
+    const storedModel = getStoredModel();
+    if (storedModel && context && storedModel !== context.modelName) {
+      throw new Error(
+        `Embedding model mismatch: index uses "${storedModel}", writer uses "${context.modelName}". Update not committed; existing index preserved. Restore the indexed model configuration, or use full reindex --force for an intentional rebuild.`,
+      );
+    }
+    const actual = hasVecTable()
+      ? (db.prepare('SELECT vec_length(embedding) AS dim FROM vec_chunks LIMIT 1').get() as
+          { dim: number } | undefined)
+      : undefined;
+    const storedDim = getStoredEmbeddingDim();
+    if (actual && storedDim !== null && actual.dim !== storedDim) {
+      throw new Error(
+        `Embedding dimension metadata mismatch: stored ${storedDim}, vectors ${actual.dim}. Update not committed; existing index preserved.`,
+      );
+    }
+    const expectedDim = actual?.dim ?? storedDim;
+    for (const chunk of note.chunks) {
+      if (
+        chunk.embedding !== null &&
+        expectedDim !== null &&
+        chunk.embedding.length !== expectedDim
+      ) {
+        throw new Error(
+          `Embedding dimension mismatch: expected ${expectedDim}, received ${chunk.embedding.length}. Update not committed; existing index preserved.`,
+        );
+      }
+    }
+    const fresh =
+      !storedModel &&
+      context !== undefined &&
+      !actual &&
+      !db.prepare('SELECT 1 FROM notes LIMIT 1').get() &&
+      !db.prepare('SELECT 1 FROM chunks LIMIT 1').get();
 
-  const existing = db.prepare('SELECT id FROM notes WHERE path = ?').get(note.path) as
-    { id: number } | undefined;
+    const aliases =
+      note.aliases?.filter((alias): alias is string => typeof alias === 'string') ?? [];
+    const aliasesJson = aliases.length > 0 ? JSON.stringify(aliases) : null;
 
-  const fmString = note.frontmatter ? yamlStringify(note.frontmatter) : '';
+    const existing = db.prepare('SELECT id FROM notes WHERE path = ?').get(note.path) as
+      { id: number } | undefined;
 
-  if (existing) {
-    // Delete existing chunk vectors before cascade-deleting chunks
-    deleteVecChunksForNote(db, existing.id);
+    const fmString = note.frontmatter ? yamlStringify(note.frontmatter) : '';
 
-    db.prepare(
-      `
+    if (existing) {
+      // Delete existing chunk vectors before cascade-deleting chunks
+      deleteVecChunksForNote(db, existing.id);
+
+      db.prepare(
+        `
       UPDATE notes SET title = ?, tags = ?, aliases = ?, content = ?, frontmatter = ?, mtime = ?, hash = ?
       WHERE path = ?
     `,
-    ).run(
-      note.title,
-      JSON.stringify(note.tags),
-      aliasesJson,
-      note.content,
-      fmString,
-      note.mtime,
-      note.hash,
-      note.path,
-    );
-
-    db.prepare('DELETE FROM chunks WHERE note_id = ?').run(existing.id);
-
-    const noteId = existing.id;
-    replaceNoteAliases(db, noteId, aliases);
-    replaceNoteTags(db, noteId, note.tags);
-    replaceNoteFrontmatterFields(db, noteId, note.frontmatter);
-    insertChunks(db, noteId, note.chunks);
-    logEvent('updated', note.path);
-    bumpDbVersion();
-  } else {
-    const result = db
-      .prepare(
-        `
-      INSERT INTO notes (path, title, tags, aliases, content, frontmatter, mtime, hash)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-      )
-      .run(
-        note.path,
+      ).run(
         note.title,
         JSON.stringify(note.tags),
         aliasesJson,
@@ -790,16 +791,52 @@ export function upsertNote(note: {
         fmString,
         note.mtime,
         note.hash,
+        note.path,
       );
 
-    const noteId = result.lastInsertRowid as number;
-    replaceNoteAliases(db, noteId, aliases);
-    replaceNoteTags(db, noteId, note.tags);
-    replaceNoteFrontmatterFields(db, noteId, note.frontmatter);
-    insertChunks(db, noteId, note.chunks);
-    logEvent('added', note.path);
-    bumpDbVersion();
-  }
+      db.prepare('DELETE FROM chunks WHERE note_id = ?').run(existing.id);
+
+      const noteId = existing.id;
+      replaceNoteAliases(db, noteId, aliases);
+      replaceNoteTags(db, noteId, note.tags);
+      replaceNoteFrontmatterFields(db, noteId, note.frontmatter);
+      insertChunks(db, noteId, note.chunks);
+      logEvent('updated', note.path);
+      bumpDbVersion();
+    } else {
+      const result = db
+        .prepare(
+          `
+      INSERT INTO notes (path, title, tags, aliases, content, frontmatter, mtime, hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+        )
+        .run(
+          note.path,
+          note.title,
+          JSON.stringify(note.tags),
+          aliasesJson,
+          note.content,
+          fmString,
+          note.mtime,
+          note.hash,
+        );
+
+      const noteId = result.lastInsertRowid as number;
+      replaceNoteAliases(db, noteId, aliases);
+      replaceNoteTags(db, noteId, note.tags);
+      replaceNoteFrontmatterFields(db, noteId, note.frontmatter);
+      insertChunks(db, noteId, note.chunks);
+      logEvent('added', note.path);
+      bumpDbVersion();
+    }
+    if (fresh && note.chunks.some((chunk) => chunk.embedding !== null)) {
+      db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('embedding_model', ?)").run(
+        context.modelName,
+      );
+    }
+  });
+  write.immediate();
 }
 
 function insertChunks(
@@ -1424,40 +1461,10 @@ export function updateLastIndexed(): void {
   );
 }
 
-/**
- * Check if the embedding model has changed since last run.
- * If it has, delete all DB files and start fresh so the schema is rebuilt
- * with the correct vector dimensions.
- * Returns true if the model changed (caller should force-reindex).
- */
+/** Return recorded index provenance without adopting the current configuration. */
 export function getStoredModel(): string | null {
   const db = getDb();
   const row = db.prepare("SELECT value FROM settings WHERE key = 'embedding_model'").get() as
     { value: string } | undefined;
   return row?.value ?? null;
-}
-
-export function checkModelChanged(model: string): boolean {
-  const db = getDb();
-  const stored = db.prepare("SELECT value FROM settings WHERE key = 'embedding_model'").get() as
-    { value: string } | undefined;
-
-  if (stored?.value === model) return false;
-
-  if (!stored) {
-    // First run — just store the model name, no wipe needed
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_model', ?)").run(
-      model,
-    );
-    return false;
-  }
-
-  // Model changed — drop all DB files and recreate from scratch
-  process.stderr.write(`Embedding model changed: ${stored.value} → ${model}\n`);
-  wipeDatabaseFiles();
-  openDb();
-  getDb()
-    .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_model', ?)")
-    .run(model);
-  return true;
 }
