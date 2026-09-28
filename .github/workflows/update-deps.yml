@@ -2,7 +2,7 @@ name: Weekly Dependency Update
 
 on:
   schedule:
-    - cron: '0 6 * * 1' # Every Monday at 06:00 UTC
+    - cron: '0 0 * * 1' # Every Monday at 00:00 UTC
   workflow_dispatch: # Allow manual trigger
 
 jobs:
