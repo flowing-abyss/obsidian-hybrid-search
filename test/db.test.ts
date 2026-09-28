@@ -1540,28 +1540,36 @@ describe('markdown link and URL storage', () => {
 // ─── initVecTable dimension change ───────────────────────────────────────────
 
 describe('initVecTable', () => {
-  it('recreates vec table when dimension changes', () => {
+  it('preserves vec table, chunks, and dimension setting when dimension changes', () => {
     wipeDatabaseFiles();
     openDb();
     initVecTable(4);
 
-    // Insert a vector
+    upsertNote({
+      path: 'dimension.md',
+      title: 'Dimension',
+      tags: [],
+      content: 'Existing chunk',
+      mtime: 1,
+      hash: 'dimension-hash',
+      chunks: [{ text: 'Existing chunk', embedding: fakeEmbedding }],
+    });
     const db = getDb();
-    db.prepare('INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)').run(
-      BigInt(1),
-      new Float32Array([0.1, 0.2, 0.3, 0.4]),
-    );
-
-    // Verify it exists
-    const before = db.prepare('SELECT chunk_id FROM vec_chunks LIMIT 1').get();
-    assert.ok(before, 'vec_chunks should have data with dim=4');
-
-    // Change dimension
+    const beforeVectors = db
+      .prepare('SELECT chunk_id, hex(embedding) AS bytes FROM vec_chunks')
+      .all();
+    const beforeChunks = db.prepare('SELECT * FROM chunks').all();
+    const beforeDim = db.prepare("SELECT value FROM settings WHERE key = 'embedding_dim'").get();
     initVecTable(8);
-
-    // Old data should be gone
-    const after = db.prepare('SELECT chunk_id FROM vec_chunks LIMIT 1').get();
-    assert.equal(after, undefined, 'vec_chunks should be empty after dimension change');
+    assert.deepEqual(
+      db.prepare('SELECT chunk_id, hex(embedding) AS bytes FROM vec_chunks').all(),
+      beforeVectors,
+    );
+    assert.deepEqual(db.prepare('SELECT * FROM chunks').all(), beforeChunks);
+    assert.deepEqual(
+      db.prepare("SELECT value FROM settings WHERE key = 'embedding_dim'").get(),
+      beforeDim,
+    );
   });
 });
 
