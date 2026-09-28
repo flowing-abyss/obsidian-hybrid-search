@@ -19,7 +19,7 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 // Include-pattern rescue is the only override that can pull a note back out of
 // .gitignore. Keep it explicit so the matrix below is self-describing.
 const prevInclude = process.env.OBSIDIAN_INCLUDE_PATTERNS;
-process.env.OBSIDIAN_INCLUDE_PATTERNS = 'keep/**';
+process.env.OBSIDIAN_INCLUDE_PATTERNS = 'keep/**,wide/n*es/*.md';
 
 // Full ignore matrix. `indexed` is the ground truth: does this .md note belong
 // in the index (and therefore must the watcher watch it)?
@@ -35,6 +35,25 @@ const MATRIX: { rel: string; body: string; indexed: boolean; why: string }[] = [
   },
   { rel: 'archive/old.md', body: '# Old', indexed: false, why: 'gitignored dir archive/' },
   { rel: 'keep/rescued.md', body: '# Keep', indexed: true, why: 'gitignored but include-rescued' },
+  {
+    rel: 'a/cache/keep.md',
+    body: '# Blocked',
+    indexed: false,
+    why: 'nested file negation cannot reopen an ignored parent',
+  },
+  {
+    rel: 'open/cache/keep.md',
+    body: '# Open',
+    indexed: true,
+    why: 'nested directory negation reopens the parent',
+  },
+  {
+    rel: 'wide/nothing/x.md',
+    body: '# Blocked',
+    indexed: false,
+    why: 'include wildcard only matches notes',
+  },
+  { rel: 'wide/notes/x.md', body: '# Kept', indexed: true, why: 'include wildcard matches notes' },
 ];
 
 // Non-.md files: never indexed, and the watcher must not watch them either
@@ -49,11 +68,15 @@ let scanSet: Set<string>;
 
 beforeAll(async () => {
   // .gitignore: hide archive/ and keep/ (keep/ is rescued via include pattern).
-  writeFileSync(abs('.gitignore'), 'archive/\nkeep/\n');
+  writeFileSync(abs('.gitignore'), 'archive/\nkeep/\ncache\n');
   for (const { rel, body } of MATRIX) {
     mkdirSync(path.dirname(abs(rel)), { recursive: true });
     writeFileSync(abs(rel), body);
   }
+  writeFileSync(abs('a/.gitignore'), '!keep.md\n');
+  writeFileSync(abs('open/.gitignore'), '!cache/\n');
+  writeFileSync(abs('wide/.gitignore'), '*\n');
+  writeFileSync(abs('wide/nothing/.gitignore'), '!x.md\n');
   for (const rel of NON_MD) writeFileSync(abs(rel), 'x');
 
   vi.resetModules();
@@ -118,11 +141,14 @@ describe('watcher ignored() predicate: directory & root handling', () => {
     assert.equal(ignored(abs('.obsidian')), true, '.obsidian/ must be pruned');
     assert.equal(ignored(abs('templates')), true, 'templates/ must be pruned');
     assert.equal(ignored(abs('archive')), true, 'gitignored archive/ must be pruned');
+    assert.equal(ignored(abs('a/cache')), true, 'blocked cache/ must be pruned');
   });
 
   it('descends into normal and include-rescued directories', () => {
     assert.equal(ignored(abs('sub')), false, 'sub/ must be watched');
     assert.equal(ignored(abs('keep')), false, 'include-rescued keep/ must be watched');
+    assert.equal(ignored(abs('open/cache')), false, 'reopened cache/ must be watched');
+    assert.equal(ignored(abs('wide/notes')), false, 'included notes/ must be watched');
   });
 });
 

@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-live-e2e-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
-process.env.OBSIDIAN_INCLUDE_PATTERNS = 'keep/**';
+process.env.OBSIDIAN_INCLUDE_PATTERNS = 'keep/**,issue55/n*es/*.md';
 
 const { closeDb, openDb, initVecTable, getDb } = await import('../src/db.js');
 const { config } = await import('../src/config.js');
@@ -64,6 +64,10 @@ beforeAll(async () => {
   mkdirSync(abs('archive'), { recursive: true });
   writeFileSync(path.join(abs('archive'), 'old.md'), '# gitignored');
   mkdirSync(abs('keep'), { recursive: true });
+  mkdirSync(abs('issue55/notes'), { recursive: true });
+  mkdirSync(abs('issue55/nothing'), { recursive: true });
+  writeFileSync(abs('issue55/.gitignore'), '*\n');
+  writeFileSync(abs('issue55/nothing/.gitignore'), '!x.md\n');
 
   const result = await indexVaultSync();
   assert.deepEqual(result.errors, [], 'initial indexing must not reject any notes');
@@ -128,4 +132,29 @@ describe('live watcher e2e (real chokidar + real indexer)', () => {
     unlinkSync(abs('two.md'));
     assert.ok(await waitFor(() => !indexedPaths().includes('two.md')), 'two.md should be removed');
   });
+
+  it('refreshes Git rules while preserving the explicitly included note vector', async () => {
+    writeFileSync(abs('issue55/nothing/x.md'), '# Should remain excluded');
+    writeFileSync(abs('issue55/notes/x.md'), '# Explicit include control');
+    assert.ok(await waitFor(() => indexedPaths().includes('issue55/notes/x.md')));
+    await wait(800);
+    assert.ok(!indexedPaths().includes('issue55/nothing/x.md'));
+    const vector = () =>
+      getDb()
+        .prepare(
+          `SELECT c.id, hex(v.embedding) AS embedding
+      FROM chunks c JOIN notes n ON n.id = c.note_id
+      JOIN vec_chunks v ON v.chunk_id = c.id WHERE n.path = ? ORDER BY c.id`,
+        )
+        .all('issue55/notes/x.md');
+    const before = vector();
+    assert.ok(before.length > 0);
+    writeFileSync(abs('issue55/.gitignore'), '*\n!nothing/\n');
+    assert.ok(await waitFor(() => indexedPaths().includes('issue55/nothing/x.md')));
+    assert.deepEqual(vector(), before);
+    writeFileSync(abs('issue55/.gitignore'), '*\n');
+    assert.ok(await waitFor(() => !indexedPaths().includes('issue55/nothing/x.md')));
+    assert.ok(indexedPaths().includes('issue55/notes/x.md'));
+    assert.deepEqual(vector(), before);
+  }, 30_000);
 });
