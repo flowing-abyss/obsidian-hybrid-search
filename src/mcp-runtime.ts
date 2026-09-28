@@ -14,10 +14,10 @@ import {
 } from './boundary-validation.js';
 import { config } from './config.js';
 import {
-  getDb,
   getStats,
   getStoredEmbeddingDim,
   getStoredModel,
+  hasVecTable,
   initVecTable,
   openDb,
   saveConfigMeta,
@@ -106,12 +106,12 @@ export async function createMcpRuntime(): Promise<McpRuntime> {
 
   // Warn if model differs but do NOT wipe — the MCP server is read-oriented.
   // Wiping here would destroy the index whenever env vars are missing at startup.
-  // Model-change wipe is intentionally restricted to the reindex command.
+  // Only explicit full-vault force reindex permits replacing the index.
   const modelName = activeModelName();
   const storedModel = getStoredModel();
   if (storedModel && storedModel !== modelName) {
     console.error(
-      `[server] embedding model mismatch: DB has "${storedModel}", current env has "${modelName}". Semantic search may be degraded. Run reindex to rebuild vectors.`,
+      `[server] embedding model mismatch: DB has "${storedModel}", current env has "${modelName}". Semantic search may be degraded. Restore the recorded model/configuration, or intentionally rebuild with full reindex --force.`,
     );
   }
 
@@ -124,7 +124,7 @@ export async function createMcpRuntime(): Promise<McpRuntime> {
   const storedDim = getStoredEmbeddingDim();
   const [contextLength, apiDim] = await Promise.all([
     getContextLength(),
-    storedDim === null
+    storedDim === null && !hasVecTable()
       ? getEmbeddingDim().catch((err: unknown) => {
           console.error(
             '[server] embedding API unavailable — semantic search and indexing disabled,' +
@@ -142,7 +142,7 @@ export async function createMcpRuntime(): Promise<McpRuntime> {
     // even if getEmbeddingDim() was never called this session.
     primeEmbeddingDim(embeddingDim);
     initVecTable(embeddingDim);
-  } else {
+  } else if (!hasVecTable()) {
     console.error('[server] embedding dimension unknown — vector table not initialized');
   }
 
@@ -173,15 +173,11 @@ export function startMcpBackgroundServices(runtime: McpRuntime): void {
 async function handleReindex(
   a: { path?: string; force?: boolean },
   contextLength: number,
-  modelName: string,
-  embeddingDim: number | null,
 ): Promise<{ indexed: number; skipped: number; errors: unknown[] }> {
   if (a.path) {
     const fullPath = join(config.vaultPath, a.path);
     const status = await withIndexingDbLock(() =>
-      indexFileWithRecovery(fullPath, contextLength, Boolean(a.force), () =>
-        resetDbAfterSidecarRecovery(modelName, embeddingDim),
-      ),
+      indexFileWithRecovery(fullPath, contextLength, Boolean(a.force), resetDbAfterSidecarRecovery),
     );
     if (status === 'indexed') return { indexed: 1, skipped: 0, errors: [] };
     if (status === 'skipped') return { indexed: 0, skipped: 1, errors: [] };
@@ -199,16 +195,17 @@ async function handleReindex(
 
   return withIndexingDbLock(async () => {
     if (a.force) {
-      resetDbForForceReindex(modelName, embeddingDim);
+      const freshDim = await getEmbeddingDim({ refresh: true });
+      resetDbForForceReindex(freshDim);
     }
     const header = a.force ? 'Recreating database and indexing vault...' : 'Indexing vault...';
     return indexVaultSync(Boolean(a.force), header, {
-      recoverDatabase: () => resetDbAfterSidecarRecovery(modelName, embeddingDim),
+      recoverDatabase: resetDbAfterSidecarRecovery,
     });
   });
 }
 
-function resetDbForForceReindex(modelName: string, embeddingDim: number | null): void {
+function resetDbForForceReindex(embeddingDim: number): void {
   wipeDatabaseFiles();
   openDb();
   saveConfigMeta({
@@ -216,15 +213,10 @@ function resetDbForForceReindex(modelName: string, embeddingDim: number | null):
     apiBaseUrl: config.apiBaseUrl,
     apiModel: config.apiModel,
   });
-  getDb()
-    .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_model', ?)")
-    .run(modelName);
-  if (embeddingDim !== null) {
-    initVecTable(embeddingDim);
-  }
+  initVecTable(embeddingDim);
 }
 
-function resetDbAfterSidecarRecovery(modelName: string, embeddingDim: number | null): void {
+function resetDbAfterSidecarRecovery(): void {
   wipeDatabaseSidecars();
   openDb();
   saveConfigMeta({
@@ -232,9 +224,7 @@ function resetDbAfterSidecarRecovery(modelName: string, embeddingDim: number | n
     apiBaseUrl: config.apiBaseUrl,
     apiModel: config.apiModel,
   });
-  getDb()
-    .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_model', ?)")
-    .run(modelName);
+  const embeddingDim = getStoredEmbeddingDim();
   if (embeddingDim !== null) {
     initVecTable(embeddingDim);
   }
@@ -314,12 +304,7 @@ async function callReindexTool(
   if (!parsed.success) {
     return validationErrorResult(formatValidationError('reindex arguments', parsed.error));
   }
-  const result = await handleReindex(
-    parsed.data,
-    runtime.contextLength,
-    runtime.modelName,
-    runtime.embeddingDim,
-  );
+  const result = await handleReindex(parsed.data, runtime.contextLength);
   return textResult(JSON.stringify(result, null, 2));
 }
 
@@ -538,7 +523,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
       {
         name: toolName('reindex'),
         description:
-          'Reindex a specific file or the vault. Use only when the index is stale/missing or the user asks. Incremental by default; force:true with no path recreates the database.',
+          'Reindex a specific file or the vault. Use only when the index is stale/missing or the user asks. Incremental by default. For accidental model mismatch restore the recorded configuration. Only intentional full-vault force:true with no path recreates the database after a successful fresh embedding probe.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -549,7 +534,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
             force: {
               type: 'boolean',
               description:
-                'Force reindex even if files are unchanged. With no path, recreates the database before indexing.',
+                'Boolean. With a path, retry that file even if unchanged; does not replace the database or bypass model compatibility. With no path, intentionally recreate the full database after a fresh embedding probe. Omit for normal incremental updates.',
             },
           },
         },
@@ -616,7 +601,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
       }
 
       if (isTool(name, 'reindex')) {
-        return callReindexTool(a, runtime);
+        return await callReindexTool(a, runtime);
       }
 
       if (isTool(name, 'status')) {

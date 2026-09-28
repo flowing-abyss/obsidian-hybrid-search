@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, it } from 'vitest';
+import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 
 // ─── Vault setup (must precede any application module imports) ────────────────
 
@@ -142,6 +142,55 @@ describe('parseWikilinks', () => {
 });
 
 // ─── resolveWikilinks ─────────────────────────────────────────────────────────
+
+describe('background failure diagnostics', () => {
+  it('commits a good note and reports each rejected path and error count', async () => {
+    const embedder = await import('../src/embedder.js');
+    const { startBackgroundIndexing, resetIndexingState } = await import('../src/indexer.js');
+    const { getNoteByPath, wipeDatabaseFiles } = await import('../src/db.js');
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+    resetIndexingState();
+    const good = path.join(vaultDir, 'background-good.md');
+    const bad = path.join(vaultDir, 'background-bad.md');
+    writeFileSync(good, 'Good body with enough text to index.');
+    writeFileSync(bad, 'Bad body with enough text to index.');
+    const model = vi.spyOn(embedder, 'activeModelName').mockReturnValue('model-A');
+    const policy = vi
+      .spyOn(embedder, 'getDocumentTokenPolicy')
+      .mockResolvedValue({ limit: 508, count: (text) => text.length / 4 });
+    const embedding = vi.spyOn(embedder, 'embedDetailed').mockImplementation((texts) =>
+      Promise.resolve(
+        texts.map((text) => ({
+          ok: true as const,
+          embedding: new Float32Array(text.includes('Bad body') ? [1, 0, 0] : [1, 0, 0, 0]),
+        })),
+      ),
+    );
+    let output = '';
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      output += String(chunk);
+      return true;
+    });
+    try {
+      await startBackgroundIndexing(512);
+      assert.ok(getNoteByPath('background-good.md'));
+      assert.equal(getNoteByPath('background-bad.md'), undefined);
+      assert.match(output, /background-bad\.md/);
+      assert.match(output, /dimension/i);
+      assert.match(output, /Indexing complete.*1 errors/);
+    } finally {
+      model.mockRestore();
+      policy.mockRestore();
+      embedding.mockRestore();
+      stderr.mockRestore();
+      rmSync(good);
+      rmSync(bad);
+      resetIndexingState();
+    }
+  });
+});
 
 describe('resolveWikilinks', () => {
   beforeAll(() => {

@@ -30,6 +30,8 @@ afterEach(() => {
 });
 
 const {
+  getEmbeddingDim,
+  primeEmbeddingDim,
   embed,
   embedDetailed,
   LOCAL_MODEL,
@@ -799,4 +801,62 @@ describe('embed() — batch sorting by index', () => {
     assert.ok(Math.abs(result[0][0]! - 0.3) < 0.001);
     assert.ok(Math.abs(result[1][0]! - 0.4) < 0.001);
   });
+});
+
+describe('fresh embedding dimension readiness', () => {
+  beforeEach(async () => {
+    process.env.OPENAI_API_KEY = 'test-key';
+    process.env.OPENAI_BASE_URL = 'https://api.test/v1';
+    clearOllamaSemaphore();
+    primeEmbeddingDim(4);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => ({ data: [{ index: 0, embedding: [1, 0, 0, 0] }] }),
+      }),
+    );
+    await getEmbeddingDim({ refresh: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    clearOllamaSemaphore();
+  });
+
+  it('refreshes an old cached dimension from the actual provider adapter', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => ({ data: [{ index: 0, embedding: [1, 0, 0, 0, 0, 0, 0, 0] }] }),
+      }),
+    );
+    assert.equal(await getEmbeddingDim(), 4);
+    assert.equal(await getEmbeddingDim({ refresh: true }), 8);
+    assert.equal(await getEmbeddingDim(), 8);
+  });
+
+  for (const response of [null, [], [NaN], 'failure']) {
+    it(`preserves the cached dimension when refresh returns ${String(response)}`, async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          response === 'failure'
+            ? { ok: false, status: 400, text: () => 'bad request' }
+            : {
+                ok: true,
+                status: 200,
+                json: () => ({ data: [{ index: 0, embedding: response }] }),
+              },
+        ),
+      );
+      vi.useFakeTimers();
+      const rejected = assert.rejects(getEmbeddingDim({ refresh: true }), /dimension probe failed/);
+      await Promise.all([rejected, vi.runAllTimersAsync()]);
+      assert.equal(await getEmbeddingDim(), 4);
+    });
+  }
 });

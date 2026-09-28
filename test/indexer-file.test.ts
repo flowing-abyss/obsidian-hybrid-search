@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, it, vi } from 'vitest';
@@ -14,8 +14,15 @@ vi.mock('chokidar', () => ({
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-indexer-file-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-const { closeDb, openDb, wipeDatabaseFiles, getNoteByPath, getDb, initVecTable } =
-  await import('../src/db.js');
+const {
+  closeDb,
+  openDb,
+  wipeDatabaseFiles,
+  getNoteByPath,
+  getDb,
+  initVecTable,
+  isLikelyDatabaseCorruption,
+} = await import('../src/db.js');
 
 // Spy on embedder *before* importing indexer so live bindings pick up the mocks
 const embedder = await import('../src/embedder.js');
@@ -1036,5 +1043,88 @@ describe('indexVaultSync', () => {
     const lastCall = (chokidar.watch as ReturnType<typeof vi.fn>).mock.calls.at(-1);
     const options = lastCall?.[1] as { ignored?: (filePath: string) => boolean } | undefined;
     assert.equal(options?.ignored?.(path.join(vaultDir, '.gitignore')), false);
+  });
+});
+
+describe('indexFile model integrity', () => {
+  for (const mode of ['vector', 'null', 'frontmatter'] as const) {
+    it(`preserves a rejected ${mode} update and retries normally after model restoration`, async () => {
+      wipeDatabaseFiles();
+      openDb();
+      initVecTable(4);
+      const modelSpy = vi.spyOn(embedder, 'activeModelName').mockReturnValue('model-A');
+      const fullPath = path.join(vaultDir, 'integrity-retry.md');
+      const detailed = vi.mocked(embedder.embedDetailed);
+      const successful = (texts: string[]) =>
+        Promise.resolve(
+          texts.map(() => ({ ok: true as const, embedding: new Float32Array([1, 0, 0, 0]) })),
+        );
+      detailed.mockImplementation(successful);
+      try {
+        writeFileSync(
+          fullPath,
+          '# Original\n\nOriginal body with enough content to index successfully.',
+        );
+        utimesSync(fullPath, 1000, 1000);
+        assert.equal(await indexFile(fullPath, 512), 'indexed');
+        const before = getNoteByPath('integrity-retry.md');
+        modelSpy.mockReturnValue('model-B');
+        writeFileSync(
+          fullPath,
+          mode === 'frontmatter'
+            ? '---\ntitle: Replacement\n---\n'
+            : '# Replacement\n\nReplacement body waiting for corrected configuration.',
+        );
+        utimesSync(fullPath, 2000, 2000);
+        if (mode === 'null')
+          detailed.mockImplementation((texts) =>
+            Promise.resolve(
+              texts.map(() => ({
+                ok: false as const,
+                kind: 'invalid_response' as const,
+                message: 'provider failed',
+              })),
+            ),
+          );
+        const rejected = await indexFile(fullPath, 512);
+        assert.equal(typeof rejected, 'object');
+        assert.ok(typeof rejected === 'object');
+        assert.equal(isLikelyDatabaseCorruption(rejected.error), false);
+        assert.deepEqual(getNoteByPath('integrity-retry.md'), before);
+        modelSpy.mockReturnValue('model-A');
+        assert.equal(await indexFile(fullPath, 512), 'indexed');
+        assert.equal(await indexFile(fullPath, 512), 'skipped');
+      } finally {
+        modelSpy.mockRestore();
+        detailed.mockImplementation(successful);
+      }
+    });
+  }
+
+  it('checks the captured producer against a marker changed during inference', async () => {
+    wipeDatabaseFiles();
+    openDb();
+    initVecTable(4);
+    const modelSpy = vi.spyOn(embedder, 'activeModelName').mockReturnValue('model-A');
+    const fullPath = path.join(vaultDir, 'integrity-race.md');
+    writeFileSync(fullPath, 'A new note with enough text for embedding.');
+    vi.mocked(embedder.embedDetailed).mockImplementationOnce((texts) => {
+      getDb()
+        .prepare(
+          "INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_model', 'model-B')",
+        )
+        .run();
+      modelSpy.mockReturnValue('model-B');
+      return Promise.resolve(
+        texts.map(() => ({ ok: true as const, embedding: new Float32Array([1, 0, 0, 0]) })),
+      );
+    });
+    try {
+      const result = await indexFile(fullPath, 512);
+      assert.equal(typeof result, 'object');
+      assert.equal(getNoteByPath('integrity-race.md'), undefined);
+    } finally {
+      modelSpy.mockRestore();
+    }
   });
 });

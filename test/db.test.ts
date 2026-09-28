@@ -47,7 +47,6 @@ const {
   getNoteByPath,
   getDb,
   deleteNote,
-  checkModelChanged,
   getStats,
   getPathsToRemoveForIgnoreChange,
   saveConfigMeta,
@@ -880,52 +879,12 @@ describe('getPathsToRemoveForIgnoreChange', () => {
   });
 });
 
-// ─── checkModelChanged ───────────────────────────────────────────────────────
-
-describe('checkModelChanged', () => {
-  it('returns false when model unchanged', () => {
-    checkModelChanged('test-model-x');
-    assert.equal(checkModelChanged('test-model-x'), false, 'same model should return false');
-  });
-
-  it('returns true and wipes notes when model changes', () => {
-    // Set to model-A (may wipe DB if previous model differs)
-    checkModelChanged('test-model-a');
-    // Re-init vec table since checkModelChanged may have wiped it
-    initVecTable(4);
-    upsertNote({
-      path: 'model-test.md',
-      title: 'Model Test',
-      tags: [],
-      content: 'model test content',
-      mtime: Date.now(),
-      hash: 'mt',
-      chunks: [{ text: 'model test content', embedding: fakeEmbedding }],
-    });
-    const before = searchBm25('model test', 10);
-    assert.ok(
-      before.some((r) => r.path === 'model-test.md'),
-      'note should exist before model change',
-    );
-
-    const changed = checkModelChanged('test-model-b');
-    assert.equal(changed, true, 'different model should return true');
-
-    const after = searchBm25('model test', 10);
-    assert.ok(
-      !after.some((r) => r.path === 'model-test.md'),
-      'notes should be wiped after model change',
-    );
-  });
-});
-
 // ─── NFD path storage ────────────────────────────────────────────────────────
 
 describe('NFD path storage', () => {
   const nfdPath = 'notes/caf\u00e9-note.md'.normalize('NFD');
 
   beforeAll(() => {
-    // Vec table was wiped by model change above — recreate
     initVecTable(4);
     upsertNote({
       path: nfdPath,
@@ -1309,10 +1268,12 @@ describe('getStoredModel', () => {
     assert.equal(model, null);
   });
 
-  it('returns the stored model after checkModelChanged stores it', () => {
+  it('returns the recorded model', () => {
     wipeDatabaseFiles();
     openDb();
-    checkModelChanged('test-model-a');
+    getDb()
+      .prepare("INSERT INTO settings (key, value) VALUES ('embedding_model', 'test-model-a')")
+      .run();
     const model = getStoredModel();
     assert.equal(model, 'test-model-a');
   });

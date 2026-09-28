@@ -20,13 +20,12 @@ import {
 import { config } from './config.js';
 import {
   applyDbConfigDefaults,
-  checkModelChanged,
   getFailedChunks,
-  getDb,
   getNotesWithFailedChunks,
   getStats,
   getStoredEmbeddingDim,
   getStoredModel,
+  hasVecTable,
   initVecTable,
   isLikelyDatabaseCorruption,
   openDb,
@@ -184,7 +183,7 @@ interface ReindexOpts {
  * the gaps would otherwise stay in the index indefinitely.
  */
 async function reindexFailedNotes(): Promise<void> {
-  const contextLength = await init({ allowWipe: false });
+  const contextLength = await init();
   const paths = getNotesWithFailedChunks();
 
   if (paths.length === 0) {
@@ -195,7 +194,6 @@ async function reindexFailedNotes(): Promise<void> {
   const noun = paths.length === 1 ? 'note' : 'notes';
   process.stderr.write(`Repairing ${String(paths.length)} ${noun} with failed chunks...\n`);
 
-  const modelName = currentModelName();
   const embeddingDim = getStoredEmbeddingDim();
   const isTTY = process.stderr.isTTY === true;
   const startTime = Date.now();
@@ -207,7 +205,7 @@ async function reindexFailedNotes(): Promise<void> {
       contextLength,
       // Forced: the note is unchanged on disk, which is exactly why it was skipped.
       true,
-      () => recoverDbSidecarsForReindex(modelName, embeddingDim),
+      () => recoverDbSidecarsForReindex(embeddingDim),
     );
     if (typeof status === 'object') {
       failures.push({ path: relPath, error: status.error });
@@ -339,7 +337,7 @@ function discoverConfig(dbPathOpt?: string): void {
   }
 }
 
-async function init({ allowWipe = false }: { allowWipe?: boolean } = {}) {
+async function init(): Promise<number> {
   openDb();
   applyDbConfigDefaults();
 
@@ -350,26 +348,12 @@ async function init({ allowWipe = false }: { allowWipe?: boolean } = {}) {
     apiModel: config.apiModel,
   });
 
-  // Check if model changed — only wipe during reindex, not during serve/search/status.
-  // Wiping on serve/search would destroy the index whenever env vars are missing (e.g.
-  // when Obsidian launches without shell env vars like OPENAI_BASE_URL).
   const modelName = currentModelName();
-  if (allowWipe) {
-    if (checkModelChanged(modelName)) {
-      saveConfigMeta({
-        vaultPath: config.vaultPath,
-        apiBaseUrl: config.apiBaseUrl,
-        apiModel: config.apiModel,
-      });
-    }
-  } else {
-    // Read-only path: warn if model differs but do not wipe
-    const stored = getStoredModel();
-    if (stored && stored !== modelName) {
-      process.stderr.write(
-        `[warn] Embedding model mismatch: DB has "${stored}", current env has "${modelName}". Semantic search may be degraded. Run reindex to rebuild vectors.\n`,
-      );
-    }
+  const stored = getStoredModel();
+  if (stored && stored !== modelName) {
+    process.stderr.write(
+      `[warn] Embedding model mismatch: DB has "${stored}", current env has "${modelName}". Semantic search may be degraded. Restore the recorded model/configuration, or intentionally rebuild with full reindex --force.\n`,
+    );
   }
 
   // Read stored dim from DB first — avoids an API round-trip when the vault was
@@ -379,7 +363,7 @@ async function init({ allowWipe = false }: { allowWipe?: boolean } = {}) {
   const storedDim = getStoredEmbeddingDim();
   const [contextLength, apiDim] = await Promise.all([
     getContextLength(),
-    storedDim === null
+    storedDim === null && !hasVecTable()
       ? getEmbeddingDim().catch((err: unknown) => {
           console.error(
             '[cli] embedding API unavailable — semantic search and indexing disabled,' +
@@ -405,24 +389,22 @@ function currentModelName(): string {
   return activeModelName();
 }
 
-function restoreDbRuntimeMetadata(modelName: string, embeddingDim: number | null): void {
+function restoreDbRuntimeMetadata(embeddingDim: number | null): void {
   saveConfigMeta({
     vaultPath: config.vaultPath,
     apiBaseUrl: config.apiBaseUrl,
     apiModel: config.apiModel,
   });
-  getDb()
-    .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_model', ?)")
-    .run(modelName);
   if (embeddingDim !== null) {
     initVecTable(embeddingDim);
   }
 }
 
-function recoverDbSidecarsForReindex(modelName: string, embeddingDim: number | null): void {
+function recoverDbSidecarsForReindex(embeddingDim: number | null): void {
   wipeDatabaseSidecars();
   openDb();
-  restoreDbRuntimeMetadata(modelName, embeddingDim);
+  const recoveredDim = getStoredEmbeddingDim();
+  restoreDbRuntimeMetadata(recoveredDim ?? (hasVecTable() ? null : embeddingDim));
 }
 
 /** Color-code a score value based on relevance thresholds. */
@@ -779,7 +761,10 @@ program
 program
   .command('reindex [path]')
   .description('Reindex the vault or a specific file')
-  .option('--force', 'Force reindex even if unchanged')
+  .option(
+    '--force',
+    'Recreate the full database after a fresh embedding probe; with a path, only retry that file',
+  )
   .option('--errors', 'Reindex only the notes whose chunks failed to embed')
   .action(async (filePath: string | undefined, opts: ReindexOpts) => {
     if (opts.errors) {
@@ -790,18 +775,12 @@ program
       return;
     }
 
-    // On a fresh install (no DB yet), always do a full reindex
-    if (!filePath && !existsSync(config.dbPath)) {
-      opts.force = true;
-    }
-
     if (filePath) {
-      const contextLength = await init({ allowWipe: false });
+      const contextLength = await init();
       const fullPath = path.join(config.vaultPath, filePath);
-      const modelName = currentModelName();
       const embeddingDim = getStoredEmbeddingDim();
       const status = await indexFileWithRecovery(fullPath, contextLength, opts.force, () =>
-        recoverDbSidecarsForReindex(modelName, embeddingDim),
+        recoverDbSidecarsForReindex(embeddingDim),
       );
       console.log(
         JSON.stringify(
@@ -825,12 +804,8 @@ program
       );
     } else {
       const header = opts.force ? 'Recreating database and indexing vault...' : 'Indexing vault...';
-      const modelName = currentModelName();
-      if (opts.force) {
-        wipeDatabaseFiles();
-      }
       try {
-        await init({ allowWipe: true });
+        await init();
       } catch (err) {
         if (!isLikelyDatabaseCorruption(err)) {
           throw err;
@@ -839,11 +814,17 @@ program
           '[auto-heal] SQLite index corruption detected during startup; removing WAL/SHM sidecars and retrying.\n',
         );
         wipeDatabaseSidecars();
-        await init({ allowWipe: true });
+        await init();
+      }
+      if (opts.force) {
+        const freshDim = await getEmbeddingDim({ refresh: true });
+        wipeDatabaseFiles();
+        openDb();
+        restoreDbRuntimeMetadata(freshDim);
       }
       const embeddingDim = getStoredEmbeddingDim();
       await indexVaultSync(Boolean(opts.force), header, {
-        recoverDatabase: () => recoverDbSidecarsForReindex(modelName, embeddingDim),
+        recoverDatabase: () => recoverDbSidecarsForReindex(embeddingDim),
       });
     }
   });

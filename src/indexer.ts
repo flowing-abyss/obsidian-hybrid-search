@@ -26,7 +26,12 @@ import {
   upsertNoteUrls,
   wipeDatabaseSidecars,
 } from './db.js';
-import { embedDetailed, getContextLength, getDocumentTokenPolicy } from './embedder.js';
+import {
+  activeModelName,
+  embedDetailed,
+  getContextLength,
+  getDocumentTokenPolicy,
+} from './embedder.js';
 import { createIgnorePolicy, type IgnorePolicy } from './ignore.js';
 import { extractMarkdownReferences, resolveMarkdownNoteLinks } from './markdown-references.js';
 import { bumpIndexVersion } from './searcher.js';
@@ -230,6 +235,7 @@ export async function indexFile(
     const tags = [...new Set([...frontmatterTags, ...inlineTags])];
     const aliases = parseAliasField(frontmatter.aliases as unknown);
 
+    const modelName = activeModelName();
     const ctxLen = contextLength ?? (await getContextLength());
     const semanticChunks = chunkNote(content, ctxLen).filter((c) => c.text.trim().length > 0);
     let embeddedChunks: EmbeddedChunk[] = [];
@@ -256,23 +262,26 @@ export async function indexFile(
       });
     }
 
-    upsertNote({
-      path: relPath,
-      title,
-      tags,
-      aliases,
-      content,
-      frontmatter: frontmatter,
-      mtime: stat.mtimeMs,
-      hash,
-      chunks: embeddedChunks.map(({ chunk, embedding }) => ({
-        text: chunk.text,
-        headingPath: chunk.headingChain.length > 0 ? chunk.headingChain.join(' > ') : null,
-        embedding,
-        charStart: chunk.charStart,
-        charEnd: chunk.charEnd,
-      })),
-    });
+    upsertNote(
+      {
+        path: relPath,
+        title,
+        tags,
+        aliases,
+        content,
+        frontmatter: frontmatter,
+        mtime: stat.mtimeMs,
+        hash,
+        chunks: embeddedChunks.map(({ chunk, embedding }) => ({
+          text: chunk.text,
+          headingPath: chunk.headingChain.length > 0 ? chunk.headingChain.join(' > ') : null,
+          embedding,
+          charStart: chunk.charStart,
+          charEnd: chunk.charEnd,
+        })),
+      },
+      { modelName },
+    );
 
     const resolvedLinks = resolveWikilinks(frontmatterRaw + '\n' + content, relPath);
     upsertLinks(relPath, resolvedLinks);
@@ -630,6 +639,7 @@ async function processQueue(contextLength: number): Promise<void> {
     _isIndexing = true;
     const total = _totalExpected;
     const startTime = Date.now();
+    let failedCount = 0;
 
     if (total > 0) {
       process.stderr.write(`Indexing vault...\n`);
@@ -639,12 +649,16 @@ async function processQueue(contextLength: number): Promise<void> {
       const logEvery = Math.max(config.batchSize, Math.floor(total / 10));
       while (_indexQueue.length > 0) {
         const batch = _indexQueue.splice(0, config.batchSize);
-        await indexBatchWithRecovery(
+        const batchResult = await indexBatchWithRecovery(
           batch,
           contextLength,
           false,
           recoverDatabaseSidecarsForIndexing,
         );
+        for (const error of batchResult.errors) {
+          process.stderr.write(`[indexer] ${error.path}: ${error.error}\n`);
+          failedCount++;
+        }
         _processedCount += batch.length;
 
         if (
@@ -668,7 +682,8 @@ async function processQueue(contextLength: number): Promise<void> {
 
       if (total > 0) {
         const elapsed = formatDuration((Date.now() - startTime) / 1000);
-        process.stderr.write(`Indexing complete in ${elapsed}\n`);
+        const errors = failedCount > 0 ? ` — ${failedCount} errors` : '';
+        process.stderr.write(`Indexing complete in ${elapsed}${errors}\n`);
       }
     } finally {
       _isIndexing = false;

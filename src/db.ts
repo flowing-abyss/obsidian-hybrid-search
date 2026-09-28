@@ -1461,40 +1461,10 @@ export function updateLastIndexed(): void {
   );
 }
 
-/**
- * Check if the embedding model has changed since last run.
- * If it has, delete all DB files and start fresh so the schema is rebuilt
- * with the correct vector dimensions.
- * Returns true if the model changed (caller should force-reindex).
- */
+/** Return recorded index provenance without adopting the current configuration. */
 export function getStoredModel(): string | null {
   const db = getDb();
   const row = db.prepare("SELECT value FROM settings WHERE key = 'embedding_model'").get() as
     { value: string } | undefined;
   return row?.value ?? null;
-}
-
-export function checkModelChanged(model: string): boolean {
-  const db = getDb();
-  const stored = db.prepare("SELECT value FROM settings WHERE key = 'embedding_model'").get() as
-    { value: string } | undefined;
-
-  if (stored?.value === model) return false;
-
-  if (!stored) {
-    // First run — just store the model name, no wipe needed
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_model', ?)").run(
-      model,
-    );
-    return false;
-  }
-
-  // Model changed — drop all DB files and recreate from scratch
-  process.stderr.write(`Embedding model changed: ${stored.value} → ${model}\n`);
-  wipeDatabaseFiles();
-  openDb();
-  getDb()
-    .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_model', ?)")
-    .run(model);
-  return true;
 }

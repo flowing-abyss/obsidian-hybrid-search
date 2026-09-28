@@ -17,7 +17,17 @@ const embedder = await import('../src/embedder.js');
 vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
 vi.spyOn(embedder, 'getContextLength').mockResolvedValue(512);
 
-const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/db.js');
+const {
+  closeDb,
+  openDb,
+  initVecTable,
+  upsertNote,
+  wipeDatabaseFiles,
+  getDb,
+  getStoredModel,
+  getStoredEmbeddingDim,
+  getNoteByPath,
+} = await import('../src/db.js');
 const { createMcpRuntime, createMcpServer, checkForUpdates, packageVersion } =
   await import('../src/mcp-runtime.js');
 
@@ -148,6 +158,98 @@ describe('createMcpServer — tool dispatch', () => {
     assert.ok(typeof handler === 'function', `${method} handler registered`);
     return handler as (req: unknown, extra: unknown) => Promise<unknown>;
   }
+
+  describe('reindex integrity routing', () => {
+    function seedKnownIndex(): void {
+      wipeDatabaseFiles();
+      openDb();
+      initVecTable(4);
+      upsertNote(
+        {
+          path: 'tool-test.md',
+          title: 'Original',
+          tags: [],
+          content: 'Original snapshot',
+          mtime: 1,
+          hash: 'old',
+          chunks: [{ text: 'Original snapshot', embedding: fakeEmbedding }],
+        },
+        { modelName: 'model-A' },
+      );
+    }
+    function snapshot(): unknown {
+      return ['notes', 'chunks', 'vec_chunks', 'settings', 'event_log'].map((table) =>
+        getDb()
+          .prepare(
+            `SELECT * FROM ${table} ORDER BY ${table === 'settings' ? 'key' : table === 'vec_chunks' ? 'chunk_id' : 'id'}`,
+          )
+          .all(),
+      );
+    }
+    for (const mode of ['force', 'unavailable', 'path', 'recovery'] as const) {
+      it(`preserves provenance and routes ${mode} reindex safely`, async () => {
+        seedKnownIndex();
+        const model = vi.spyOn(embedder, 'activeModelName').mockReturnValue('model-A');
+        const dim = vi.spyOn(embedder, 'getEmbeddingDim').mockImplementation((options) => {
+          assert.equal(options?.refresh, true, 'only explicit force may probe');
+          if (mode === 'unavailable') return Promise.reject(new Error('provider unavailable'));
+          if (mode !== 'force') throw new Error('selective indexing must not probe');
+          return Promise.resolve(8);
+        });
+        const policy = vi
+          .spyOn(embedder, 'getDocumentTokenPolicy')
+          .mockResolvedValue({ limit: 508, count: (text) => text.length / 4 });
+        const detailed = vi.spyOn(embedder, 'embedDetailed').mockImplementation((texts) =>
+          Promise.resolve(
+            texts.map(() => ({
+              ok: true as const,
+              embedding: new Float32Array(mode === 'force' ? 8 : 4).fill(0.1),
+            })),
+          ),
+        );
+        try {
+          // Recovery must retain A even when the runtime itself started under B.
+          if (mode === 'recovery') model.mockReturnValue('model-B');
+          const runtime = await createMcpRuntime();
+          model.mockReturnValue('model-B');
+          if (mode === 'recovery')
+            policy.mockRejectedValueOnce(new Error('database disk image is malformed'));
+          const before = snapshot();
+          const response = await getHandler(createMcpServer(runtime), 'tools/call')(
+            {
+              method: 'tools/call',
+              params: {
+                name: 'reindex',
+                arguments:
+                  mode === 'path' || mode === 'recovery'
+                    ? { path: 'tool-test.md', force: true }
+                    : { force: true },
+              },
+            },
+            {},
+          );
+          assert.ok(response);
+          if (mode === 'force') {
+            assert.equal(getStoredEmbeddingDim(), 8);
+            assert.equal(getStoredModel(), 'model-B');
+            assert.equal(getNoteByPath('tool-test.md')?.content, 'Content for tool testing.');
+          } else {
+            assert.deepEqual(snapshot(), before);
+            assert.equal(getStoredModel(), 'model-A');
+            assert.match(
+              JSON.stringify(response),
+              mode === 'unavailable' ? /provider unavailable/ : /model.*mismatch/i,
+            );
+          }
+        } finally {
+          model.mockRestore();
+          dim.mockRestore();
+          policy.mockRestore();
+          detailed.mockRestore();
+        }
+      });
+    }
+  });
 
   it('registers a tools/list handler that returns 4 tools', async () => {
     const runtime = await createMcpRuntime();
