@@ -290,16 +290,32 @@ it.each(['4junk', '0', '-1', '4.5', 'NaN'])('rejects invalid stored dimension %s
   assert.equal(getStoredEmbeddingDim(), null);
 });
 
-it('accepts a compatible vector when dimension metadata is invalid', () => {
-  upsertNote(note());
-  getDb().prepare("UPDATE settings SET value = '4junk' WHERE key = 'embedding_dim'").run();
-  upsertNote({ ...note(), hash: 'changed' });
-  const storedVector = getDb()
-    .prepare('SELECT vec_length(embedding) AS dim FROM vec_chunks LIMIT 1')
-    .get() as { dim: number };
-  assert.equal(storedVector.dim, 4);
-  assert.equal(getStoredEmbeddingDim(), null);
-});
+it.each(['missing', 'invalid'] as const)(
+  'accepts a compatible vector when dimension metadata is %s',
+  (state) => {
+    upsertNote(note());
+    if (state === 'missing') {
+      getDb().prepare("DELETE FROM settings WHERE key = 'embedding_dim'").run();
+    } else {
+      getDb().prepare("UPDATE settings SET value = '4junk' WHERE key = 'embedding_dim'").run();
+    }
+    assert.equal(getStoredEmbeddingDim(), null);
+    upsertNote({ ...note(), hash: 'changed' });
+    const storedVector = getDb()
+      .prepare('SELECT vec_length(embedding) AS dim FROM vec_chunks LIMIT 1')
+      .get() as { dim: number };
+    assert.equal(storedVector.dim, 4);
+    assert.equal(
+      (
+        getDb().prepare("SELECT hash FROM notes WHERE path = 'integrity.md'").get() as {
+          hash: string;
+        }
+      ).hash,
+      'changed',
+    );
+    assert.equal(getStoredEmbeddingDim(), null);
+  },
+);
 
 it('rejects atomically when stored and actual dimensions disagree', () => {
   upsertNote(note());
