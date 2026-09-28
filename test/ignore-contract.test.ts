@@ -14,7 +14,18 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, it, vi } from 'vitest';
@@ -34,8 +45,16 @@ delete process.env.OBSIDIAN_IGNORE_PATTERNS;
 const { config } = await import('../src/config.js');
 const DEFAULT_PATTERNS = [...config.ignorePatterns];
 
-const { closeDb, openDb, initVecTable, getDb, getPathsToRemoveForIgnoreChange } =
-  await import('../src/db.js');
+const {
+  closeDb,
+  openDb,
+  initVecTable,
+  getDb,
+  getPathsToRemoveForIgnoreChange,
+  upsertNote,
+  upsertLinks,
+  upsertMarkdownLinks,
+} = await import('../src/db.js');
 
 const embedder = await import('../src/embedder.js');
 const EMBEDDING = new Float32Array([0.1, 0.2, 0.3, 0.4]);
@@ -50,7 +69,15 @@ vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
 });
 
 const { createIgnorePolicy } = await import('../src/ignore.js');
-const { scanVault, indexVaultSync, cleanupStaleNotes } = await import('../src/indexer.js');
+const {
+  scanVault,
+  indexVaultSync,
+  cleanupStaleNotes,
+  indexFile,
+  startBackgroundIndexing,
+  startWatcher,
+  withIndexingDbLock,
+} = await import('../src/indexer.js');
 const { search, bumpIndexVersion } = await import('../src/searcher.js');
 
 function policyFor(ignorePatterns: string[]) {
@@ -415,6 +442,31 @@ interface GitignoreCase {
   pruned?: string[];
 }
 
+const gitEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
+);
+Object.assign(gitEnv, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' });
+
+function runGit(vault: string, args: string[]) {
+  // Git is a required test tool, resolved from the runner's PATH on every platform.
+  // eslint-disable-next-line sonarjs/no-os-command-from-path
+  return spawnSync('git', args, { cwd: vault, env: gitEnv, encoding: 'utf8' });
+}
+
+function gitIgnores(vault: string, rel: string): boolean {
+  const result = runGit(vault, [
+    '-c',
+    'core.excludesFile=/dev/null',
+    'check-ignore',
+    '--no-index',
+    '--quiet',
+    '--',
+    rel.replace(/\/$/, ''),
+  ]);
+  assert.ok(result.status === 0 || result.status === 1, result.stderr);
+  return result.status === 0;
+}
+
 const GITIGNORE_CASES: GitignoreCase[] = [
   {
     gitignore: '_*\n',
@@ -471,6 +523,70 @@ const GITIGNORE_CASES: GitignoreCase[] = [
     ignored: ['notes/deep/y.md'],
     kept: ['notes/x.md'],
   },
+  {
+    gitignore: 'cache\n',
+    nested: { a: '!keep.md\n' },
+    ignored: ['a/cache/keep.md'],
+    kept: ['a/keep.md'],
+    pruned: ['a/cache/'],
+  },
+  {
+    gitignore: '*\n',
+    nested: { nothing: '!x.md\n' },
+    include: ['n*es/*.md'],
+    ignored: ['nothing/x.md', 'notes/deep/y.md'],
+    kept: ['notes/x.md'],
+  },
+  { gitignore: 'cache/\n', nested: { a: '!cache/\n' }, ignored: [], kept: ['a/cache/keep.md'] },
+  {
+    gitignore: 'cache/\n*.md\n',
+    nested: { a: '!cache/\n' },
+    ignored: ['a/cache/keep.md'],
+    kept: [],
+  },
+  {
+    gitignore: 'cache/\n',
+    nested: { a: '!cache/\n', 'a/cache': '*.md\n!keep.md\n' },
+    ignored: ['a/cache/drop.md'],
+    kept: ['a/cache/keep.md'],
+  },
+  {
+    gitignore: 'cache/\n',
+    nested: { 'a/cache': '!keep.md\n' },
+    ignored: ['a/cache/keep.md'],
+    kept: [],
+    pruned: ['a/cache/'],
+  },
+  {
+    gitignore: 'cache/\n',
+    nested: { a: '!/cache/\n' },
+    ignored: ['a/deep/cache/keep.md'],
+    kept: ['a/cache/keep.md'],
+  },
+  {
+    gitignore: 'cache/\n',
+    nested: { a: '!cache/\ncache/\n' },
+    ignored: ['a/cache/keep.md'],
+    kept: [],
+  },
+  {
+    gitignore: 'cache/\n',
+    nested: { a: 'cache/\n!cache/\n' },
+    ignored: [],
+    kept: ['a/cache/keep.md'],
+  },
+  {
+    gitignore: 'cache/\n',
+    nested: { 'lit[ab]': '!cache/\n' },
+    ignored: [],
+    kept: ['lit[ab]/cache/keep.md'],
+  },
+  {
+    gitignore: 'cache/\n',
+    nested: { ['й'.normalize('NFD')]: '!cache/\n' },
+    ignored: [],
+    kept: ['й/cache/keep.md'.normalize('NFD')],
+  },
 ];
 
 describe('C5 – .gitignore rules and directories', () => {
@@ -478,13 +594,28 @@ describe('C5 – .gitignore rules and directories', () => {
 
   afterAll(() => rmSync(gitignoreVault, { recursive: true, force: true }));
 
-  function gitignorePolicy({ gitignore, nested = {}, include = [] }: Partial<GitignoreCase>) {
+  function gitignorePolicy({
+    gitignore,
+    nested = {},
+    include = [],
+    ignored = [],
+    kept = [],
+    pruned = [],
+  }: Partial<GitignoreCase>) {
     rmSync(gitignoreVault, { recursive: true, force: true });
     mkdirSync(gitignoreVault, { recursive: true });
     writeFileSync(path.join(gitignoreVault, '.gitignore'), gitignore ?? '');
     for (const [dir, content] of Object.entries(nested)) {
       mkdirSync(path.join(gitignoreVault, dir), { recursive: true });
       writeFileSync(path.join(gitignoreVault, dir, '.gitignore'), content);
+    }
+    for (const rel of [...ignored, ...kept, ...pruned]) {
+      const full = path.join(gitignoreVault, rel);
+      if (rel.endsWith('/')) mkdirSync(full, { recursive: true });
+      else {
+        mkdirSync(path.dirname(full), { recursive: true });
+        writeFileSync(full, 'fixture');
+      }
     }
     return createIgnorePolicy({
       vaultPath: gitignoreVault,
@@ -506,8 +637,128 @@ describe('C5 – .gitignore rules and directories', () => {
           assert.equal(policy.isIgnored(dir), false, `prunes ${dir} but keeps ${p}`);
         }
       }
+      assert.equal(policy.isIgnored(''), false);
+      if (!include?.length) {
+        const init = runGit(gitignoreVault, ['init', '--quiet']);
+        assert.equal(init.status, 0, init.stderr);
+        const queries = new Set(
+          [...ignored, ...kept, ...pruned].flatMap((rel) => [rel, ...ancestorDirs(rel)]),
+        );
+        for (const rel of queries)
+          assert.equal(policy.isIgnored(rel), gitIgnores(gitignoreVault, rel), rel);
+      }
     });
   }
+
+  it('allows an exact application include only for its matching path', () => {
+    const policy = gitignorePolicy({
+      gitignore: '*\n',
+      nested: { nothing: '!x.md\n' },
+      include: ['nothing/x.md'],
+      ignored: ['nothing/y.md'],
+      kept: ['nothing/x.md'],
+    });
+    assert.equal(policy.isIgnored('nothing/x.md'), false);
+    assert.equal(policy.isIgnored('nothing/y.md'), true);
+  });
+
+  it.each(['n*es/*.md', 'no?es/*.md', '[a-n]otes/*.md'])(
+    'keeps the matching wildcard include %s',
+    (pattern) => {
+      const policy = gitignorePolicy({
+        gitignore: 'notes/\n',
+        include: [pattern],
+        kept: ['notes/x.md'],
+        ignored: ['notes/deep/y.md'],
+      });
+      assert.equal(policy.isIgnored('notes/x.md'), false);
+      assert.equal(policy.isIgnored('notes/deep/y.md'), true);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')('keeps an escaped literal-star include', () => {
+    const policy = gitignorePolicy({
+      gitignore: '*otes/\n',
+      include: ['\\*otes/*.md'],
+      kept: ['*otes/x.md'],
+    });
+    assert.equal(policy.isIgnored('*otes/x.md'), false);
+  });
+
+  it('matches escaped literal-star and wildcard ancestor names as logical paths', () => {
+    gitignorePolicy({ gitignore: '*otes/\ncache/\n' });
+    const literalInclude = createIgnorePolicy({
+      vaultPath: gitignoreVault,
+      ignorePatterns: [],
+      includePatterns: ['\\*otes/*.md'],
+      respectGitignore: true,
+    });
+    assert.equal(literalInclude.isIgnored('*otes/x.md'), false);
+    for (const name of ['lit*', 'lit?']) {
+      assert.equal(literalInclude.isIgnored(`${name}/cache/keep.md`), true);
+    }
+  });
+
+  it('does not let includes override operational or explicit exclusions', () => {
+    const policy = gitignorePolicy({
+      gitignore: '*\n',
+      include: ['.obsidian/**', 'notes/**'],
+      ignored: ['.obsidian/plugins/x.md', 'notes/x.md'],
+    });
+    assert.equal(policy.isIgnored('.obsidian/plugins/x.md'), true);
+    const explicit = createIgnorePolicy({
+      vaultPath: gitignoreVault,
+      ignorePatterns: ['notes/**'],
+      includePatterns: ['notes/**'],
+      respectGitignore: true,
+    });
+    assert.equal(explicit.isIgnored('notes/x.md'), true);
+  });
+
+  it('respects disabled Git rules', () => {
+    gitignorePolicy({ gitignore: 'cache/\n', ignored: ['cache/x.md'] });
+    const disabled = createIgnorePolicy({
+      vaultPath: gitignoreVault,
+      ignorePatterns: [],
+      includePatterns: [],
+      respectGitignore: false,
+    });
+    assert.equal(disabled.isIgnored('cache/x.md'), false);
+  });
+
+  it('normalizes NFC queries against NFD Git rules and paths', () => {
+    const nfd = 'й'.normalize('NFD');
+    const policy = gitignorePolicy({ gitignore: `${nfd}/\n`, ignored: [`${nfd}/x.md`] });
+    assert.equal(policy.isIgnored(`${nfd}/x.md`), true);
+    assert.equal(policy.isIgnored('й/x.md'.normalize('NFC')), true);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'handles literal wildcard characters in reopened ancestor names',
+    () => {
+      for (const dirname of ['lit*', 'lit?']) {
+        const rel = `${dirname}/cache/keep.md`;
+        const policy = gitignorePolicy({
+          gitignore: 'cache/\n',
+          nested: { [dirname]: '!cache/\n' },
+          kept: [rel],
+        });
+        assert.equal(policy.isIgnored(rel), false);
+        const init = runGit(gitignoreVault, ['init', '--quiet']);
+        assert.equal(init.status, 0, init.stderr);
+        assert.equal(gitIgnores(gitignoreVault, rel), false);
+      }
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')('keeps literal LF in generated ancestor rules', () => {
+    const rel = 'a\ncache/cache/keep.md';
+    const policy = gitignorePolicy({ gitignore: '', kept: [rel] });
+    assert.equal(policy.isIgnored(rel), false);
+    const init = runGit(gitignoreVault, ['init', '--quiet']);
+    assert.equal(init.status, 0, init.stderr);
+    assert.equal(gitIgnores(gitignoreVault, rel), false);
+  });
 
   it('still prunes the internal .obsidian folder', () => {
     const policy = gitignorePolicy({});
@@ -571,5 +822,254 @@ describe('C5 – .gitignore rules and directories', () => {
       const found = await search('zqgisurvivor', { mode: 'fulltext' });
       assert.deepEqual(sorted(found.map((h) => h.path)), SURVIVORS);
     });
+  });
+});
+
+describe('issue #55 – index entry points and saved-version migration', () => {
+  const previous = {
+    ignore: process.env.OBSIDIAN_IGNORE_PATTERNS,
+    include: process.env.OBSIDIAN_INCLUDE_PATTERNS,
+    respect: process.env.OBSIDIAN_RESPECT_GITIGNORE,
+    debounce: config.debounce,
+  };
+
+  function write(rel: string, content: string): void {
+    const full = path.join(vaultDir, rel);
+    mkdirSync(path.dirname(full), { recursive: true });
+    writeFileSync(full, content);
+  }
+
+  beforeEach(() => {
+    closeDb();
+    rmSync(vaultDir, { recursive: true, force: true });
+    mkdirSync(vaultDir, { recursive: true });
+    process.env.OBSIDIAN_IGNORE_PATTERNS = '';
+    process.env.OBSIDIAN_INCLUDE_PATTERNS = '';
+    process.env.OBSIDIAN_RESPECT_GITIGNORE = 'true';
+    openDb();
+    initVecTable(EMBEDDING.length);
+    vi.mocked(embedder.embed).mockClear();
+    vi.mocked(embedder.embedDetailed).mockClear();
+  });
+
+  afterAll(() => {
+    config.debounce = previous.debounce;
+    for (const [key, value] of [
+      ['OBSIDIAN_IGNORE_PATTERNS', previous.ignore],
+      ['OBSIDIAN_INCLUDE_PATTERNS', previous.include],
+      ['OBSIDIAN_RESPECT_GITIGNORE', previous.respect],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  for (const { name, rules, rel, include } of [
+    {
+      name: 'blocked nested file negation',
+      rules: { '.gitignore': 'cache\n', 'a/.gitignore': '!keep.md\n' },
+      rel: 'a/cache/keep.md',
+      include: '',
+    },
+    {
+      name: 'unmatched include wildcard',
+      rules: { '.gitignore': '*\n', 'nothing/.gitignore': '!x.md\n' },
+      rel: 'nothing/x.md',
+      include: 'n*es/*.md',
+    },
+  ]) {
+    it(`skips ${name} in scan, direct, force and background indexing`, async () => {
+      process.env.OBSIDIAN_INCLUDE_PATTERNS = include;
+      for (const [rule, content] of Object.entries(rules)) write(rule, content);
+      write(rel, '# Excluded\n\nNonempty body for embedding');
+      if (include) write('notes/x.md', '# Included\n\nNonempty body');
+      const target = path.join(vaultDir, rel);
+      vi.mocked(embedder.embed).mockClear();
+      vi.mocked(embedder.embedDetailed).mockClear();
+      const scanned = scanVault();
+      assert.ok(!scanned.includes(target));
+      if (include) assert.ok(scanned.includes(path.join(vaultDir, 'notes/x.md')));
+      assert.equal(await indexFile(target, 512), 'skipped');
+      assert.equal(await indexFile(target, 512, true), 'skipped');
+      assert.equal(getDb().prepare('SELECT id FROM notes WHERE path = ?').get(rel), undefined);
+      assert.equal(vi.mocked(embedder.embed).mock.calls.length, 0);
+      assert.equal(vi.mocked(embedder.embedDetailed).mock.calls.length, 0);
+      await startBackgroundIndexing(512);
+      assert.equal(getDb().prepare('SELECT id FROM notes WHERE path = ?').get(rel), undefined);
+      if (include)
+        assert.ok(getDb().prepare('SELECT id FROM notes WHERE path = ?').get('notes/x.md'));
+    });
+  }
+
+  it('sweeps version-2 selections while preserving saved survivor vectors and ignored-note links', async () => {
+    process.env.OBSIDIAN_INCLUDE_PATTERNS = 'UP55/wide/n*es/*.md';
+    write('UP55/.gitignore', 'cache\n');
+    write('UP55/a/.gitignore', '!keep.md\n');
+    write('UP55/a/cache/keep.md', 'body of erroneously included note');
+    write('UP55/wide/.gitignore', '*\n');
+    write('UP55/wide/nothing/.gitignore', '!x.md\n');
+    write('UP55/wide/nothing/x.md', 'body of erroneously included note');
+    write('UP55/wide/notes/kept.md', 'already explicitly included body');
+    write('UP55/unaffected.md', 'ordinary body');
+
+    const survivorPaths = ['UP55/unaffected.md', 'UP55/wide/notes/kept.md'];
+    const removedPaths = ['UP55/a/cache/keep.md', 'UP55/wide/nothing/x.md'];
+    function seedSavedNote(rel: string): void {
+      const raw = readFileSync(path.join(vaultDir, rel), 'utf8');
+      upsertNote({
+        path: rel.normalize('NFD'),
+        title: rel,
+        tags: [],
+        content: raw,
+        hash: createHash('md5').update(raw).digest('hex'),
+        mtime: statSync(path.join(vaultDir, rel)).mtimeMs,
+        chunks: [{ text: raw, embedding: EMBEDDING }],
+      });
+    }
+    function savedRows(paths: readonly string[]) {
+      return paths.map((rel) => ({
+        note: getDb().prepare('SELECT id, path, hash, mtime FROM notes WHERE path = ?').get(rel),
+        chunks: getDb()
+          .prepare(
+            `SELECT c.id, c.note_id, hex(v.embedding) AS vector
+          FROM chunks c JOIN notes n ON n.id = c.note_id
+          JOIN vec_chunks v ON v.chunk_id = c.id WHERE n.path = ? ORDER BY c.id`,
+          )
+          .all(rel),
+      }));
+    }
+    function linkRows() {
+      return {
+        wiki: getDb()
+          .prepare('SELECT from_path, to_path FROM links ORDER BY from_path, to_path')
+          .all(),
+        markdown: getDb()
+          .prepare('SELECT from_path, to_path FROM markdown_links ORDER BY from_path, to_path')
+          .all(),
+      };
+    }
+    for (const rel of [...survivorPaths, ...removedPaths]) seedSavedNote(rel);
+    for (const rel of removedPaths) {
+      upsertLinks(rel, ['UP55/unaffected.md']);
+      upsertMarkdownLinks(rel, ['UP55/unaffected.md']);
+    }
+    const before = savedRows(survivorPaths);
+    const removedChunks = removedPaths.flatMap((rel) => savedRows([rel])[0]!.chunks) as {
+      id: number;
+    }[];
+    const linksBefore = linkRows();
+    assert.ok(before.every((row) => row.chunks.length > 0));
+    assert.equal(removedChunks.length, 2);
+    const version2 = JSON.parse(createIgnorePolicy().signature()) as Record<string, unknown>;
+    version2.matcherVersion = 2;
+    getPathsToRemoveForIgnoreChange([], JSON.stringify(version2), () => false);
+    vi.mocked(embedder.embed).mockClear();
+    vi.mocked(embedder.embedDetailed).mockClear();
+    cleanupStaleNotes();
+    for (const rel of removedPaths) {
+      assert.equal(getDb().prepare('SELECT id FROM notes WHERE path = ?').get(rel), undefined);
+      assert.equal(existsSync(path.join(vaultDir, rel)), true);
+      assert.equal(
+        readFileSync(path.join(vaultDir, rel), 'utf8'),
+        'body of erroneously included note',
+      );
+      assert.equal(await indexFile(path.join(vaultDir, rel), 512, true), 'skipped');
+    }
+    for (const { id } of removedChunks) {
+      assert.equal(getDb().prepare('SELECT id FROM chunks WHERE id = ?').get(id), undefined);
+      assert.equal(
+        getDb().prepare('SELECT chunk_id FROM vec_chunks WHERE chunk_id = ?').get(id),
+        undefined,
+      );
+    }
+    assert.deepEqual(savedRows(survivorPaths), before);
+    assert.deepEqual(linkRows(), linksBefore);
+    const signature = getDb()
+      .prepare("SELECT value FROM settings WHERE key = 'ignore_state_signature'")
+      .get() as { value: string };
+    assert.equal((JSON.parse(signature.value) as { matcherVersion: number }).matcherVersion, 3);
+
+    const result = await indexVaultSync();
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.indexed, 0);
+    assert.deepEqual(savedRows(survivorPaths), before);
+    assert.deepEqual(linkRows(), linksBefore);
+    cleanupStaleNotes(new Set(scanVault().map((f) => path.relative(vaultDir, f).normalize('NFD'))));
+    const repeated = await indexVaultSync();
+    assert.deepEqual(repeated.errors, []);
+    assert.equal(repeated.indexed, 0);
+    assert.deepEqual(savedRows(survivorPaths), before);
+    assert.deepEqual(linkRows(), linksBefore);
+    assert.equal(vi.mocked(embedder.embed).mock.calls.length, 0);
+    assert.equal(vi.mocked(embedder.embedDetailed).mock.calls.length, 0);
+
+    upsertLinks('UP55/unaffected.md', ['UP55/wide/notes/kept.md']);
+    upsertMarkdownLinks('UP55/unaffected.md', ['UP55/wide/notes/kept.md']);
+    assert.ok(
+      linkRows().wiki.some(
+        (row) => (row as { from_path: string }).from_path === 'UP55/unaffected.md',
+      ),
+    );
+    unlinkSync(path.join(vaultDir, 'UP55/unaffected.md'));
+    await indexVaultSync();
+    assert.equal(
+      getDb().prepare('SELECT id FROM notes WHERE path = ?').get('UP55/unaffected.md'),
+      undefined,
+    );
+    assert.ok(
+      !linkRows().wiki.some(
+        (row) => (row as { from_path: string }).from_path === 'UP55/unaffected.md',
+      ),
+    );
+    assert.ok(
+      !linkRows().markdown.some(
+        (row) => (row as { from_path: string }).from_path === 'UP55/unaffected.md',
+      ),
+    );
+  });
+
+  it('rechecks a queued watcher change against fresh Git rules under the DB lock', async () => {
+    config.debounce = 20;
+    write('a/.gitignore', '!keep.md\n');
+    write('a/cache/keep.md', '# Initially allowed\n\nNonempty body');
+    const chokidar = await import('chokidar');
+    vi.mocked(chokidar.watch).mockClear();
+    startWatcher(512);
+    await vi.waitFor(() => assert.ok(vi.mocked(chokidar.watch).mock.results.length > 0));
+    type MockWatcher = { on: ReturnType<typeof vi.fn> };
+    const watcher = vi.mocked(chokidar.watch).mock.results.at(-1)?.value as MockWatcher;
+    const change = watcher.on.mock.calls.find(([event]) => event === 'change')?.[1] as (
+      file: string,
+    ) => void;
+    assert.equal(typeof change, 'function');
+    let release: () => void = () => {
+      throw new Error('lock not acquired');
+    };
+    let entered: () => void = () => {};
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = withIndexingDbLock(async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+        entered();
+      });
+    });
+    await ready;
+    try {
+      change(path.join(vaultDir, 'a/cache/keep.md'));
+      await new Promise((resolve) => setTimeout(resolve, config.debounce + 50));
+      write('.gitignore', 'cache\n');
+    } finally {
+      release();
+    }
+    await held;
+    await withIndexingDbLock(() => {});
+    assert.equal(
+      getDb().prepare('SELECT id FROM notes WHERE path = ?').get('a/cache/keep.md'),
+      undefined,
+    );
+    assert.equal(vi.mocked(embedder.embed).mock.calls.length, 0);
+    assert.equal(vi.mocked(embedder.embedDetailed).mock.calls.length, 0);
   });
 });

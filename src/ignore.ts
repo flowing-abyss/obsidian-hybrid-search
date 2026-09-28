@@ -4,14 +4,15 @@ import path from 'node:path';
 import { config } from './config.js';
 
 const OPERATIONAL_IGNORE_PATTERNS = ['.obsidian/**', '.obsidian-hybrid-search.db*'];
-// Bump when explicit-pattern matching changes. Notes that only the new matcher ignores
+// Bump when ignore-selection semantics change. Notes that only the new matcher ignores
 // are then swept as newly ignored (links kept) rather than as files deleted from disk.
-const IGNORE_MATCHER_VERSION = 2;
+const IGNORE_MATCHER_VERSION = 3;
 
 interface GitignoreLayer {
   baseRelPath: string;
   content: string;
   matcher: Ignore;
+  directMatchers: Map<string, Ignore>;
 }
 
 interface ExplicitMatcher {
@@ -125,10 +126,13 @@ function readGitignoreLayer(dir: string, baseRelPath: string): GitignoreLayer | 
   if (!existsSync(fullPath)) return null;
   try {
     const content = readFileSync(fullPath, 'utf-8').replaceAll(path.sep, '/').normalize('NFD');
+    const matcher = ignore().add(content);
     return {
       baseRelPath,
       content,
-      matcher: ignore().add(content),
+      matcher,
+      // Derived matchers belong to this loaded layer and policy snapshot only.
+      directMatchers: new Map([['', matcher]]),
     };
   } catch {
     return null;
@@ -183,19 +187,47 @@ function loadGitignoreLayers(
   return layers;
 }
 
-function gitignoreIgnores(layers: readonly GitignoreLayer[], relPath: string): boolean {
-  let ignored = false;
-  for (const layer of layers) {
-    const layerPath = toLayerRelativePath(relPath, layer.baseRelPath);
-    if (layerPath === null || !layerPath) continue;
-    const result = layer.matcher.test(normalizeRelPath(layerPath));
-    if (matcherIgnores(layer.matcher, layerPath)) {
-      ignored = true;
-    } else if (result.unignored) {
-      ignored = false;
+// The combined layers have already resolved every proper ancestor as accessible.
+// Neutralize stale inheritance inside this layer without rescuing the target itself.
+function testGitignoreLayer(layer: GitignoreLayer, layerPath: string): ReturnType<Ignore['test']> {
+  const parts = stripTrailingSlashes(layerPath).split('/');
+  const parents = parts.slice(0, -1);
+  const parentPath = parents.join('/');
+  let matcher = layer.directMatchers.get(parentPath);
+  if (!matcher) {
+    matcher = ignore().add(layer.matcher);
+    for (let i = 0; i < parents.length; i++) {
+      const literal = parents
+        .slice(0, i + 1)
+        .join('/')
+        .replace(/[\\*?[\]]/g, '\\$&');
+      // The object overload preserves literal LF in a physical directory name.
+      matcher.add({ pattern: `!/${literal}/` });
     }
+    layer.directMatchers.set(parentPath, matcher);
   }
-  return ignored;
+  return matcher.test(layerPath);
+}
+
+function gitignoreIgnores(layers: readonly GitignoreLayer[], relPath: string): boolean {
+  const normalized = normalizeRelPath(relPath);
+  const target = stripTrailingSlashes(normalized);
+  if (!target || layers.length === 0) return false;
+  const parts = target.split('/');
+  for (let i = 0; i < parts.length; i++) {
+    const directory = i < parts.length - 1 || normalized.endsWith('/');
+    const current = parts.slice(0, i + 1).join('/') + (directory ? '/' : '');
+    let ignored = false;
+    for (const layer of layers) {
+      const layerPath = toLayerRelativePath(current, layer.baseRelPath);
+      if (layerPath === null || !layerPath) continue;
+      const result = testGitignoreLayer(layer, layerPath);
+      if (result.ignored) ignored = true;
+      else if (result.unignored) ignored = false;
+    }
+    if (ignored) return true;
+  }
+  return false;
 }
 
 function sortedPatterns(patterns: readonly string[]): string[] {
