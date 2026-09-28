@@ -6,6 +6,7 @@ import {
   OllamaEmbeddingResponseSchema,
 } from './boundary-validation.js';
 import { config } from './config.js';
+import { getCpuSessionOptions } from './inference-settings.js';
 import { createDownloadIndicator, trackModelDownload } from './model-download-progress.js';
 import {
   createEstimatedTokenCounter,
@@ -247,6 +248,7 @@ async function getLocalPipeline() {
         createDownloadIndicator('Downloading embedding model'),
       );
       try {
+        const sessionOptions = getCpuSessionOptions();
         // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return -- @huggingface/transformers has no TypeScript types
         return await hf.pipeline('feature-extraction', config.localModel, {
           // device:'cpu' avoids silent fp32 fallback that occurs when 'auto' selects
@@ -255,6 +257,7 @@ async function getLocalPipeline() {
           // dtype:'q8' loads model_quantized.onnx (~30 MB) instead of the fp32
           // model.onnx (~470 MB), halving RSS with no meaningful quality drop.
           dtype: 'q8',
+          ...(sessionOptions ? { session_options: sessionOptions } : {}),
           progress_callback: download.update,
         });
       } finally {

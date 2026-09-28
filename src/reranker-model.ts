@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { DEFAULT_RERANKER_MODEL } from './config.js';
+import { getCpuSessionOptions } from './inference-settings.js';
 import {
   createDownloadIndicator,
   trackModelDownload,
@@ -30,7 +31,12 @@ interface Tokenizer {
 interface ModelLoader {
   from_pretrained(
     name: string,
-    options: { dtype: string; device: string; progress_callback?: (event: unknown) => void },
+    options: {
+      dtype: string;
+      device: string;
+      session_options?: { intraOpNumThreads: number };
+      progress_callback?: (event: unknown) => void;
+    },
   ): Promise<Model>;
 }
 interface Transformers {
@@ -95,11 +101,13 @@ export async function loadRerankerModel(
         },
       });
     } else {
+      const sessionOptions = getCpuSessionOptions();
       [tokenizer, model] = await Promise.all([
         AutoTokenizer.from_pretrained(modelName, { progress_callback: download.update }),
         loader.from_pretrained(modelName, {
           dtype: 'int8',
           device,
+          ...(sessionOptions ? { session_options: sessionOptions } : {}),
           progress_callback: download.update,
         }),
       ]);

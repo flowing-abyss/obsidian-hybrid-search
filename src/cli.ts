@@ -17,6 +17,7 @@ import {
   wrapPathForTable,
 } from './cli-table-layout.js';
 import { config } from './config.js';
+import { MAX_CPU_THREADS, saveCpuThreads } from './inference-settings.js';
 import {
   applyDbConfigDefaults,
   getFailedChunks,
@@ -175,6 +176,7 @@ interface SearchOpts {
 interface ReindexOpts {
   force?: boolean;
   errors?: boolean;
+  threads?: string;
 }
 
 /**
@@ -680,11 +682,27 @@ program
     'Recreate the full database after a fresh embedding probe; with a path, only retry that file',
   )
   .option('--errors', 'Reindex only the notes whose chunks failed to embed')
+  .option(
+    '--threads <count>',
+    'Save local CPU embedding/reranking threads (0 for native auto); restart services to apply',
+  )
   .action(async (filePath: string | undefined, opts: ReindexOpts) => {
-    if (opts.errors) {
-      if (filePath) {
-        failCliValidation(new Error('--errors reindexes the failed notes, so it takes no path'));
+    if (opts.errors && filePath) {
+      failCliValidation(new Error('--errors reindexes the failed notes, so it takes no path'));
+    }
+    if (opts.threads !== undefined) {
+      try {
+        saveCpuThreads(
+          parseCliIntegerOption('--threads', opts.threads, {
+            min: 0,
+            max: MAX_CPU_THREADS,
+          }),
+        );
+      } catch (error) {
+        failCliValidation(error);
       }
+    }
+    if (opts.errors) {
       await reindexFailedNotes();
       return;
     }
