@@ -8,13 +8,13 @@
     "url": "https://github.com/flowing-abyss/obsidian-hybrid-search",
     "source": "github"
   },
-  "version": "0.15.6",
+  "version": "0.16.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "obsidian-hybrid-search",
-      "version": "0.15.6",
+      "version": "0.16.0",
       "transport": {
         "type": "stdio"
       },
@@ -72,7 +72,7 @@
         {
           "name": "RERANKER_MODEL",
           "description": "Optional ONNX cross-encoder reranker model used when reranking is requested.",
-          "default": "onnx-community/bge-reranker-v2-m3-ONNX"
+          "default": "onnx-community/gte-multilingual-reranker-base"
         }
       ]
     }
