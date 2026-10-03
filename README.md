@@ -488,16 +488,18 @@ Set `OBSIDIAN_PREFIX` to add a prefix to every tool name. For example, `myvault_
 
 ## Configuration
 
-| Environment variable         | Default                              | Description                                                                        |
-| ---------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
-| `OBSIDIAN_VAULT_PATH`        | Required for MCP; CLI auto-detects   | Absolute path to your vault                                                        |
-| `OBSIDIAN_PREFIX`            | `""`                                 | Optional MCP tool prefix, e.g. `myvault_` → `myvault_search`, `myvault_read`       |
-| `OBSIDIAN_IGNORE_PATTERNS`   | `.obsidian/**,templates/**,*.canvas` | Comma-separated ignore patterns                                                    |
-| `OBSIDIAN_RESPECT_GITIGNORE` | `true`                               | Read root and nested `.gitignore` files; set to `false` to disable                 |
-| `OBSIDIAN_INCLUDE_PATTERNS`  | `""`                                 | Comma-separated patterns to re-include notes ignored only by `.gitignore`          |
-| `OPENAI_API_KEY`             | None                                 | API key; omit to use local model embeddings or keyless servers (Ollama, LM Studio) |
-| `OPENAI_BASE_URL`            | `https://api.openai.com/v1`          | API base URL                                                                       |
-| `OPENAI_EMBEDDING_MODEL`     | `text-embedding-3-small`             | Embedding model name                                                               |
+| Environment variable         | Default                              | Description                                                                                                                                                                                     |
+| ---------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OBSIDIAN_VAULT_PATH`        | Required for MCP; CLI auto-detects   | Absolute path to your vault                                                                                                                                                                     |
+| `OBSIDIAN_PREFIX`            | `""`                                 | Optional MCP tool prefix, e.g. `myvault_` → `myvault_search`, `myvault_read`                                                                                                                    |
+| `OBSIDIAN_IGNORE_PATTERNS`   | `.obsidian/**,templates/**,*.canvas` | Comma-separated ignore patterns                                                                                                                                                                 |
+| `OBSIDIAN_RESPECT_GITIGNORE` | `true`                               | Read root and nested `.gitignore` files; set to `false` to disable                                                                                                                              |
+| `OBSIDIAN_INCLUDE_PATTERNS`  | `""`                                 | Comma-separated patterns to re-include notes ignored only by `.gitignore`                                                                                                                       |
+| `OPENAI_API_KEY`             | None                                 | API key; omit to use local model embeddings or keyless servers (Ollama, LM Studio)                                                                                                              |
+| `OPENAI_BASE_URL`            | `https://api.openai.com/v1`          | API base URL                                                                                                                                                                                    |
+| `OPENAI_EMBEDDING_MODEL`     | `text-embedding-3-small`             | Embedding model name                                                                                                                                                                            |
+| `OHS_QUERY_PREFIX`           | none                                 | Text prepended to each search query before embedding (e.g. Qwen3-Embedding's `Instruct: ...\nQuery: `). `\n` is decoded. Overrides the built-in E5 prefix. Queries only, so no re-index needed. |
+| `OHS_DOCUMENT_PREFIX`        | none                                 | Text prepended to each document chunk before embedding. Changing it requires `ohs reindex`.                                                                                                     |
 
 ### Ignore patterns
 
