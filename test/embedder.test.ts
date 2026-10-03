@@ -860,3 +860,43 @@ describe('fresh embedding dimension readiness', () => {
     });
   }
 });
+
+describe('configurable embedding prefixes', () => {
+  afterEach(() => {
+    process.env.OPENAI_API_KEY = 'test-key';
+    process.env.OPENAI_BASE_URL = 'https://api.test/v1';
+    delete process.env.OPENAI_EMBEDDING_MODEL;
+    delete process.env.OHS_QUERY_PREFIX;
+    delete process.env.OHS_DOCUMENT_PREFIX;
+  });
+
+  it('prefixes only queries when OHS_QUERY_PREFIX is set, decoding backslash-n', () => {
+    process.env.OPENAI_EMBEDDING_MODEL = 'Qwen/Qwen3-Embedding-0.6B';
+    process.env.OHS_QUERY_PREFIX = 'Instruct: find passages\\nQuery: ';
+    assert.equal(
+      prepareEmbeddingInput('zettelkasten', 'query'),
+      'Instruct: find passages\nQuery: zettelkasten',
+    );
+    assert.equal(prepareEmbeddingInput('zettelkasten', 'document'), 'zettelkasten');
+  });
+
+  it('prefixes documents when OHS_DOCUMENT_PREFIX is set', () => {
+    process.env.OPENAI_EMBEDDING_MODEL = 'custom/model';
+    process.env.OHS_DOCUMENT_PREFIX = 'doc: ';
+    assert.equal(prepareEmbeddingInput('note', 'document'), 'doc: note');
+    assert.equal(prepareEmbeddingInput('note', 'query'), 'note');
+  });
+
+  it('overrides the built-in E5 prefix when a custom prefix is set', () => {
+    process.env.OPENAI_EMBEDDING_MODEL = 'intfloat/multilingual-e5-large';
+    process.env.OHS_QUERY_PREFIX = 'q> ';
+    assert.equal(prepareEmbeddingInput('x', 'query'), 'q> x');
+    assert.equal(prepareEmbeddingInput('x', 'document'), 'passage: x');
+  });
+
+  it('leaves input untouched with no prefix configured and a non-E5 model', () => {
+    process.env.OPENAI_EMBEDDING_MODEL = 'Qwen/Qwen3-Embedding-0.6B';
+    assert.equal(prepareEmbeddingInput('x', 'query'), 'x');
+    assert.equal(prepareEmbeddingInput('x', 'document'), 'x');
+  });
+});
