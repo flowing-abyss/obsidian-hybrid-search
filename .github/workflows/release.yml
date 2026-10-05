@@ -4,76 +4,58 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Existing release tag to publish or recover (for example, v0.16.2)
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing release tag to recover (for example, v0.15.1)
+        description: Existing release tag to publish or recover (for example, v0.16.2)
         required: true
         type: string
+
+# Shared across tag pushes, the automatic caller, and explicit recovery.
+concurrency:
+  group: release-${{ inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      actions: read # needed to verify CI status before publishing
-      contents: write # needed to create GitHub Release
-      id-token: write # needed for OIDC npm publish
+      actions: read
+      contents: write
+      id-token: write
 
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout trusted automation
+        uses: actions/checkout@v6
+        with:
+          ref: master
+          fetch-depth: 0
 
-      - name: Resolve release tag
+      # Older tags may not contain these helpers. Keep the trusted workflow's
+      # tools outside the package checkout so recovery works for those tags too.
+      - name: Preserve trusted release tools
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-tools"
+          cp scripts/release-guard.mjs scripts/publish-release-npm.mjs scripts/publish-release-mcp.mjs "$RUNNER_TEMP/release-tools/"
+
+      - name: Verify release tag and trusted CI
         id: release-tag
         env:
-          DISPATCH_TAG: ${{ inputs.release_tag }}
-        run: |
-          release_tag="${DISPATCH_TAG:-$GITHUB_REF_NAME}"
-          package_version="$(node -p "require('./package.json').version")"
-          if [ "$release_tag" != "v$package_version" ]; then
-            echo "Release tag $release_tag does not match package version $package_version."
-            exit 1
-          fi
-          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: node "$RUNNER_TEMP/release-tools/release-guard.mjs" verify
 
-      - name: Wait for CI to pass for this commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for i in $(seq 1 90); do
-            run_json="$(gh run list \
-              --workflow CI \
-              --commit "$GITHUB_SHA" \
-              --limit 1 \
-              --json databaseId,status,conclusion,url)"
-
-            run_count="$(jq 'length' <<<"$run_json")"
-            if [ "$run_count" -eq 0 ]; then
-              echo "No CI run registered yet for $GITHUB_SHA. Waiting..."
-              sleep 20
-              continue
-            fi
-
-            status="$(jq -r '.[0].status' <<<"$run_json")"
-            conclusion="$(jq -r '.[0].conclusion' <<<"$run_json")"
-            url="$(jq -r '.[0].url' <<<"$run_json")"
-
-            if [ "$status" = "completed" ]; then
-              if [ "$conclusion" = "success" ]; then
-                echo "Verified CI success for commit $GITHUB_SHA: $url"
-                exit 0
-              fi
-              echo "CI failed for commit $GITHUB_SHA."
-              echo "Conclusion: $conclusion"
-              echo "Run: $url"
-              exit 1
-            fi
-
-            echo "CI is $status for $GITHUB_SHA ($url). Waiting..."
-            sleep 20
-          done
-
-          echo "Timed out waiting for CI on $GITHUB_SHA."
-          exit 1
+      - name: Checkout verified release commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release-tag.outputs.commit_sha }}
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
@@ -86,28 +68,23 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Synchronize server.json version
-        run: npm run sync-server-json
-
       - name: Run tests
         run: npm test
 
       - name: Publish npm package and wait for registry visibility
-        run: node scripts/publish-release-npm.mjs
+        run: node "$RUNNER_TEMP/release-tools/publish-release-npm.mjs"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Install mcp-publisher
         run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          curl --fail --silent --show-error --location "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
 
       - name: Publish to MCP Registry
-        run: |
-          ./mcp-publisher login github-oidc
-          ./mcp-publisher publish
+        run: node "$RUNNER_TEMP/release-tools/publish-release-mcp.mjs"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
-          tag_name: ${{ steps.release-tag.outputs.tag }}
+          tag_name: ${{ steps.release-tag.outputs.release_tag }}

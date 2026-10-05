@@ -521,6 +521,22 @@ The database stores the ignore configuration and restores it when the server res
 
 Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and project checks.
 
+### Dependency releases and recovery
+
+The weekly dependency update runs on Monday at 00:00 UTC. It updates dependencies with npm 12, bumps the patch version only when the dependency manifests change, and opens a PR containing only `package.json`, `package-lock.json`, and `server.json`. A GitHub App creates the PR and enables native auto-merge, so ordinary PR CI runs and the required `lint-and-test` check gates the merge.
+
+Install the release App on this repository only, with **Contents: write** and **Pull requests: write** repository permissions. Set the repository Actions variable `RELEASE_APP_CLIENT_ID` to the App's client ID and the Actions secret `RELEASE_APP_PRIVATE_KEY` to its PEM private key. Enable repository auto-merge and keep `lint-and-test` required in branch protection. No personal access token or fabricated commit status is needed.
+
+After successful push CI on master, the release guard verifies the merged dependency PR, its exact merge SHA, manifest-only changes, synchronized versions, and an exact patch increment. It creates an immutable tag and directly calls the reusable release workflow. A newer master tip is allowed when the checked commit is still in master history. Repeated creation of the same tag is safe; a tag pointing to another commit fails without moving it.
+
+Manual tag pushes still start releases. Publication requires successful same-repository CI on master for the **resolved tag commit**; push CI and manually dispatched CI are accepted for recovery. A tag pushed before that CI succeeds fails with a rerun message. After CI passes, recover an existing tag with:
+
+```bash
+gh workflow run release.yml --ref master -f release_tag=vX.Y.Z
+```
+
+Recovery uses the requested tag's commit and manifests, even if master has advanced or the older tag lacks the current release helpers. Runs for the same tag are serialized without cancellation. Already-visible npm versions and identical active MCP Registry records are verified and skipped, then the GitHub Release is created or updated. Any publication failure fails the release job.
+
 ## License
 
 MIT

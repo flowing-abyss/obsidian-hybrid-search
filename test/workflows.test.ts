@@ -1,265 +1,239 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.join(__dirname, '..');
-
-type WorkflowStep = {
-  env?: Record<string, unknown>;
-  if?: string;
-  id?: string;
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+type Step = {
   name?: string;
   uses?: string;
   run?: string;
+  if?: string;
+  id?: string;
+  env?: Record<string, string>;
   with?: Record<string, unknown>;
 };
-
-type WorkflowJob = {
-  env?: Record<string, unknown>;
+type Job = {
+  steps?: Step[];
+  env?: Record<string, string>;
+  permissions?: Record<string, string>;
+  needs?: string | string[];
   if?: string;
-  permissions?: Record<string, unknown>;
-  steps: WorkflowStep[];
+  uses?: string;
+  with?: Record<string, unknown>;
+  secrets?: string;
+  strategy?: { matrix: { os: string[] } };
 };
-
 type Workflow = {
-  on?: Record<string, unknown>;
-  permissions?: Record<string, unknown>;
-  jobs: Record<string, WorkflowJob>;
+  on: Record<string, unknown>;
+  concurrency?: { group: string; 'cancel-in-progress': boolean };
+  jobs: Record<string, Job>;
 };
-
-function readWorkflow(relativePath: string): Workflow {
-  return parseYaml(readFileSync(path.join(ROOT, relativePath), 'utf-8')) as Workflow;
+function readWorkflow(name: string): Workflow {
+  return parseYaml(readFileSync(path.join(ROOT, '.github/workflows', name), 'utf8')) as Workflow;
+}
+function step(workflow: Workflow, job: string, name: string): Step {
+  const found = workflow.jobs[job]?.steps?.find((value) => value.name === name);
+  assert.ok(found, `Missing ${job} step: ${name}`);
+  return found;
 }
 
-function stepByName(workflow: Workflow, jobName: string, stepName: string): WorkflowStep {
-  const step = workflow.jobs[jobName]?.steps.find((candidate) => candidate.name === stepName);
-  assert.ok(step, `${relativePathForJob(jobName)} should include step "${stepName}"`);
-  return step;
-}
-
-function relativePathForJob(jobName: string): string {
-  return `job "${jobName}"`;
-}
-
-describe('GitHub Actions workflows', () => {
-  it('weekly dependency update creates pull requests without long-lived tokens or local hooks', () => {
-    const workflow = readWorkflow('.github/workflows/update-deps.yml');
-    const job = workflow.jobs['update-deps'];
-    assert.ok(job);
-
-    assert.equal(job.env?.HUSKY, '0');
-    assert.ok(!('DEPENDENCY_UPDATE_TOKEN' in (job.env ?? {})));
-    assert.equal(
-      job.steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.uses,
-      'actions/checkout@v6',
-    );
-    assert.equal(
-      job.steps.find((step) => step.uses?.startsWith('actions/setup-node@'))?.uses,
-      'actions/setup-node@v6',
-    );
-
-    const createPullRequest = stepByName(workflow, 'update-deps', 'Create Pull Request');
-    assert.equal(createPullRequest.uses, 'peter-evans/create-pull-request@v8');
-    assert.ok(!('token' in (createPullRequest.with ?? {})));
-    assert.ok(!('branch-token' in (createPullRequest.with ?? {})));
-  });
-
-  it('weekly dependency update explicitly verifies generated changes before opening a PR', () => {
-    const workflow = readWorkflow('.github/workflows/update-deps.yml');
-    const stepNames = workflow.jobs['update-deps']?.steps.map(
-      (step) => step.name ?? step.run ?? step.uses,
-    );
+describe('release workflow contracts', () => {
+  it('keeps the weekly schedule and serializes updates without cancellation', () => {
+    const workflow = readWorkflow('update-deps.yml');
+    assert.deepEqual(workflow.on.schedule, [{ cron: '0 0 * * 1' }]);
+    assert.deepEqual(workflow.concurrency, {
+      group: 'weekly-dependency-update',
+      'cancel-in-progress': false,
+    });
+    assert.equal(workflow.jobs['update-deps']?.env?.HUSKY, '0');
+    assert.equal(step(workflow, 'update-deps', 'Install npm 12').run, 'npm install -g npm@12');
+    const names = workflow.jobs['update-deps']?.steps?.map((value) => value.name);
     assert.deepEqual(
-      stepNames?.filter((name) =>
+      names?.filter((name) =>
         ['Format generated files', 'Build', 'Lint', 'Unit tests', 'Dead code'].includes(name ?? ''),
       ),
       ['Format generated files', 'Build', 'Lint', 'Unit tests', 'Dead code'],
     );
-
-    const format = stepByName(workflow, 'update-deps', 'Format generated files');
-    assert.equal(format.run, 'npm run format');
-
-    const lint = stepByName(workflow, 'update-deps', 'Lint');
-    assert.equal(lint.run, 'npm run lint');
   });
 
-  it('weekly dependency update explicitly dispatches CI for the pull request branch', () => {
-    const ciWorkflow = readWorkflow('.github/workflows/ci.yml');
-    assert.ok('workflow_dispatch' in (ciWorkflow.on ?? {}));
-
-    const updateWorkflow = readWorkflow('.github/workflows/update-deps.yml');
-    const stepNames = updateWorkflow.jobs['update-deps']?.steps.map((step) => step.name);
-    assert.deepEqual(
-      stepNames?.filter((name) =>
-        [
-          'Create Pull Request',
-          'Run CI for pull request branch',
-          'Mark required CI status pending',
-          'Wait for CI and publish required status',
-          'Enable auto-merge',
-          'Wait for pull request merge',
-          'Run CI for merged master commit',
-          'Wait for CI to pass on merged master commit',
-          'Run auto-tag for dependency update merge',
-          'Wait for auto-tag to pass',
-        ].includes(name ?? ''),
-      ),
-      [
-        'Create Pull Request',
-        'Run CI for pull request branch',
-        'Mark required CI status pending',
-        'Wait for CI and publish required status',
-        'Enable auto-merge',
-        'Wait for pull request merge',
-        'Run CI for merged master commit',
-        'Wait for CI to pass on merged master commit',
-        'Run auto-tag for dependency update merge',
-        'Wait for auto-tag to pass',
-      ],
+  it('uses a narrowly scoped App token for a PR limited to release manifests', () => {
+    const workflow = readWorkflow('update-deps.yml');
+    const token = step(workflow, 'update-deps', 'Create release App token');
+    assert.equal(token.uses, 'actions/create-github-app-token@v3');
+    assert.equal(token.if, "steps.changes.outputs.changed == 'true'");
+    assert.deepEqual(token.with, {
+      'client-id': '${{ vars.RELEASE_APP_CLIENT_ID }}',
+      'private-key': '${{ secrets.RELEASE_APP_PRIVATE_KEY }}',
+      'permission-contents': 'write',
+      'permission-pull-requests': 'write',
+    });
+    const pr = step(workflow, 'update-deps', 'Create Pull Request');
+    assert.equal(pr.with?.token, '${{ steps.app-token.outputs.token }}');
+    assert.equal(pr.with?.branch, 'chore/update-deps');
+    assert.equal(pr.with?.base, 'master');
+    assert.deepEqual(String(pr.with?.['add-paths']).trim().split('\n'), [
+      'package.json',
+      'package-lock.json',
+      'server.json',
+    ]);
+    assert.equal(
+      step(workflow, 'update-deps', 'Enable auto-merge').env?.GH_TOKEN,
+      '${{ steps.app-token.outputs.token }}',
     );
+    assert.equal(workflow.jobs['update-deps']?.permissions?.statuses, undefined);
+    assert.equal(workflow.jobs['update-deps']?.permissions?.actions, undefined);
+  });
 
-    const dispatchCi = stepByName(updateWorkflow, 'update-deps', 'Run CI for pull request branch');
-    assert.match(dispatchCi.run ?? '', /gh workflow run ci\.yml/);
-    assert.match(dispatchCi.run ?? '', /steps\.pr\.outputs\.pull-request-branch/);
-
-    const waitForCi = stepByName(
-      updateWorkflow,
+  it('explains absent App configuration before dependency work', () => {
+    const config = step(
+      readWorkflow('update-deps.yml'),
       'update-deps',
-      'Wait for CI and publish required status',
+      'Check release App configuration',
     );
-    assert.match(waitForCi.run ?? '', /--event workflow_dispatch/);
-    assert.match(waitForCi.run ?? '', /PR_HEAD_SHA/);
+    assert.ok(config.run);
+    // Bash comes from the trusted test runner PATH; this runs a fixed workflow step.
+    // eslint-disable-next-line sonarjs/no-os-command-from-path
+    const result = spawnSync('bash', ['-eu', '-c', config.run], {
+      env: { PATH: process.env.PATH, RELEASE_APP_CLIENT_ID: '', RELEASE_APP_PRIVATE_KEY: '' },
+      encoding: 'utf8',
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout + result.stderr, /RELEASE_APP_CLIENT_ID/);
+    assert.match(result.stdout + result.stderr, /RELEASE_APP_PRIVATE_KEY/);
   });
 
-  it('weekly dependency update verifies the merged commit before auto-tagging', () => {
-    const workflow = readWorkflow('.github/workflows/update-deps.yml');
-
-    const waitForMerge = stepByName(workflow, 'update-deps', 'Wait for pull request merge');
-    assert.match(waitForMerge.run ?? '', /gh pr view "\$PR_NUMBER"/);
-    assert.match(waitForMerge.run ?? '', /mergeCommit/);
-    assert.match(waitForMerge.run ?? '', /commit=\$merge_commit/);
-
-    const runMergedCi = stepByName(workflow, 'update-deps', 'Run CI for merged master commit');
-    assert.match(runMergedCi.run ?? '', /gh workflow run ci\.yml --ref master/);
-
-    const waitForMergedCi = stepByName(
-      workflow,
-      'update-deps',
-      'Wait for CI to pass on merged master commit',
+  it('enables native auto-merge for the expected PR head without dispatching workflows', () => {
+    const workflow = readWorkflow('update-deps.yml');
+    const merge = step(workflow, 'update-deps', 'Enable auto-merge');
+    assert.deepEqual(merge.env, {
+      GH_TOKEN: '${{ steps.app-token.outputs.token }}',
+      PR_NUMBER: '${{ steps.pr.outputs.pull-request-number }}',
+      PR_HEAD_SHA: '${{ steps.pr.outputs.pull-request-head-sha }}',
+    });
+    assert.ok(merge.run);
+    const fakeBin = mkdtempSync(path.join(tmpdir(), 'ohs-automerge-'));
+    const invocationLog = path.join(fakeBin, 'invocation');
+    try {
+      writeFileSync(
+        path.join(fakeBin, 'gh'),
+        '#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$MERGE_LOG"\n',
+      );
+      chmodSync(path.join(fakeBin, 'gh'), 0o755);
+      // Bash and the isolated gh fixture are deliberately resolved via the test PATH.
+      // eslint-disable-next-line sonarjs/no-os-command-from-path
+      const result = spawnSync('bash', ['-eu', '-c', merge.run], {
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ''}`,
+          GH_TOKEN: 'invalid-isolated-test-token',
+          GITHUB_TOKEN: '',
+          GH_REPO: 'example/project',
+          MERGE_LOG: invocationLog,
+          PR_NUMBER: '42',
+          PR_HEAD_SHA: '1111111111111111111111111111111111111111',
+        },
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(readFileSync(invocationLog, 'utf8').trim().split('\n'), [
+        'pr',
+        'merge',
+        '42',
+        '--auto',
+        '--squash',
+        '--delete-branch',
+        '--match-head-commit',
+        '1111111111111111111111111111111111111111',
+      ]);
+    } finally {
+      rmSync(fakeBin, { force: true, recursive: true });
+    }
+    assert.equal(
+      workflow.jobs['update-deps']?.steps?.filter((value) => value.run?.includes('gh workflow run'))
+        .length,
+      0,
     );
-    assert.match(waitForMergedCi.run ?? '', /MERGE_COMMIT/);
-    assert.match(waitForMergedCi.run ?? '', /--event workflow_dispatch/);
-    assert.match(waitForMergedCi.run ?? '', /--branch master/);
-
-    const runAutoTag = stepByName(
-      workflow,
-      'update-deps',
-      'Run auto-tag for dependency update merge',
-    );
-    assert.match(runAutoTag.run ?? '', /gh workflow run auto-tag\.yml --ref master/);
-    assert.match(runAutoTag.run ?? '', /-f commit="\$MERGE_COMMIT"/);
-
-    const waitForAutoTag = stepByName(workflow, 'update-deps', 'Wait for auto-tag to pass');
-    assert.match(waitForAutoTag.run ?? '', /Auto-tag after dependency update merge/);
-    assert.match(waitForAutoTag.run ?? '', /--event workflow_dispatch/);
   });
 
-  it('weekly dependency update publishes the required status from the dispatched CI result', () => {
-    const workflow = readWorkflow('.github/workflows/update-deps.yml');
-    const job = workflow.jobs['update-deps'];
-    assert.ok(job);
-
-    assert.equal(job.permissions?.statuses, 'write');
-
-    const pendingStatus = stepByName(workflow, 'update-deps', 'Mark required CI status pending');
-    assert.match(
-      pendingStatus.run ?? '',
-      /repos\/\$\{GITHUB_REPOSITORY\}\/statuses\/\$\{PR_HEAD_SHA\}/,
+  it('connects CI completion to immutable preparation and reusable publication', () => {
+    const workflow = readWorkflow('auto-tag.yml');
+    assert.deepEqual(workflow.on, {
+      workflow_run: { workflows: ['CI'], types: ['completed'], branches: ['master'] },
+    });
+    assert.equal(
+      step(workflow, 'prepare', 'Validate completed CI and dependency PR').env?.GITHUB_TOKEN,
+      '${{ github.token }}',
     );
-    assert.match(pendingStatus.run ?? '', /context=lint-and-test/);
-    assert.match(pendingStatus.run ?? '', /state=pending/);
-
-    const waitForCi = stepByName(
-      workflow,
-      'update-deps',
-      'Wait for CI and publish required status',
+    assert.equal(
+      step(workflow, 'prepare', 'Checkout release candidate').with?.ref,
+      '${{ steps.candidate.outputs.candidate_sha }}',
     );
-    assert.match(waitForCi.run ?? '', /publish_status success/);
-    assert.match(waitForCi.run ?? '', /publish_status failure/);
-    assert.match(waitForCi.run ?? '', /context=lint-and-test/);
+    assert.equal(workflow.jobs.publish?.needs, 'prepare');
+    assert.equal(workflow.jobs.publish?.if, "needs.prepare.outputs.release_tag != ''");
+    assert.equal(workflow.jobs.publish?.uses, './.github/workflows/release.yml');
+    assert.deepEqual(workflow.jobs.publish?.with, {
+      release_tag: '${{ needs.prepare.outputs.release_tag }}',
+    });
+    assert.equal(workflow.jobs.publish?.secrets, 'inherit');
   });
 
-  it('auto-tag can be dispatched for the verified dependency merge commit', () => {
-    const workflow = readWorkflow('.github/workflows/auto-tag.yml');
-    const job = workflow.jobs.tag;
-    assert.ok(job);
-
-    assert.ok('workflow_dispatch' in (workflow.on ?? {}));
-    assert.match(job.if ?? '', /github\.event_name == 'workflow_dispatch'/);
-
-    const dispatchCheckout = stepByName(workflow, 'tag', 'Checkout dispatched commit');
-    assert.equal(dispatchCheckout.if, "github.event_name == 'workflow_dispatch'");
-    assert.equal(dispatchCheckout.uses, 'actions/checkout@v6');
-    assert.equal(dispatchCheckout.with?.ref, '${{ inputs.commit }}');
-
-    const verifyMaster = stepByName(workflow, 'tag', 'Verify dispatched commit is current master');
-    assert.match(verifyMaster.run ?? '', /origin master:refs\/remotes\/origin\/master/);
-    assert.match(verifyMaster.run ?? '', /HEAD_COMMIT/);
-    assert.match(verifyMaster.run ?? '', /MASTER_COMMIT/);
-
-    const verifyDependencyMerge = stepByName(
-      workflow,
-      'tag',
-      'Verify dependency update merge commit',
+  it('serializes every release entry point and checks out the verified tag commit', () => {
+    const workflow = readWorkflow('release.yml');
+    for (const entry of ['workflow_call', 'workflow_dispatch']) {
+      const trigger = workflow.on[entry] as {
+        inputs?: Record<string, { required: boolean; type: string }>;
+      };
+      assert.ok(trigger, `Missing ${entry} release entry point`);
+      assert.equal(trigger.inputs?.release_tag?.required, true);
+      assert.equal(trigger.inputs?.release_tag?.type, 'string');
+    }
+    assert.deepEqual(workflow.on.push, { tags: ['v*.*.*'] });
+    assert.deepEqual(workflow.concurrency, {
+      group: 'release-${{ inputs.release_tag || github.ref_name }}',
+      'cancel-in-progress': false,
+    });
+    assert.equal(
+      step(workflow, 'release', 'Checkout verified release commit').with?.ref,
+      '${{ steps.release-tag.outputs.commit_sha }}',
     );
-    assert.match(verifyDependencyMerge.run ?? '', /chore:\\ weekly\\ dependency\\ update/);
-    assert.match(verifyDependencyMerge.run ?? '', /chore:\\ update\\ dependencies/);
-  });
-
-  it('release waits for the tagged commit CI run instead of failing while CI is still running', () => {
-    const workflow = readWorkflow('.github/workflows/release.yml');
-    const verifyCi = stepByName(workflow, 'release', 'Wait for CI to pass for this commit');
-    assert.match(verifyCi.run ?? '', /for i in \$\(seq 1 90\)/);
-    assert.match(verifyCi.run ?? '', /status"\s*=\s*"completed"/);
-    assert.match(verifyCi.run ?? '', /sleep 20/);
-    assert.doesNotMatch(verifyCi.run ?? '', /Wait for CI to pass, then re-run this release/);
-  });
-
-  it('makes npm publication rerunnable and waits for exact-version visibility', () => {
-    const workflow = readWorkflow('.github/workflows/release.yml');
-    const npmRelease = stepByName(
+    assert.equal(
+      step(workflow, 'release', 'Verify release tag and trusted CI').env?.RELEASE_TAG,
+      '${{ inputs.release_tag || github.ref_name }}',
+    );
+    const publish = step(
       workflow,
       'release',
       'Publish npm package and wait for registry visibility',
     );
-
-    assert.equal(npmRelease.run, 'node scripts/publish-release-npm.mjs');
-    assert.equal(npmRelease.env?.NODE_AUTH_TOKEN, '${{ secrets.NPM_TOKEN }}');
-
-    const stepNames = workflow.jobs.release?.steps.map((step) => step.name);
-    const npmReleaseIndex = stepNames?.indexOf(npmRelease.name) ?? -1;
-    const mcpReleaseIndex = stepNames?.indexOf('Publish to MCP Registry') ?? -1;
-    assert.ok(npmReleaseIndex >= 0);
-    assert.ok(mcpReleaseIndex > npmReleaseIndex);
+    assert.equal(publish.run, 'node "$RUNNER_TEMP/release-tools/publish-release-npm.mjs"');
+    assert.equal(publish.env?.NODE_AUTH_TOKEN, '${{ secrets.NPM_TOKEN }}');
+    const steps = workflow.jobs.release?.steps ?? [];
+    assert.ok(
+      steps.indexOf(step(workflow, 'release', 'Publish to MCP Registry')) > steps.indexOf(publish),
+    );
+    assert.ok(
+      steps.indexOf(step(workflow, 'release', 'Create GitHub Release')) >
+        steps.indexOf(step(workflow, 'release', 'Publish to MCP Registry')),
+    );
+    assert.equal(
+      step(workflow, 'release', 'Create GitHub Release').with?.tag_name,
+      '${{ steps.release-tag.outputs.release_tag }}',
+    );
   });
 
-  it('targets an explicit matching tag when a release is dispatched manually', () => {
-    const workflow = readWorkflow('.github/workflows/release.yml');
-    const workflowDispatch = workflow.on?.workflow_dispatch as
-      { inputs?: Record<string, Record<string, unknown>> } | undefined;
-    assert.equal(workflowDispatch?.inputs?.release_tag?.required, true);
-    assert.equal(workflowDispatch?.inputs?.release_tag?.type, 'string');
-
-    const resolveTag = stepByName(workflow, 'release', 'Resolve release tag');
-    assert.equal(resolveTag.id, 'release-tag');
-    assert.match(resolveTag.run ?? '', /DISPATCH_TAG:-\$GITHUB_REF_NAME/);
-    assert.match(resolveTag.run ?? '', /"v\$package_version"/);
-
-    const createRelease = stepByName(workflow, 'release', 'Create GitHub Release');
-    assert.equal(createRelease.with?.tag_name, '${{ steps.release-tag.outputs.tag }}');
+  it('preserves the required check and all three CI platforms', () => {
+    const workflow = readWorkflow('ci.yml');
+    assert.deepEqual(workflow.jobs.test?.strategy?.matrix.os, [
+      'ubuntu-latest',
+      'macos-latest',
+      'windows-latest',
+    ]);
+    assert.equal(workflow.jobs['lint-and-test']?.needs, 'test');
+    assert.equal(workflow.jobs['lint-and-test']?.if, 'always()');
   });
 });

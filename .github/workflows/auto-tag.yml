@@ -1,141 +1,60 @@
 name: Auto-tag after dependency update merge
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [master]
-  workflow_dispatch:
-    inputs:
-      commit:
-        description: 'Master commit SHA to tag'
-        required: true
-        type: string
 
 jobs:
-  tag:
-    # Only run when the dependency update PR is squash-merged into master.
-    # Depending on the merge path, the squash commit subject may come from
-    # either the PR title or the head commit message.
-    if: "github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore: weekly dependency update') || startsWith(github.event.head_commit.message, 'chore: update dependencies')"
+  prepare:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
-      actions: read # needed to poll CI status before tagging
-
+      pull-requests: read
+    outputs:
+      release_tag: ${{ steps.tag.outputs.release_tag }}
+      commit_sha: ${{ steps.tag.outputs.commit_sha }}
     steps:
-      - name: Checkout dispatched commit
-        if: github.event_name == 'workflow_dispatch'
+      - name: Checkout trusted automation
         uses: actions/checkout@v6
         with:
-          fetch-depth: 2
-          ref: ${{ inputs.commit }}
-          token: ${{ secrets.DEPENDENCY_UPDATE_TOKEN }}
+          ref: master
 
-      - name: Checkout pushed commit
-        if: github.event_name != 'workflow_dispatch'
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 2
-          token: ${{ secrets.DEPENDENCY_UPDATE_TOKEN }}
-
-      - name: Verify dispatched commit is current master
-        if: github.event_name == 'workflow_dispatch'
+      - name: Preserve trusted release guard
         run: |
-          git fetch --depth=1 origin master:refs/remotes/origin/master
-          HEAD_COMMIT="$(git rev-parse HEAD)"
-          MASTER_COMMIT="$(git rev-parse origin/master)"
-          if [ "$HEAD_COMMIT" != "$MASTER_COMMIT" ]; then
-            echo "ERROR: dispatched commit $HEAD_COMMIT is not current origin/master $MASTER_COMMIT."
-            exit 1
-          fi
+          mkdir -p "$RUNNER_TEMP/release-tools"
+          cp scripts/release-guard.mjs "$RUNNER_TEMP/release-tools/"
 
-      - name: Verify dependency update merge commit
-        run: |
-          SUBJECT="$(git log -1 --pretty=%s)"
-          if [[ "$SUBJECT" != chore:\ weekly\ dependency\ update* && "$SUBJECT" != chore:\ update\ dependencies* ]]; then
-            echo "ERROR: commit subject is not a dependency update merge: $SUBJECT"
-            exit 1
-          fi
-          echo "Dependency update merge commit: $SUBJECT"
-
-      - name: Wait for CI to pass on this commit
+      - name: Validate completed CI and dependency PR
+        id: candidate
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # CI (ci.yml) runs on push to master. The release workflow's guard
-          # requires CI to be green for the tagged commit, so we must not tag
-          # until CI has completed successfully. Polling (not a fixed sleep)
-          # makes this deterministic regardless of runner load.
-          for i in $(seq 1 60); do
-            run_json="$(gh run list \
-              --workflow CI \
-              --commit "$GITHUB_SHA" \
-              --limit 1 \
-              --json databaseId,status,conclusion,url)"
-            run_count="$(jq 'length' <<<"$run_json")"
-            if [ "$run_count" -eq 0 ]; then
-              echo "No CI run registered yet for $GITHUB_SHA, retrying..."
-              sleep 10
-              continue
-            fi
-            status="$(jq -r '.[0].status' <<<"$run_json")"
-            conclusion="$(jq -r '.[0].conclusion' <<<"$run_json")"
-            url="$(jq -r '.[0].url' <<<"$run_json")"
-            if [ "$status" = "completed" ]; then
-              if [ "$conclusion" = "success" ]; then
-                echo "CI passed for $GITHUB_SHA: $url"
-                exit 0
-              fi
-              echo "ERROR: CI did not pass for $GITHUB_SHA (conclusion=$conclusion). Not tagging a broken commit. Run: $url"
-              exit 1
-            fi
-            echo "CI still in_progress for $GITHUB_SHA ($url). Waiting..."
-            sleep 15
-          done
-          echo "ERROR: Timed out waiting for CI on $GITHUB_SHA."
-          exit 1
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node "$RUNNER_TEMP/release-tools/release-guard.mjs" candidate
 
-      - name: Verify version was bumped relative to previous commit
-        run: |
-          PREV=$(git show HEAD~1:package.json | jq -r .version)
-          CURR=$(jq -r .version package.json)
-          if [ "$PREV" = "$CURR" ]; then
-            echo "ERROR: package.json version was not bumped (still $CURR). Aborting tag creation."
-            exit 1
-          fi
-          echo "Version bumped: $PREV → $CURR ✅"
+      - name: Checkout release candidate
+        if: steps.candidate.outputs.candidate_sha != ''
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.candidate.outputs.candidate_sha }}
+          fetch-depth: 0
 
-      - name: Verify server.json is synchronized with package.json
-        run: |
-          PKG_VERSION=$(jq -r .version package.json)
-          SERVER_VERSION=$(jq -r .version server.json)
-          SERVER_PKG_VERSION=$(jq -r '.packages[0].version // empty' server.json)
-          if [ "$SERVER_VERSION" != "$PKG_VERSION" ] || [ "$SERVER_PKG_VERSION" != "$PKG_VERSION" ]; then
-            echo "ERROR: server.json is out of sync with package.json ($SERVER_VERSION / $SERVER_PKG_VERSION vs $PKG_VERSION). Aborting tag creation."
-            exit 1
-          fi
-          echo "server.json is synchronized with package.json ✅"
+      - name: Validate versions and create or verify immutable tag
+        if: steps.candidate.outputs.candidate_sha != ''
+        id: tag
+        env:
+          CANDIDATE_SHA: ${{ steps.candidate.outputs.candidate_sha }}
+        run: node "$RUNNER_TEMP/release-tools/release-guard.mjs" tag
 
-      - name: Read version from package.json
-        id: version
-        run: echo "version=v$(jq -r .version package.json)" >> $GITHUB_OUTPUT
-
-      - name: Create and push tag
-        run: |
-          TAG="${{ steps.version.outputs.version }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            TAG_COMMIT=$(git rev-parse "$TAG")
-            HEAD_COMMIT=$(git rev-parse HEAD)
-            if [ "$TAG_COMMIT" = "$HEAD_COMMIT" ]; then
-              echo "Tag $TAG already points to HEAD, skipping."
-              exit 0
-            fi
-            echo "Tag $TAG exists on $TAG_COMMIT but HEAD is $HEAD_COMMIT. Moving tag to HEAD."
-            git push origin ":refs/tags/$TAG"
-          fi
-
-          git tag "$TAG"
-          git push origin "$TAG"
-          echo "Pushed tag $TAG ✅"
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.release_tag != ''
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+    uses: ./.github/workflows/release.yml
+    with:
+      release_tag: ${{ needs.prepare.outputs.release_tag }}
+    secrets: inherit
