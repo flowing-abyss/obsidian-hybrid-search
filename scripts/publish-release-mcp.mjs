@@ -22,8 +22,16 @@ try {
     console.log(`${server.name}@${server.version} is already published in MCP Registry.`);
   } else if (response.status === 404) {
     const publisher = process.env.MCP_PUBLISHER_PATH || './mcp-publisher';
+    // An explicit interpreter can prepend its script path without relying on a shebang.
+    const leadingArgs = JSON.parse(process.env.MCP_PUBLISHER_ARGS || '[]');
+    if (
+      !Array.isArray(leadingArgs) ||
+      leadingArgs.some((argument) => typeof argument !== 'string')
+    ) {
+      throw new Error('MCP_PUBLISHER_ARGS must be a JSON array of strings.');
+    }
     for (const args of [['login', 'github-oidc'], ['publish']]) {
-      const result = spawnSync(publisher, args, { stdio: 'inherit' });
+      const result = spawnSync(publisher, [...leadingArgs, ...args], { stdio: 'inherit' });
       if (result.error) throw result.error;
       if (result.status !== 0) process.exit(result.status || 1);
     }

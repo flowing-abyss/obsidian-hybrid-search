@@ -1,15 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -413,14 +405,16 @@ describe('release guard at GitHub API and git boundaries', () => {
 
 describe('MCP Registry recovery at HTTP and publisher process boundaries', () => {
   function publisher(root: string, exitCode = 0) {
-    const executable = path.join(root, 'fake-publisher.mjs');
+    const script = path.join(root, 'fake-publisher.mjs');
     const log = path.join(root, 'publisher.jsonl');
     writeFileSync(
-      executable,
-      `#!${process.execPath}\nimport { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)) + '\\n');\nprocess.exit(${exitCode});\n`,
+      script,
+      `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)) + '\\n');\nprocess.exit(${exitCode});\n`,
     );
-    chmodSync(executable, 0o755);
-    return { executable, log };
+    return {
+      env: { MCP_PUBLISHER_PATH: process.execPath, MCP_PUBLISHER_ARGS: JSON.stringify([script]) },
+      log,
+    };
   }
   function calls(log: string): string[][] {
     return existsSync(log)
@@ -443,13 +437,7 @@ describe('MCP Registry recovery at HTTP and publisher process boundaries', () =>
         _meta: { 'io.modelcontextprotocol.registry/official': { status: 'active' } },
       },
     }));
-    const result = await run(
-      repo.root,
-      '',
-      api.url,
-      { MCP_PUBLISHER_PATH: processFixture.executable },
-      'publish-release-mcp.mjs',
-    );
+    const result = await run(repo.root, '', api.url, processFixture.env, 'publish-release-mcp.mjs');
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /already published/);
     assert.deepEqual(calls(processFixture.log), []);
@@ -461,13 +449,7 @@ describe('MCP Registry recovery at HTTP and publisher process boundaries', () =>
     const repo = project();
     const processFixture = publisher(repo.root);
     const api = await apiServer(() => ({ status: 404, data: { title: 'Not found' } }));
-    const result = await run(
-      repo.root,
-      '',
-      api.url,
-      { MCP_PUBLISHER_PATH: processFixture.executable },
-      'publish-release-mcp.mjs',
-    );
+    const result = await run(repo.root, '', api.url, processFixture.env, 'publish-release-mcp.mjs');
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(calls(processFixture.log), [['login', 'github-oidc'], ['publish']]);
   });
@@ -475,13 +457,7 @@ describe('MCP Registry recovery at HTTP and publisher process boundaries', () =>
     const repo = project();
     const processFixture = publisher(repo.root);
     const api = await apiServer(() => ({ status: 503, data: { title: 'Unavailable' } }));
-    const result = await run(
-      repo.root,
-      '',
-      api.url,
-      { MCP_PUBLISHER_PATH: processFixture.executable },
-      'publish-release-mcp.mjs',
-    );
+    const result = await run(repo.root, '', api.url, processFixture.env, 'publish-release-mcp.mjs');
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /503/);
     assert.deepEqual(calls(processFixture.log), []);
@@ -499,13 +475,7 @@ describe('MCP Registry recovery at HTTP and publisher process boundaries', () =>
         _meta: { 'io.modelcontextprotocol.registry/official': { status: 'active' } },
       },
     }));
-    const result = await run(
-      repo.root,
-      '',
-      api.url,
-      { MCP_PUBLISHER_PATH: processFixture.executable },
-      'publish-release-mcp.mjs',
-    );
+    const result = await run(repo.root, '', api.url, processFixture.env, 'publish-release-mcp.mjs');
     assert.notEqual(result.status, 0);
     assert.deepEqual(calls(processFixture.log), []);
   });
@@ -513,14 +483,23 @@ describe('MCP Registry recovery at HTTP and publisher process boundaries', () =>
     const repo = project();
     const processFixture = publisher(repo.root, 23);
     const api = await apiServer(() => ({ status: 404, data: { title: 'Not found' } }));
+    const result = await run(repo.root, '', api.url, processFixture.env, 'publish-release-mcp.mjs');
+    assert.equal(result.status, 23);
+    assert.deepEqual(calls(processFixture.log), [['login', 'github-oidc']]);
+  });
+  it('rejects malformed publisher argument configuration before starting a process', async () => {
+    const repo = project();
+    const processFixture = publisher(repo.root);
+    const api = await apiServer(() => ({ status: 404, data: { title: 'Not found' } }));
     const result = await run(
       repo.root,
       '',
       api.url,
-      { MCP_PUBLISHER_PATH: processFixture.executable },
+      { ...processFixture.env, MCP_PUBLISHER_ARGS: '"not-an-array"' },
       'publish-release-mcp.mjs',
     );
-    assert.equal(result.status, 23);
-    assert.deepEqual(calls(processFixture.log), [['login', 'github-oidc']]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /MCP_PUBLISHER_ARGS.*array/);
+    assert.deepEqual(calls(processFixture.log), []);
   });
 });
