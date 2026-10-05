@@ -340,6 +340,8 @@ function getLocalValidationContextLength(pipeline: any): number {
 }
 
 export function prepareEmbeddingInput(text: string, type: 'query' | 'document'): string {
+  const custom = type === 'query' ? config.queryPrefix : config.documentPrefix;
+  if (custom) return `${custom}${text}`;
   const model = useApiMode() ? config.apiModel : config.localModel;
   if (!needsE5Prefix(model)) return text;
   return `${type === 'query' ? 'query: ' : 'passage: '}${text}`;

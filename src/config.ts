@@ -2,6 +2,11 @@ import path from 'node:path';
 
 export const DEFAULT_RERANKER_MODEL = 'onnx-community/gte-multilingual-reranker-base';
 
+function decodePrefix(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  return raw.replace(/\\n/g, '\n');
+}
+
 export const config = {
   get obsidianPrefix(): string {
     return process.env.OBSIDIAN_PREFIX ?? '';
@@ -35,6 +40,14 @@ export const config = {
   },
   get apiModel(): string {
     return process.env.OPENAI_EMBEDDING_MODEL ?? 'text-embedding-3-small';
+  },
+  /** Text prepended to every search query before embedding (e.g. Qwen3-Embedding's instruction line). `\n` is decoded. */
+  get queryPrefix(): string | undefined {
+    return decodePrefix(process.env.OHS_QUERY_PREFIX);
+  },
+  /** Text prepended to every document chunk before embedding. `\n` is decoded. */
+  get documentPrefix(): string | undefined {
+    return decodePrefix(process.env.OHS_DOCUMENT_PREFIX);
   },
   get localModel(): string {
     return process.env.LOCAL_EMBEDDING_MODEL ?? 'Xenova/multilingual-e5-small';
