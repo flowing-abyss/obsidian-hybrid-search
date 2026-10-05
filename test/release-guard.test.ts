@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -16,10 +24,19 @@ afterEach(async () => {
   for (const cleanup of cleanupTasks.splice(0).reverse()) await cleanup();
 });
 
+function isolatedEnvironment(environment: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  // Hook variables target the invoking repository even when a child has another cwd.
+  // Preserve Node/HTTP environment while isolating all fixture Git targeting/configuration.
+  return Object.fromEntries(Object.entries(environment).filter(([name]) => !/^GIT_/i.test(name)));
+}
 function git(root: string, ...args: string[]): string {
   // The test runner supplies Git on PATH; arguments operate only on isolated fixtures.
   // eslint-disable-next-line sonarjs/no-os-command-from-path
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  const result = spawnSync('git', args, {
+    cwd: root,
+    env: isolatedEnvironment(),
+    encoding: 'utf8',
+  });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
@@ -43,6 +60,7 @@ function manifests(root: string, version: string, overrides: Record<string, unkn
 }
 function project(version = '1.2.4', overrides: Record<string, unknown> = {}) {
   const directory = mkdtempSync(path.join(tmpdir(), 'ohs-release-guard-'));
+  cleanupTasks.push(() => rmSync(directory, { recursive: true, force: true }));
   const root = path.join(directory, 'work');
   const remote = path.join(directory, 'origin.git');
   mkdirSync(root);
@@ -60,8 +78,49 @@ function project(version = '1.2.4', overrides: Record<string, unknown> = {}) {
   git(root, 'commit', '--allow-empty', '-m', 'Arbitrary subject: identity comes from the PR');
   const sha = git(root, 'rev-parse', 'HEAD');
   git(root, 'push', '-u', 'origin', 'master');
-  cleanupTasks.push(() => rmSync(directory, { recursive: true, force: true }));
   return { root, remote, sha, parent };
+}
+function repositoryFiles(root: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  function readDirectory(directory: string) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const filename = path.join(directory, entry.name);
+      if (entry.isDirectory()) readDirectory(filename);
+      else files[path.relative(root, filename)] = readFileSync(filename).toString('base64');
+    }
+  }
+  readDirectory(root);
+  return files;
+}
+function sentinel() {
+  const repo = project();
+  git(repo.root, 'config', 'user.name', 'Sentinel Identity');
+  git(repo.root, 'config', 'user.email', 'sentinel@example.invalid');
+  writeFileSync(path.join(repo.root, 'sentinel.txt'), 'must remain unchanged\n');
+  const gitDirectory = path.join(repo.root, '.git');
+  return {
+    ...repo,
+    files: repositoryFiles(repo.root),
+    hookEnvironment: {
+      GIT_DIR: gitDirectory,
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'user.name',
+      GIT_CONFIG_VALUE_0: 'Hook Identity',
+    },
+    guardEnvironment: {
+      GIT_DIR: gitDirectory,
+      GIT_COMMON_DIR: gitDirectory,
+      GIT_WORK_TREE: repo.root,
+      GIT_INDEX_FILE: path.join(gitDirectory, 'index'),
+      GIT_OBJECT_DIRECTORY: path.join(gitDirectory, 'objects'),
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(gitDirectory, 'objects'),
+      GIT_CONFIG_GLOBAL: path.join(gitDirectory, 'config'),
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'user.name',
+      GIT_CONFIG_VALUE_0: 'Hook Identity',
+      GIT_CONFIG_PARAMETERS: "'user.email=hook@example.invalid'",
+    },
+  };
 }
 function ciRun(sha: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -156,7 +215,7 @@ async function run(
   rmSync(output, { force: true });
   const child = spawn(process.execPath, [path.join(ROOT, 'scripts', script), command], {
     cwd: root,
-    env: {
+    env: isolatedEnvironment({
       ...process.env,
       GITHUB_REPOSITORY: REPOSITORY,
       GITHUB_TOKEN: 'controlled-test-token',
@@ -167,7 +226,7 @@ async function run(
       RELEASE_TAG: 'v1.2.4',
       MCP_REGISTRY_URL: api,
       ...overrides,
-    },
+    }),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stdout = '';
@@ -186,6 +245,43 @@ async function run(
 }
 
 describe('release guard at GitHub API and git boundaries', () => {
+  it('keeps a hook-targeted sentinel repository unchanged while creating fixture repositories', () => {
+    const guarded = sentinel();
+    const originalGitEnvironment = Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => /^GIT_/i.test(name)),
+    );
+    Object.assign(process.env, guarded.hookEnvironment);
+    try {
+      const fixture = project();
+      assert.equal(git(fixture.root, 'config', 'user.name'), 'Release Test');
+      assert.equal(git(fixture.remote, 'config', 'core.bare'), 'true');
+    } finally {
+      for (const name of Object.keys(process.env))
+        if (/^GIT_/i.test(name)) delete process.env[name];
+      Object.assign(process.env, originalGitEnvironment);
+      assert.deepEqual(
+        repositoryFiles(guarded.root),
+        guarded.files,
+        'Sentinel config, refs, and files must remain unchanged',
+      );
+    }
+  });
+  it('isolates spawned tag and recovery guards from hook Git targeting and configuration', async () => {
+    const guarded = sentinel();
+    const fixture = project();
+    const tagged = await run(fixture.root, 'tag', '', guarded.guardEnvironment);
+    assert.equal(tagged.status, 0, tagged.stderr);
+    assert.equal(git(fixture.remote, 'rev-parse', 'refs/tags/v1.2.4'), fixture.sha);
+    const api = await githubApi(fixture.sha);
+    const verified = await run(fixture.root, 'verify', api.url, guarded.guardEnvironment);
+    assert.equal(verified.status, 0, verified.stderr);
+    assert.equal(verified.outputs, `release_tag=v1.2.4\ncommit_sha=${fixture.sha}\n`);
+    assert.deepEqual(
+      repositoryFiles(guarded.root),
+      guarded.files,
+      'Sentinel config, refs, and files must remain unchanged',
+    );
+  });
   it('selects the exact successful CI commit associated with a merged dependency PR', async () => {
     const repo = project();
     const api = await githubApi(repo.sha);
