@@ -402,6 +402,8 @@ async function resolveAllLinks(): Promise<void> {
     const links = resolve((note.frontmatter || '') + '\n' + note.content, note.path);
     upsertLinks(note.path, links);
   }
+  // Startup migrations must not repeat a completed full-vault repair.
+  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('links_v1', '1')").run();
 }
 
 // eslint-disable-next-line @typescript-eslint/require-await
@@ -417,6 +419,7 @@ async function resolveAllMarkdownReferences(): Promise<void> {
     upsertMarkdownLinks(note.path, references.links);
     upsertNoteUrls(note.path, references.urls);
   }
+  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('markdown_links_v1', '1')").run();
 }
 
 /**
