@@ -31,7 +31,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Restore model downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/huggingface
           key: local-models-e5-small-gte-int8-${{ runner.os }}-v1
@@ -39,7 +39,8 @@ jobs:
         run: npm run verify:ci
 
   quality:
-    runs-on: ubuntu-latest
+    # Quantized ONNX output varies by CPU architecture; keep the reference on ARM64.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -53,12 +54,12 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Restore model downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/huggingface
           key: local-models-e5-small-gte-int8-${{ runner.os }}-v1
       - run: npm run verify:quality
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: fresh-ranking-results

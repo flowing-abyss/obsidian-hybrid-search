@@ -29,8 +29,12 @@ function fixture(t, windows = false) {
   mkdirSync(cwd, { recursive: true });
   return { root, cwd };
 }
-for (const harness of ['codex', 'claude'])
-  test(`${harness} exact configured hooks run from a subdirectory of a spaced checkout`, (t) => {
+for (const [harness, variant] of [
+  ['codex', 'native'],
+  ['codex', 'windows'],
+  ['claude', 'native'],
+])
+  test(`${harness} ${variant} configured hooks preserve stdin from a spaced subdirectory`, (t) => {
     const { root, cwd } = fixture(t);
     mainPackage(root);
     index(root);
@@ -47,7 +51,9 @@ for (const harness of ['codex', 'claude'])
     for (const event of ['SessionStart', 'UserPromptSubmit']) {
       const hook = config.hooks[event][0].hooks[0];
       const command =
-        process.platform === 'win32' ? (hook.commandWindows ?? hook.command) : hook.command;
+        variant === 'windows' || process.platform === 'win32'
+          ? (hook.commandWindows ?? hook.command)
+          : hook.command;
       const result = spawnSync(command, {
         cwd,
         shell: process.platform === 'win32' && harness === 'claude' ? 'bash' : true,
@@ -56,6 +62,7 @@ for (const harness of ['codex', 'claude'])
         input: JSON.stringify({ cwd, prompt: 'How does the search architecture work?' }),
       });
       assert.equal(result.status, 0, result.stderr);
+      assert.ok(result.stdout.trim(), `${event} returned no JSON: ${result.stderr}`);
       const output = JSON.parse(result.stdout);
       if (event === 'SessionStart') {
         assert.equal(output.hookSpecificOutput.hookEventName, event);

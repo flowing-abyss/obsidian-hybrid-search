@@ -20,11 +20,14 @@ and complete gates; the checks below help investigate changes within a task.
 
 `npm run eval:quality` produces `eval/results/.tmp-quality-no-rerank.json` and
 `eval/results/.tmp-quality-rerank.json`. Save each before making a ranking change,
-run again afterward, then compare each pair:
+run again afterward, then compare each pair on the same hardware and backend:
 
 ```bash
 npm run eval:compare -- <before.json> <after.json>
 ```
+
+CI uses macOS ARM64 as the quality reference; quantized inference can produce
+different rankings on other CPUs.
 
 Keep `baseline-no-rerank.json` and `baseline-rerank.json`: regression tests read
 them. Raise `eval/quality.ts` floors only after measured improvements, updating

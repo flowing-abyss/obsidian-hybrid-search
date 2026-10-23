@@ -5,9 +5,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 export const aiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const platformName = `@colbymchenry/codegraph-${process.platform}-${process.arch}`;
-export function checkout(t) {
+export function checkout(t, beforeRemove = () => {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'codegraph-isolation-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(async () => {
+    await beforeRemove(root);
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  });
   mkdirSync(path.join(root, '.ai'), { recursive: true });
   copyFileSync(path.join(aiRoot, 'codegraph.mjs'), path.join(root, '.ai/codegraph.mjs'));
   writeFileSync(

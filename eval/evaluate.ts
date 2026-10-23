@@ -208,6 +208,7 @@ async function main(): Promise<void> {
     meta: {
       date: new Date().toISOString(),
       ohs_version: pkg.version,
+      runtime: { platform: process.platform, arch: process.arch, node: process.versions.node },
       model,
       rerank,
       rerank_model: rerank ? config.rerankerModel : null,

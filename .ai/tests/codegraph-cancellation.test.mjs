@@ -1,8 +1,8 @@
 // Exercise the real launcher/adapters against a package shim whose descendant
 // holds stdout open. Advance the real adapter deadline only after process readiness.
 import { strict as assert } from 'node:assert';
-import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -32,8 +32,37 @@ async function waitFor(predicate, timeout = 1500) {
   return true;
 }
 
+function fixturePids(root) {
+  const shimPids = path.join(root, 'shim-pids.json');
+  const workerPid = path.join(root, 'worker-pid.json');
+  return [
+    ...(existsSync(shimPids) ? JSON.parse(readFileSync(shimPids, 'utf8')) : []),
+    ...(existsSync(workerPid) ? [Number(readFileSync(workerPid, 'utf8'))] : []),
+  ];
+}
+
 function fixture(t, harness, stalledLauncher = false) {
-  const root = checkout(t);
+  const root = checkout(t, async (root) => {
+    const pids = [...new Set(fixturePids(root))];
+    // Reap the exact fixture chain while its PID records still exist.
+    for (const pid of pids.toReversed()) {
+      if (!alive(pid)) continue;
+      if (process.platform === 'win32') {
+        // eslint-disable-next-line sonarjs/no-os-command-from-path
+        spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
+      } else {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch (error) {
+          if (error.code !== 'ESRCH') throw error;
+        }
+      }
+    }
+    assert.ok(
+      await waitFor(() => pids.every((pid) => !alive(pid)), 5000),
+      'fixture processes exited',
+    );
+  });
   mainPackage(root);
   index(root);
   const ai = path.join(root, '.ai');
@@ -80,24 +109,7 @@ setTimeout(() => process.exit(0), 5000);
 `,
     );
   }
-  const pids = () => [
-    ...(existsSync(shimPids) ? JSON.parse(readFileSync(shimPids, 'utf8')) : []),
-    ...(existsSync(workerPid) ? [Number(readFileSync(workerPid, 'utf8'))] : []),
-  ];
-  t.after(() => {
-    // Always remove the fixture's exact process chain, including on RED.
-    for (const pid of [...new Set(pids())].reverse()) {
-      if (!alive(pid)) continue;
-      if (process.platform === 'win32') {
-        // This fixture invokes Git or a fixed test executable on the developer PATH, without interpolating shell input.
-        // eslint-disable-next-line sonarjs/no-os-command-from-path
-        spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
-      } else {
-        process.kill(pid, 'SIGKILL');
-      }
-    }
-    rmSync(root, { recursive: true, force: true });
-  });
+  const pids = () => fixturePids(root);
   return { root, adapter, pids, workerPid };
 }
 
@@ -203,3 +215,21 @@ for (const harness of ['opencode', 'pi']) {
     await pending;
   });
 }
+
+test('fixture cleanup reaps processes before removing their PID records', async (t) => {
+  let child;
+  let pid;
+  t.after(() => {
+    if (pid && alive(pid)) child.kill('SIGKILL');
+  });
+  await t.test('process fixture', async (t) => {
+    const f = fixture(t, 'opencode', true);
+    child = spawn(process.execPath, [path.join(f.root, '.ai/codegraph.mjs')], {
+      cwd: f.root,
+      stdio: 'ignore',
+    });
+    pid = child.pid;
+    assert.ok(await waitFor(() => existsSync(f.workerPid), 5000));
+  });
+  assert.ok(await waitFor(() => !alive(pid)), 'fixture process survived teardown');
+});
