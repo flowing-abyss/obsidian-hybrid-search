@@ -1,3 +1,4 @@
+import { bumpIndexVersion } from '../src/index-state.js';
 /**
  * Reproducer suite for the "disappearing notes" bug:
  * user adds new notes, unrelated notes temporarily vanish from search results.
@@ -25,7 +26,7 @@ vi.mock('../src/embedder.js', () => ({
 }));
 
 const { closeDb, openDb, initVecTable, upsertNote, getDb } = await import('../src/db.js');
-const { search, bumpIndexVersion } = await import('../src/searcher.js');
+const { search } = await import('../src/searcher.js');
 
 const DIM = 4;
 // Distinct embeddings so semantic search can actually discriminate between notes.

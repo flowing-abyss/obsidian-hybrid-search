@@ -1,3 +1,4 @@
+import { bumpIndexVersion } from '../src/index-state.js';
 /**
  * Contract for OBSIDIAN_IGNORE_PATTERNS (issue #52) and for .gitignore rules.
  *
@@ -78,7 +79,7 @@ const {
   startWatcher,
   withIndexingDbLock,
 } = await import('../src/indexer.js');
-const { search, bumpIndexVersion } = await import('../src/searcher.js');
+const { search } = await import('../src/searcher.js');
 
 function policyFor(ignorePatterns: string[]) {
   return createIgnorePolicy({

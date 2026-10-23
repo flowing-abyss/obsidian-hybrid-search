@@ -4,6 +4,7 @@ import * as sqliteVec from 'sqlite-vec';
 import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
 import { config } from './config.js';
 import { getIgnoreSignature, isIgnored } from './ignore.js';
+import { normalizeNotePath, normalizeTag } from './text-normalization.js';
 
 type DB = InstanceType<typeof Database>;
 
@@ -34,10 +35,6 @@ export function isLikelyDatabaseCorruption(err: unknown): boolean {
 
 function normalizeAlias(alias: string): string {
   return alias.normalize('NFD').toLowerCase();
-}
-
-export function normalizeTag(tag: string): string {
-  return tag.normalize('NFD').toLowerCase();
 }
 
 function parseJsonStringArray(raw: string | null | undefined): string[] {
@@ -478,7 +475,7 @@ function cleanupNfcPaths(db: DB): void {
     .get();
   const nfcNotes = db.prepare('SELECT id, path FROM notes').all() as { id: number; path: string }[];
   for (const note of nfcNotes) {
-    if (note.path !== note.path.normalize('NFD')) {
+    if (note.path !== normalizeNotePath(note.path)) {
       if (vecExists) {
         deleteVecChunksForNote(db, note.id);
       }
@@ -685,7 +682,7 @@ export function getNoteByPath(path: string): NoteRow | undefined {
 
 export function resolveNotePath(input: string): NotePathResolution | undefined {
   const db = getDb();
-  const normalized = input.normalize('NFD');
+  const normalized = normalizeNotePath(input);
   const exact = getNoteByPath(normalized);
   if (exact) return { type: 'resolved', path: exact.path };
 

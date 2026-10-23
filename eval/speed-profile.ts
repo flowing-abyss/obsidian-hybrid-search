@@ -193,7 +193,8 @@ async function main(): Promise<void> {
   const measuredQueries = pickProfileQueries(goldenSet, args.query, random, args.runs);
 
   const { openDb } = await import('../src/db.js');
-  const { bumpIndexVersion, search } = await import('../src/searcher.js');
+  const { search } = await import('../src/searcher.js');
+  const { bumpIndexVersion } = await import('../src/index-state.js');
   openDb();
 
   const searchOptions = {

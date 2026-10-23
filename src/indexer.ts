@@ -1,4 +1,3 @@
-import matter from 'gray-matter';
 import { createHash } from 'node:crypto';
 import { readdirSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -12,7 +11,6 @@ import { chunkNote, createChunkBoundaryIndex, refineChunksToFit } from './chunke
 import { config } from './config.js';
 import {
   deleteNote,
-  getDb,
   getNoteMeta,
   getPathsToRemoveForIgnoreChange,
   getStoredEmbeddingDim,
@@ -33,8 +31,19 @@ import {
   getDocumentTokenPolicy,
 } from './embedder.js';
 import { createIgnorePolicy, createIgnorePolicyForFiles, type IgnorePolicy } from './ignore.js';
+import { bumpIndexVersion } from './index-state.js';
 import { extractMarkdownReferences, resolveMarkdownNoteLinks } from './markdown-references.js';
-import { bumpIndexVersion } from './searcher.js';
+import { extractMarkdownNote, parseWikilinks } from './note-extractor.js';
+import {
+  getExistingNotePathSet,
+  readWikiCatalogRows,
+  storePopulateMissingLinks,
+  storePopulateMissingMarkdownReferences,
+  storeResolveAllLinks,
+  storeResolveAllMarkdownReferences,
+  updateNoteMtime,
+} from './storage/index-queries.js';
+import { normalizeNotePath } from './text-normalization.js';
 
 export interface IndexResult {
   indexed: number;
@@ -138,12 +147,7 @@ export async function withIndexingDbLock<T>(operation: () => T | Promise<T>): Pr
 }
 
 function toVaultRelativePath(fullPath: string): string {
-  return path.relative(config.vaultPath, fullPath).split(path.sep).join('/').normalize('NFD');
-}
-
-function getExistingNotePathSet(): Set<string> {
-  const rows = getDb().prepare('SELECT path FROM notes').all() as { path: string }[];
-  return new Set(rows.map((row) => row.path));
+  return normalizeNotePath(path.relative(config.vaultPath, fullPath).split(path.sep).join('/'));
 }
 
 function resolveMarkdownReferencesForNote(
@@ -217,23 +221,14 @@ export async function indexFile(
 
     // Slow skip: content unchanged, only update mtime
     if (existing && existing.hash === hash) {
-      getDb().prepare('UPDATE notes SET mtime = ? WHERE path = ?').run(mtime, relPath);
+      updateNoteMtime(mtime, relPath);
       return 'skipped';
     }
 
-    const parsed = matter(raw);
-    const { data: frontmatter, content } = parsed;
-    const frontmatterRaw: string = parsed.matter;
-    const title =
-      frontmatter.title == null ? path.basename(fullPath, '.md') : String(frontmatter.title);
-    const frontmatterTags: string[] = Array.isArray(frontmatter.tags)
-      ? frontmatter.tags.map(String)
-      : typeof frontmatter.tags === 'string'
-        ? frontmatter.tags.split(',').map((t: string) => t.trim())
-        : [];
-    const inlineTags = parseInlineTags(content);
-    const tags = [...new Set([...frontmatterTags, ...inlineTags])];
-    const aliases = parseAliasField(frontmatter.aliases as unknown);
+    const { frontmatter, content, frontmatterRaw, title, tags, aliases } = extractMarkdownNote(
+      raw,
+      path.basename(fullPath, '.md'),
+    );
 
     const modelName = activeModelName();
     const ctxLen = contextLength ?? (await getContextLength());
@@ -326,26 +321,7 @@ export async function indexFileWithRecovery(
  */
 // eslint-disable-next-line @typescript-eslint/require-await
 export async function populateMissingLinks(): Promise<void> {
-  const db = getDb();
-  const done = (
-    db.prepare("SELECT value FROM settings WHERE key = 'links_v1'").get() as
-      { value: string } | undefined
-  )?.value;
-  if (done) return;
-
-  const notes = db
-    .prepare('SELECT path, content, frontmatter FROM notes WHERE content IS NOT NULL')
-    .all() as {
-    path: string;
-    content: string;
-    frontmatter: string;
-  }[];
-  for (const note of notes) {
-    const links = resolveWikilinks((note.frontmatter || '') + '\n' + note.content, note.path);
-    upsertLinks(note.path, links);
-  }
-
-  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('links_v1', '1')").run();
+  storePopulateMissingLinks(resolveWikilinks);
 }
 
 /**
@@ -354,32 +330,7 @@ export async function populateMissingLinks(): Promise<void> {
  */
 // eslint-disable-next-line @typescript-eslint/require-await
 export async function populateMissingMarkdownReferences(): Promise<void> {
-  const db = getDb();
-  const done = (
-    db.prepare("SELECT value FROM settings WHERE key = 'markdown_links_v1'").get() as
-      { value: string } | undefined
-  )?.value;
-  if (done) return;
-
-  const notes = db.prepare('SELECT path, content FROM notes WHERE content IS NOT NULL').all() as {
-    path: string;
-    content: string;
-  }[];
-  const existingPaths = new Set(notes.map((note) => note.path));
-  const tx = db.transaction(() => {
-    for (const note of notes) {
-      const references = resolveMarkdownReferencesForNote(note.path, note.content, existingPaths);
-      upsertMarkdownLinks(note.path, references.links);
-      upsertNoteUrls(note.path, references.urls);
-    }
-    db.prepare(
-      "INSERT OR REPLACE INTO settings(key, value) VALUES('markdown_links_v1', '1')",
-    ).run();
-    db.prepare(
-      "INSERT OR REPLACE INTO settings(key, value) VALUES('db_version', CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'db_version'), 0) + 1 AS TEXT))",
-    ).run();
-  });
-  tx();
+  storePopulateMissingMarkdownReferences(resolveMarkdownReferencesForNote);
 }
 
 /**
@@ -389,37 +340,12 @@ export async function populateMissingMarkdownReferences(): Promise<void> {
  */
 // eslint-disable-next-line @typescript-eslint/require-await
 async function resolveAllLinks(): Promise<void> {
-  const db = getDb();
-  const notes = db
-    .prepare('SELECT path, content, frontmatter FROM notes WHERE content IS NOT NULL')
-    .all() as {
-    path: string;
-    content: string;
-    frontmatter: string;
-  }[];
-  const resolve = createWikilinkResolver();
-  for (const note of notes) {
-    const links = resolve((note.frontmatter || '') + '\n' + note.content, note.path);
-    upsertLinks(note.path, links);
-  }
-  // Startup migrations must not repeat a completed full-vault repair.
-  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('links_v1', '1')").run();
+  storeResolveAllLinks(createWikilinkResolver);
 }
 
 // eslint-disable-next-line @typescript-eslint/require-await
 async function resolveAllMarkdownReferences(): Promise<void> {
-  const db = getDb();
-  const notes = db.prepare('SELECT path, content FROM notes WHERE content IS NOT NULL').all() as {
-    path: string;
-    content: string;
-  }[];
-  const existingPaths = new Set(notes.map((note) => note.path));
-  for (const note of notes) {
-    const references = resolveMarkdownReferencesForNote(note.path, note.content, existingPaths);
-    upsertMarkdownLinks(note.path, references.links);
-    upsertNoteUrls(note.path, references.urls);
-  }
-  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('markdown_links_v1', '1')").run();
+  storeResolveAllMarkdownReferences(resolveMarkdownReferencesForNote);
 }
 
 /**
@@ -448,10 +374,7 @@ export function cleanupStaleNotes(fsPaths?: Set<string>): void {
 
   // Notes deleted from filesystem: remove everything including links (broken links)
   if (fsPaths) {
-    const db = getDb();
-    const dbPaths = (db.prepare('SELECT path FROM notes').all() as { path: string }[]).map(
-      (r) => r.path,
-    );
+    const dbPaths = [...getExistingNotePathSet()];
     for (const dbPath of dbPaths) {
       if (!fsPaths.has(dbPath)) {
         deleteNote(dbPath); // keepLinks=false
@@ -752,7 +675,7 @@ export function startWatcher(contextLength: number): void {
         if (existing) clearTimeout(existing);
         const timer = setTimeout(() => {
           fileDelays.delete(filePath);
-          const normalizedPath = path.normalize(filePath).normalize('NFD');
+          const normalizedPath = normalizeNotePath(path.normalize(filePath));
           if (!_indexQueue.includes(normalizedPath)) {
             _indexQueue.push(normalizedPath);
             _totalExpected++;
@@ -776,7 +699,7 @@ export function startWatcher(contextLength: number): void {
               recoverDatabaseSidecarsForIndexing,
             );
             for (const file of files) {
-              const normalizedPath = path.normalize(file).normalize('NFD');
+              const normalizedPath = normalizeNotePath(path.normalize(file));
               if (!_indexQueue.includes(normalizedPath)) {
                 _indexQueue.push(normalizedPath);
                 _totalExpected++;
@@ -847,69 +770,6 @@ export function startWatcher(contextLength: number): void {
     });
 }
 
-/**
- * Extract inline tags from note body: #tag, #tag/subtag
- * Matches # preceded by start-of-string or whitespace, followed by
- * a letter/underscore and then any word chars, hyphens, or slashes.
- */
-/**
- * Parse the `aliases` field from gray-matter frontmatter.
- * Handles three formats emitted by Obsidian:
- *   1. YAML list  → gray-matter produces a JS array
- *   2. JSON-stringified array → gray-matter produces a string like '["a","b"]'
- *   3. Plain string → single alias
- */
-export function parseAliasField(raw: unknown): string[] {
-  const nonempty = (s: string) => s.trim().length > 0;
-  if (Array.isArray(raw)) return raw.map(String).filter(nonempty);
-  if (typeof raw !== 'string' || !raw.trim()) return [];
-  const trimmed = raw.trim();
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (Array.isArray(parsed)) return parsed.map(String).filter(nonempty);
-  } catch {
-    // not valid JSON — treat as a single alias
-  }
-  return [trimmed];
-}
-
-export function parseInlineTags(content: string): string[] {
-  const seen = new Set<string>();
-  // Strip code blocks to avoid matching # inside them
-  const stripped = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');
-  for (const match of stripped.matchAll(
-    /(?:^|[\s,;(])#([a-zA-Z_\u00C0-\u024F][a-zA-Z0-9_\-/\u00C0-\u024F]*)/gm,
-  )) {
-    seen.add(match[1]!);
-  }
-  return [...seen];
-}
-
-export function parseWikilinks(content: string): string[] {
-  const seen = new Set<string>();
-  let index = 0;
-  while (index < content.length) {
-    const start = content.indexOf('[[', index);
-    if (start === -1) break;
-    const end = content.indexOf(']]', start + 2);
-    if (end === -1) break;
-
-    const inner = content.slice(start + 2, end);
-    const pipeIndex = inner.indexOf('|');
-    const headingIndex = inner.indexOf('#');
-    const targetEnd = minPositiveIndex(pipeIndex, headingIndex, inner.length);
-    const target = inner.slice(0, targetEnd).trim();
-    if (target) seen.add(target);
-    index = end + 2;
-  }
-  return [...seen];
-}
-
-function minPositiveIndex(first: number, second: number, fallback: number): number {
-  const indexes = [first, second].filter((candidate) => candidate >= 0);
-  return indexes.length > 0 ? Math.min(...indexes) : fallback;
-}
-
 interface WikiCatalog {
   pathSet: Set<string>;
   titleMap: Map<string, string>;
@@ -919,13 +779,7 @@ interface WikiCatalog {
 }
 
 function loadWikiCatalog(): WikiCatalog {
-  const db = getDb();
-  // Load all paths, titles and aliases once — O(1) lookups instead of N queries
-  const allNotes = db.prepare('SELECT path, title, aliases FROM notes').all() as {
-    path: string;
-    title: string;
-    aliases: string | null;
-  }[];
+  const allNotes = readWikiCatalogRows();
 
   const pathSet = new Set(allNotes.map((n) => n.path));
 
@@ -977,7 +831,7 @@ function resolveWikiTargets(raw: string[], fromPath: string, catalog: WikiCatalo
 
   const resolved: string[] = [];
   for (const rawTarget of raw) {
-    const target = rawTarget.normalize('NFD');
+    const target = normalizeNotePath(rawTarget);
     const withMd = target.endsWith('.md') ? target : target + '.md';
     const base = path.basename(withMd);
 

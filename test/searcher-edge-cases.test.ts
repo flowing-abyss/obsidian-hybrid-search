@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, it, vi } from 'vitest';
+import { bumpIndexVersion } from '../src/index-state.js';
 
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-searcher-edge-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
@@ -12,7 +13,7 @@ vi.mock('../src/embedder.js', () => ({
 }));
 
 const { closeDb, openDb, initVecTable, upsertNote, upsertLinks } = await import('../src/db.js');
-const { search, bumpIndexVersion, isAmbiguousNotePathError } = await import('../src/searcher.js');
+const { search, isAmbiguousNotePathError } = await import('../src/searcher.js');
 
 const fakeEmbedding = new Float32Array([0.1, 0.2, 0.3, 0.4]);
 

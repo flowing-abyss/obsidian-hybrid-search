@@ -6,7 +6,6 @@ import {
   filterNotePathsByTag,
   getBacklinksForPaths,
   getChunkEmbeddingsByPath,
-  getDb,
   getDbVersion,
   getLinksForPaths,
   getMarkdownLinksForPaths,
@@ -19,12 +18,29 @@ import {
 } from './db.js';
 import { embed } from './embedder.js';
 import { buildFilterPredicate, hasFilterValue, type FilterPredicate } from './filter-predicate.js';
+import { getIndexVersion } from './index-state.js';
 import {
   extractMarkdownReferenceOccurrences,
   resolveMarkdownNoteLinks,
 } from './markdown-references.js';
 import { reranker, type RerankCandidate } from './reranker.js';
 import { measureSearchStage, measureSearchStageSync } from './search-profile.js';
+import {
+  assertSearchStorageReady,
+  createFuzzyTitleReader,
+  createNoteContentReader,
+  createVectorReader,
+  findExactAliasRows,
+  findSnippetHeading,
+  listNoteIdentities,
+  prepareBm25Rows,
+  readChunksForPaths,
+  readFirstChunkTexts,
+  readNoteContent,
+  readNoteIdentity,
+  readSnippetContents,
+} from './storage/search-queries.js';
+import { normalizeNotePath } from './text-normalization.js';
 
 export interface NoteReadResult {
   path: string;
@@ -141,7 +157,7 @@ interface RawResult {
 }
 
 export function matchesScopeFilter(notePath: string, scope: string | string[]): boolean {
-  const scopes = (Array.isArray(scope) ? scope : [scope]).map((s) => s.normalize('NFD'));
+  const scopes = (Array.isArray(scope) ? scope : [scope]).map(normalizeNotePath);
   const includes = scopes.filter((s) => !s.startsWith('-'));
   const excludes = scopes.filter((s) => s.startsWith('-')).map((s) => s.slice(1));
   // A scope prefix matches a path when the path is exactly the prefix or the
@@ -236,40 +252,12 @@ function toFtsQuery(query: string, operator: 'AND' | 'OR' = 'AND'): string {
   return words.map((w) => `"${w}"*`).join(` ${operator} `);
 }
 
-type FtsRow = {
-  path: string;
-  title: string;
-  tags: string;
-  aliases: string | null;
-  snippet: string;
-  rank: number;
-};
-
 // Sentinel markers bracketing the actual FTS match inside snippet() output. A snippet
 // window spans several sentences, so the true match isn't necessarily on its first
 // line — these let buildMatchTextFromMarkedSnippet find the right one. Stripped from
 // every snippet before it's exposed on RawResult; control chars won't appear in notes.
 const SNIPPET_MARK_START = '';
 const SNIPPET_MARK_END = '';
-
-/**
- * The `AND <predicate>` fragment and the params to splice, or empty strings/arrays when
- * no filter is active.
- *
- * An inactive filter MUST contribute a byte-identical SQL string. Not for statement
- * reuse — better-sqlite3 has no SQL-text statement cache, every db.prepare() compiles
- * afresh — but because identical text is what keeps the unfiltered path's query plan and
- * its output stable, which is the property the frozen output capture pins. An
- * unconditional `AND 1` would hand SQLite a different statement to plan on every
- * unfiltered query in the codebase for no gain.
- */
-function filterFragment(predicate: FilterPredicate | undefined): {
-  clause: string;
-  params: Array<string | number>;
-} {
-  if (predicate === undefined || predicate.isEmpty) return { clause: '', params: [] };
-  return { clause: ` AND ${predicate.sql}`, params: predicate.params };
-}
 
 export function searchBm25(
   query: string,
@@ -278,22 +266,12 @@ export function searchBm25(
   buildAnchors = false,
   predicate?: FilterPredicate,
 ): RawResult[] {
-  const db = getDb();
-  const numTokens = Math.max(10, Math.ceil(snippetLength / 4));
-  const filter = filterFragment(predicate);
-  // Widened from the former fixed 5-tuple: the filter params are spliced in before
-  // `limit`, so the bind list is variable-length.
-  const stmt = db.prepare<Array<string | number>, FtsRow>(
-    `
-      SELECT n.path, n.title, n.tags, n.aliases,
-             snippet(notes_fts_bm25, 2, ?, ?, '...', ?) AS snippet,
-             bm25(notes_fts_bm25, 10.0, 5.0, 1.0) AS rank
-      FROM notes_fts_bm25
-      JOIN notes n ON n.id = notes_fts_bm25.rowid
-      WHERE notes_fts_bm25 MATCH ?${filter.clause}
-      ORDER BY rank
-      LIMIT ?
-    `,
+  const readRows = prepareBm25Rows(
+    limit,
+    snippetLength,
+    SNIPPET_MARK_START,
+    SNIPPET_MARK_END,
+    predicate,
   );
 
   try {
@@ -302,14 +280,7 @@ export function searchBm25(
     // relevant documents whenever a single query word (e.g. "between", "organize")
     // was absent from the document—even if that document was the best conceptual
     // match for every other term in the query.
-    const rows = stmt.all(
-      SNIPPET_MARK_START,
-      SNIPPET_MARK_END,
-      numTokens,
-      toFtsQuery(query, 'OR'),
-      ...filter.params,
-      limit,
-    );
+    const rows = readRows(toFtsQuery(query, 'OR'));
 
     const results: RawResult[] = rows.map((row) => ({
       path: row.path,
@@ -402,26 +373,7 @@ function searchByAliasExact(
   limit: number,
   predicate?: FilterPredicate,
 ): RawResult[] {
-  const db = getDb();
-  const queryNfd = query.normalize('NFD').toLowerCase();
-  const filter = filterFragment(predicate);
-
-  const rows = db
-    .prepare(
-      `
-      SELECT DISTINCT n.path, n.title, n.tags, n.aliases
-      FROM note_aliases a
-      JOIN notes n ON n.id = a.note_id
-      WHERE a.alias_norm = ?${filter.clause}
-      LIMIT ?
-    `,
-    )
-    .all(queryNfd, ...filter.params, limit) as Array<{
-    path: string;
-    title: string;
-    tags: string;
-    aliases: string | null;
-  }>;
+  const rows = findExactAliasRows(query, limit, predicate);
 
   return rows.map((row) => ({
     path: row.path,
@@ -450,30 +402,10 @@ export function searchFuzzyTitle(
   const aliasExact = searchByAliasExact(query, limit, predicate);
   const aliasExactPaths = new Set(aliasExact.map((r) => r.path));
 
-  const db = getDb();
-  const ftsQuery = buildTrigramOrQuery(query);
-  const filter = filterFragment(predicate);
+  const readRows = createFuzzyTitleReader(buildTrigramOrQuery(query), limit, predicate);
 
   try {
-    const ftsRows = db
-      .prepare(
-        `
-      SELECT n.path, n.title, n.tags, n.aliases,
-             bm25(notes_fts_fuzzy) AS rank
-      FROM notes_fts_fuzzy
-      JOIN notes n ON n.id = notes_fts_fuzzy.rowid
-      WHERE notes_fts_fuzzy MATCH ?${filter.clause}
-      ORDER BY rank
-      LIMIT ?
-    `,
-      )
-      .all(ftsQuery, ...filter.params, limit) as Array<{
-      path: string;
-      title: string;
-      tags: string;
-      aliases: string | null;
-      rank: number;
-    }>;
+    const ftsRows = readRows();
 
     const trigramResults = ftsRows
       .map((row) => {
@@ -553,7 +485,7 @@ function formatChunkSnippet(
  * heading chain from surrounding headings.
  */
 function getHeadingPathForSnippet(notePath: string, snippetText: string): string | null {
-  const db = getDb();
+  assertSearchStorageReady();
   const clean = snippetText
     .replace(/^\.\.\./, '')
     .replace(/\.\.\.$/, '')
@@ -563,23 +495,14 @@ function getHeadingPathForSnippet(notePath: string, snippetText: string): string
 
   // Strategy 1: chunk-based lookup
   try {
-    const row = db
-      .prepare(
-        `SELECT c.heading_path FROM chunks c
-         JOIN notes n ON n.id = c.note_id
-         WHERE n.path = ? AND instr(c.text, ?) > 0
-           AND c.heading_path IS NOT NULL
-         ORDER BY c.chunk_index LIMIT 1`,
-      )
-      .get(notePath, key) as { heading_path: string } | undefined;
+    const row = findSnippetHeading(notePath, key);
     if (row?.heading_path) return row.heading_path;
   } catch {
     // heading_path column may not exist yet (pre-reindex) — fall through to strategy 2
   }
 
   // Strategy 2: scan note content up to the snippet position
-  const note = db.prepare('SELECT content FROM notes WHERE path = ?').get(notePath) as
-    { content: string } | undefined;
+  const note = readNoteContent(notePath);
   if (!note?.content) return null;
 
   const pos = note.content.indexOf(key);
@@ -608,33 +531,17 @@ type Bm25ChunkData = {
 function getChunkDataForBm25Results(results: RawResult[]): Map<string, Bm25ChunkData> {
   if (results.length === 0) return new Map();
 
-  const db = getDb();
+  assertSearchStorageReady();
   const snippetKeys = getSnippetKeysForHeadingLookup(results);
   if (snippetKeys.size === 0) return new Map();
 
   const uniquePaths = Array.from(new Set(snippetKeys.keys()));
-  const placeholders = uniquePaths.map(() => '?').join(', ');
 
   try {
-    const rows = db
-      .prepare(
-        `SELECT n.path, c.heading_path, c.text, c.chunk_index, c.char_start, c.char_end
-         FROM notes n
-         JOIN chunks c ON c.note_id = n.id
-         WHERE n.path IN (${placeholders})
-         ORDER BY n.path, c.chunk_index`,
-      )
-      .all(...uniquePaths) as Array<{
-      path: string;
-      heading_path: string | null;
-      text: string;
-      chunk_index: number;
-      char_start: number | null;
-      char_end: number | null;
-    }>;
+    const rows = readChunksForPaths(uniquePaths);
 
     const chunkData = matchChunkDataFromRows(rows, snippetKeys);
-    fillMissingChunkData(db, chunkData, snippetKeys);
+    fillMissingChunkData(chunkData, snippetKeys);
     return chunkData;
   } catch {
     const fallback = new Map<string, Bm25ChunkData>();
@@ -692,14 +599,13 @@ function matchChunkDataFromRows(
 }
 
 function fillMissingChunkData(
-  db: ReturnType<typeof getDb>,
   chunkData: Map<string, Bm25ChunkData>,
   snippetKeys: Map<string, string>,
 ): void {
-  const stmt = db.prepare('SELECT content FROM notes WHERE path = ?');
+  const readContent = createNoteContentReader();
   for (const [notePath, key] of snippetKeys) {
     if (chunkData.has(notePath)) continue;
-    const note = stmt.get(notePath) as { content: string } | undefined;
+    const note = readContent(notePath);
     if (!note?.content) continue;
     // Set data even when there's no heading before the match (headingPath may be null)
     if (!note.content.includes(key)) continue;
@@ -744,15 +650,6 @@ function isMarkdownWhitespace(char: string): boolean {
 }
 
 /**
- * Hard ceiling sqlite-vec enforces on a KNN `k`. Exceeding it throws
- * "k value in knn query too large", which the catch below used to swallow into an
- * empty result — so any search with limit > 819 (k = limit * 5) silently returned
- * nothing, on every vault regardless of size. Clamp instead: k = 4096 already
- * over-fetches far past any sane result count, and the outer LIMIT does the trimming.
- */
-const VEC_MAX_K = 4096;
-
-/**
  * @param excludeLinkedFrom when set, omits that note and everything it links to —
  *   the "already known" set for a similarity lookup.
  */
@@ -764,99 +661,11 @@ function searchVector(
 ): RawResult[] {
   if (!hasVecTable()) return [];
 
-  // ── The vector arm's restriction form is the OPPOSITE of the FTS arms', and the
-  // wrong one fails SILENTLY. sqlite-vec pre-filters a KNN ONLY when the restriction
-  // is on its primary key as `vc.chunk_id IN (subquery)`. The correlated
-  // `EXISTS (… WHERE nt.note_id = n.id …)` form — exactly what searchBm25 and
-  // searchFuzzyTitle correctly use — compiles to a POST-filter here: k is taken first
-  // and the restriction then throws the survivors away, so a narrow filter returns 0
-  // rows instead of `limit`. Measured. Do NOT "harmonize" these two forms.
-  // sqlite-vec applies a KNN restriction BEFORE taking k only when it is expressed
-  // positively on the primary key, as `vc.chunk_id IN (subquery)`. `NOT IN` is NOT
-  // recognized by that optimization: k is taken first and the exclusion then discards
-  // the survivors, so a source note whose links fill the top-k returns nothing.
-  // Measured. Everything therefore collapses into ONE positive `IN`, with the
-  // exclusion carried inside it as a `NOT IN` over note ids — cheap there, because by
-  // that point we are already inside a plain SQL subquery rather than the KNN itself.
-  //
-  // Do not "harmonize" this with the correlated EXISTS the FTS arms use: that form
-  // compiles to a post-filter here and silently returns zero rows.
-  const conditions: string[] = [];
-  const extraParams: Array<string | number> = [];
-
-  if (predicate !== undefined && !predicate.isEmpty) {
-    // The predicate's clauses reference the alias `n`; inside this subquery the notes
-    // table is aliased `n2` so it cannot shadow the outer join above.
-    conditions.push(predicate.sql.replace(/\bn\./g, 'n2.'));
-    extraParams.push(...predicate.params);
-  }
-
-  if (excludeLinkedFrom !== undefined) {
-    // Driven from `links` rather than a correlated EXISTS: the correlated form forces
-    // a full chunk scan and doubled the arm's cost (7.33 ms vs 4.94 ms on a 157-link
-    // hub note). A bound parameter list is impossible — hub notes can have thousands
-    // of links and such a list cannot be batched inside a single k-limited KNN.
-    conditions.push(
-      `c2.note_id NOT IN (
-             SELECT n4.id FROM notes n4 WHERE n4.path = ?
-             UNION
-             SELECT n5.id FROM notes n5 JOIN links l ON l.to_path = n5.path WHERE l.from_path = ?)`,
-    );
-    extraParams.push(excludeLinkedFrom, excludeLinkedFrom);
-  }
-
-  const restrictions =
-    conditions.length === 0
-      ? []
-      : [
-          `vc.chunk_id IN (SELECT c2.id FROM chunks c2 JOIN notes n2 ON n2.id = c2.note_id WHERE ${conditions.join(' AND ')})`,
-        ];
-
-  const restrictionSql = restrictions.map((r) => `\n          AND ${r}`).join('');
-
   return measureSearchStageSync('vectorSearch', () => {
-    const db = getDb();
+    const readRows = createVectorReader(queryEmbedding, limit, predicate, excludeLinkedFrom);
 
     try {
-      const rows = db
-        .prepare(
-          `
-      WITH ranked AS (
-        SELECT vc.chunk_id, vc.distance,
-               c.note_id, c.chunk_index, c.text AS chunk_text, c.heading_path,
-               c.char_start, c.char_end,
-               n.path, n.title, n.tags, n.aliases,
-               ROW_NUMBER() OVER (PARTITION BY c.note_id ORDER BY vc.distance, c.chunk_index) AS row_num
-        FROM vec_chunks AS vc
-        JOIN chunks c ON c.id = vc.chunk_id
-        JOIN notes n ON n.id = c.note_id
-        WHERE vc.embedding MATCH ?
-          AND k = ?${restrictionSql}
-      )
-      SELECT chunk_id, distance, note_id, chunk_index, chunk_text, heading_path,
-             char_start, char_end, path, title, tags, aliases
-      FROM ranked
-      WHERE row_num = 1
-      ORDER BY distance, chunk_index
-      LIMIT ?
-    `,
-        )
-        // `k` is validated by sqlite-vec BEFORE the pre-filter runs, so the VEC_MAX_K
-        // clamp stays regardless of how narrow the restriction is.
-        .all(queryEmbedding, Math.min(limit * 5, VEC_MAX_K), ...extraParams, limit) as Array<{
-        chunk_id: number;
-        distance: number;
-        note_id: number;
-        chunk_index: number;
-        chunk_text: string;
-        heading_path: string | null;
-        char_start: number | null;
-        char_end: number | null;
-        path: string;
-        title: string;
-        tags: string;
-        aliases: string | null;
-      }>;
+      const rows = readRows();
 
       return rows.map((row) => {
         // cosine similarity from L2 for unit vectors: cos = 1 - L2² / 2
@@ -943,12 +752,9 @@ function rrfFusion(lists: RawResult[][], k = 60, weights?: number[]): RawResult[
 function getSnippetFallbacks(notePaths: string[], maxChars: number): Map<string, string> {
   if (notePaths.length === 0 || maxChars <= 0) return new Map();
 
-  const db = getDb();
+  assertSearchStorageReady();
   const uniquePaths = Array.from(new Set(notePaths));
-  const placeholders = uniquePaths.map(() => '?').join(', ');
-  const rows = db
-    .prepare(`SELECT path, title, content FROM notes WHERE path IN (${placeholders})`)
-    .all(...uniquePaths) as Array<{ path: string; title: string | null; content: string | null }>;
+  const rows = readSnippetContents(uniquePaths);
 
   return new Map(
     rows.map((row) => {
@@ -1018,7 +824,7 @@ function getMarkdownLinkContext(
   linkedNotePath: string,
   windowSize = 300,
 ): string {
-  const normalizedTarget = linkedNotePath.normalize('NFD');
+  const normalizedTarget = normalizeNotePath(linkedNotePath);
   const occurrences = extractMarkdownReferenceOccurrences(noteContent).localDestinations;
   for (const occurrence of occurrences) {
     const resolved = resolveMarkdownNoteLinks(
@@ -1039,15 +845,10 @@ function getMarkdownLinkContext(
   return '';
 }
 
-function getCachedNoteContent(
-  db: ReturnType<typeof getDb>,
-  cache: Map<string, string>,
-  notePath: string,
-): string {
+function getCachedNoteContent(cache: Map<string, string>, notePath: string): string {
   const cached = cache.get(notePath);
   if (cached !== undefined) return cached;
-  const note = db.prepare('SELECT content FROM notes WHERE path = ?').get(notePath) as
-    { content: string } | undefined;
+  const note = readNoteContent(notePath);
   const content = note?.content ?? '';
   cache.set(notePath, content);
   return content;
@@ -1061,17 +862,14 @@ function searchRelated(
   snippetLength = 300,
   linkType: 'wiki' | 'markdown' | 'all' = 'wiki',
 ): SearchResult[] {
-  const db = getDb();
-  const sourcePath = notePath.normalize('NFD');
+  assertSearchStorageReady();
+  const sourcePath = normalizeNotePath(notePath);
   const results: SearchResult[] = [];
   const resultIndexes = new Map<string, number>();
   const contentCache = new Map<string, string>();
 
   const makeResult = (notePth: string, depth: number, snippet: string): SearchResult | null => {
-    const note = db
-      .prepare('SELECT path, title, tags, aliases FROM notes WHERE path = ?')
-      .get(notePth) as
-      { path: string; title: string; tags: string; aliases: string | null } | undefined;
+    const note = readNoteIdentity(notePth);
     if (!note) return null;
     let tags: string[];
     try {
@@ -1195,7 +993,7 @@ function searchRelated(
       const linksByParent = getOutgoingEdges(frontier);
       for (const parentPath of frontier) {
         for (const edge of linksByParent.get(parentPath) ?? []) {
-          const parentContent = getCachedNoteContent(db, contentCache, parentPath);
+          const parentContent = getCachedNoteContent(contentCache, parentPath);
           const snippet =
             edge.matchedBy === 'markdown_link'
               ? getMarkdownLinkContext(parentContent, parentPath, edge.path, snippetLength)
@@ -1220,7 +1018,7 @@ function searchRelated(
       const backlinksByParent = getBacklinkEdges(frontier);
       for (const parentPath of frontier) {
         for (const edge of backlinksByParent.get(parentPath) ?? []) {
-          const fromContent = getCachedNoteContent(db, contentCache, edge.path);
+          const fromContent = getCachedNoteContent(contentCache, edge.path);
           const snippet =
             edge.matchedBy === 'markdown_backlink'
               ? getMarkdownLinkContext(fromContent, edge.path, parentPath, snippetLength)
@@ -1281,19 +1079,6 @@ class LRUCache<V> {
 
 const searchCache = new LRUCache<SearchResult[]>(100);
 
-// In-process counter for test isolation: incremented by bumpIndexVersion() so that
-// separate test suites sharing the same Node.js process don't get cross-suite cache hits.
-let localVersion = 0;
-
-/**
- * Increment the local (in-process) version so that subsequent searches bypass the
- * cache. Used by tests to avoid cross-suite cache pollution. In production code,
- * DB-level versioning (getDbVersion) handles cross-process invalidation automatically.
- */
-export function bumpIndexVersion(): void {
-  localVersion++;
-}
-
 /** Ceiling used when the caller asks for "no limit" (limit === 0). Mirrors the
  *  filter-only branch's FETCH_ALL so both paths cap the vault the same way. */
 const UNLIMITED_RESULTS = 10000;
@@ -1312,7 +1097,7 @@ function cacheKey(input: string, options: SearchOptions): string {
   //   getDbVersion() — shared via SQLite settings; any process that modifies the DB
   //                    bumps it, invalidating caches in all other processes.
   //   localVersion   — in-process counter; bumpIndexVersion() for test-suite isolation.
-  return `v${getDbVersion()}_${localVersion}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${fmStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}\0${rerankStr}\0${queriesStr}\0${anchorsStr}`;
+  return `v${getDbVersion()}_${getIndexVersion()}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${fmStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}\0${rerankStr}\0${queriesStr}\0${anchorsStr}`;
 }
 
 // eslint-disable-next-line sonarjs/cognitive-complexity -- primary search entry-point; complexity is inherent in the multi-mode, multi-filter pipeline
@@ -1353,7 +1138,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     const fmStr = Array.isArray(options.frontmatter)
       ? options.frontmatter.join(',')
       : (options.frontmatter ?? '');
-    const key = `related\0v${getDbVersion()}_${localVersion}\0${resolvedPath}\0${maxDepth}\0${direction}\0${linkType}\0${snippetLength}\0${scopeStr}\0${tagStr}\0${fmStr}`;
+    const key = `related\0v${getDbVersion()}_${getIndexVersion()}\0${resolvedPath}\0${maxDepth}\0${direction}\0${linkType}\0${snippetLength}\0${scopeStr}\0${tagStr}\0${fmStr}`;
     const cached = searchCache.get(key);
     if (cached) return cached;
     let related = searchRelated(resolvedPath, maxDepth, direction, snippetLength, linkType);
@@ -1421,15 +1206,8 @@ export async function search(input: string, options: SearchOptions = {}): Promis
         scores: { hybrid: 1.0 },
       }));
     } else {
-      const db = getDb();
-      const rows = db
-        .prepare('SELECT path, title, tags, aliases FROM notes ORDER BY title ASC LIMIT ?')
-        .all(FETCH_ALL) as Array<{
-        path: string;
-        title: string;
-        tags: string;
-        aliases: string | null;
-      }>;
+      assertSearchStorageReady();
+      const rows = listNoteIdentities(FETCH_ALL);
       fmResults = rows.map((m) => ({
         path: m.path,
         title: m.title ?? '',
@@ -1475,7 +1253,7 @@ export async function search(input: string, options: SearchOptions = {}): Promis
   // For path lookups, include mtime in cache key so stale entries auto-invalidate
   let key = cacheKey(resolvedPath, options);
   if (isPathLookup) {
-    const note = getNoteByPath(resolvedPath.normalize('NFD'));
+    const note = getNoteByPath(normalizeNotePath(resolvedPath));
     if (note) key += `\0${note.mtime}`;
   }
   const cached = searchCache.get(key);
@@ -1619,21 +1397,8 @@ function fetchMissingChunkTexts(candidates: RawResult[]): void {
   );
   if (missingPaths.length === 0) return;
 
-  const db = getDb();
-  const placeholders = missingPaths.map(() => '?').join(', ');
-  const rows = db
-    .prepare(
-      `SELECT path, text
-       FROM (
-         SELECT n.path, c.text,
-                ROW_NUMBER() OVER (PARTITION BY n.path ORDER BY c.chunk_index) AS row_num
-         FROM chunks c
-         JOIN notes n ON n.id = c.note_id
-         WHERE n.path IN (${placeholders})
-       )
-       WHERE row_num = 1`,
-    )
-    .all(...missingPaths) as Array<{ path: string; text: string }>;
+  assertSearchStorageReady();
+  const rows = readFirstChunkTexts(missingPaths);
 
   const chunkTexts = new Map(rows.map((row) => [row.path, row.text]));
   for (const candidate of candidates) {
@@ -1824,7 +1589,7 @@ async function searchSimilar(
   predicate?: FilterPredicate,
 ): Promise<RawResult[]> {
   // macOS stores filenames as NFD; normalize to match DB paths
-  const normalizedPath = notePath.normalize('NFD');
+  const normalizedPath = normalizeNotePath(notePath);
   const embeddings = await getSimilaritySource(normalizedPath);
   if (!embeddings) return [];
 
@@ -1856,7 +1621,7 @@ export function readNotes(
   const results: ReadResult[] = [];
 
   for (const inputPath of paths) {
-    const normalizedPath = inputPath.normalize('NFD');
+    const normalizedPath = normalizeNotePath(inputPath);
     const note = getNoteByPath(normalizedPath);
 
     if (!note) {

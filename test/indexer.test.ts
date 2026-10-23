@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, it, vi } from 'vitest';
+import { parseAliasField, parseInlineTags, parseWikilinks } from '../src/note-extractor.js';
 
 // ─── Vault setup (must precede any application module imports) ────────────────
 
@@ -10,8 +11,7 @@ const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-indexer-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
 // Dynamic imports so config reads the env var we just set
-const { parseAliasField, parseInlineTags, parseWikilinks, resolveWikilinks, getIndexingStatus } =
-  await import('../src/indexer.js');
+const { resolveWikilinks, getIndexingStatus } = await import('../src/indexer.js');
 const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/db.js');
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────

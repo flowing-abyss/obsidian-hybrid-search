@@ -1,4 +1,4 @@
-import { normalizeTag } from './db.js';
+import { normalizeNotePath, normalizeTag } from './text-normalization.js';
 
 export interface FilterPredicate {
   /** SQL boolean expression over the alias `n` (the `notes` table), already
@@ -101,7 +101,7 @@ function frontmatterClause(value: string, params: Array<string | number>): strin
  * alike, and appending unconditionally yields the empty range "notes//".."notes/0".
  */
 function scopeClause(value: string, params: Array<string | number>): string {
-  const normalized = value.normalize('NFD');
+  const normalized = normalizeNotePath(value);
   // Hand-rolled trailing-'/' trim: the equivalent /\/+$/ regex is super-linear.
   let end = normalized.length;
   while (end > 0 && normalized[end - 1] === '/') end--;

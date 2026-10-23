@@ -1,6 +1,6 @@
-import Database from 'better-sqlite3';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { readVaultLocator } from './storage/vault-locator.js';
 
 export function validateVaultPath(vaultPath: string | undefined): asserts vaultPath is string {
   if (vaultPath === undefined) {
@@ -59,14 +59,7 @@ export function discoverConfig(dbPathOpt?: string): void {
 
   try {
     // A locator supplies only the target vault, never its provider or ignore defaults.
-    const db = new Database(dbFile, { readonly: true });
-    try {
-      const stored = db.prepare("SELECT value FROM settings WHERE key = 'vault_path'").get() as
-        { value: string } | undefined;
-      process.env.OBSIDIAN_VAULT_PATH = stored?.value || path.dirname(dbFile);
-    } finally {
-      db.close();
-    }
+    process.env.OBSIDIAN_VAULT_PATH = readVaultLocator(dbFile) || path.dirname(dbFile);
   } catch {
     // DB unreadable — let normal startup errors surface without inventing a target.
   }

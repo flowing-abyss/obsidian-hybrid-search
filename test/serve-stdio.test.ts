@@ -1,3 +1,4 @@
+import { bumpIndexVersion } from '../src/index-state.js';
 /**
  * Tests for the stdio IPC server protocol (handleStdioLine).
  *
@@ -18,7 +19,7 @@ const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-serve-stdio-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
 const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/db.js');
-const { search, bumpIndexVersion } = await import('../src/searcher.js');
+const { search } = await import('../src/searcher.js');
 
 const fakeEmbedding = new Float32Array([0.5, 0.5, 0.5, 0.5]);
 

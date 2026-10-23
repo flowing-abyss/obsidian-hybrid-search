@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, it, vi } from 'vitest';
+import { bumpIndexVersion } from '../src/index-state.js';
 
 // ─── Vault setup (before any imports that read OBSIDIAN_VAULT_PATH) ──────────
 
@@ -25,7 +26,7 @@ const {
   upsertNoteUrls,
   getDb,
 } = await import('../src/db.js');
-const { search, bumpIndexVersion, readNotes } = await import('../src/searcher.js');
+const { search, readNotes } = await import('../src/searcher.js');
 const { reranker } = await import('../src/reranker.js');
 
 const fakeEmbedding = new Float32Array([0.1, 0.2, 0.3, 0.4]);

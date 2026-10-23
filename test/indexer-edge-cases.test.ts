@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, it, vi } from 'vitest';
+import { bumpIndexVersion } from '../src/index-state.js';
+import { parseAliasField, parseInlineTags, parseWikilinks } from '../src/note-extractor.js';
 
 // chokidar is imported by indexer at module load — mock it to avoid real watchers.
 vi.mock('chokidar', () => ({
@@ -16,16 +18,14 @@ const {
   indexFile,
   indexVaultSync,
   cleanupStaleNotes,
-  parseWikilinks,
+
   resolveWikilinks,
-  parseAliasField,
-  parseInlineTags,
+
   formatDuration,
   renderProgressLine,
 } = await import('../src/indexer.js');
 const { closeDb, openDb, initVecTable, upsertNote, getDb, isLikelyDatabaseCorruption } =
   await import('../src/db.js');
-const { bumpIndexVersion } = await import('../src/searcher.js');
 
 // Spy on embedder (matching test/indexer-file.test.ts strategy) so both files
 // cooperate on the same real module instance under vitest's isolate:false.
