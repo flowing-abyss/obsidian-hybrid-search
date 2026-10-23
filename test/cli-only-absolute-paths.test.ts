@@ -8,16 +8,37 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, it } from 'vitest';
+import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 const CLI = path.join(ROOT, 'dist/src/cli.js');
-const FIXTURE_VAULT = path.join(__dirname, 'fixtures/vault');
-const FIXTURE_DB = path.join(FIXTURE_VAULT, '.obsidian-hybrid-search.db');
+const FIXTURE_VAULT = mkdtempSync(path.join(tmpdir(), 'ohs-cli-paths-'));
+beforeAll(async () => {
+  vi.stubEnv('OBSIDIAN_VAULT_PATH', FIXTURE_VAULT);
+  const { openDb, initVecTable, upsertNote, closeDb } = await import('../src/db.js');
+  openDb();
+  try {
+    initVecTable(4);
+    upsertNote({
+      path: 'notes/Zettelkasten.md',
+      title: 'Zettelkasten',
+      tags: [],
+      content: 'Zettelkasten organizes connected notes.',
+      mtime: 1,
+      hash: 'cli-path-fixture',
+      chunks: [],
+    });
+  } finally {
+    closeDb();
+    vi.unstubAllEnvs();
+  }
+});
+afterAll(() => rmSync(FIXTURE_VAULT, { recursive: true, force: true }));
 
 function runCli(
   args: string[],
@@ -40,27 +61,27 @@ describe('--only-absolute-paths flag', () => {
     );
   });
 
-  it('--only-paths still outputs vault-relative paths', { skip: !existsSync(FIXTURE_DB) }, () => {
+  it('--only-paths still outputs vault-relative paths', () => {
     const { stdout, status } = runCli(
       ['search', 'zettelkasten', '--only-paths', '--mode', 'fulltext'],
       { OBSIDIAN_VAULT_PATH: FIXTURE_VAULT },
     );
     assert.equal(status, 0, `CLI exited non-zero`);
     const lines = stdout.trim().split('\n').filter(Boolean);
-    assert.ok(lines.length > 0, 'expected at least one result');
+    assert.deepEqual(lines, ['notes/Zettelkasten.md']);
     for (const line of lines) {
       assert.ok(!path.isAbsolute(line), `expected relative path, got: ${line}`);
     }
   });
 
-  it('outputs absolute paths prefixed with vault root', { skip: !existsSync(FIXTURE_DB) }, () => {
+  it('outputs absolute paths prefixed with vault root', () => {
     const { stdout, status } = runCli(
       ['search', 'zettelkasten', '--only-absolute-paths', '--mode', 'fulltext'],
       { OBSIDIAN_VAULT_PATH: FIXTURE_VAULT },
     );
     assert.equal(status, 0, `CLI exited non-zero`);
     const lines = stdout.trim().split('\n').filter(Boolean);
-    assert.ok(lines.length > 0, 'expected at least one result');
+    assert.deepEqual(lines, [path.join(FIXTURE_VAULT, 'notes/Zettelkasten.md')]);
     for (const line of lines) {
       assert.ok(
         path.isAbsolute(line) && line.startsWith(FIXTURE_VAULT),

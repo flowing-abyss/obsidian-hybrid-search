@@ -68,7 +68,19 @@ function cloneSource(tempDir: string): string {
   const target = path.join(tempDir, 'obsidian-help');
   git(['init', target]);
   git(['-C', target, 'fetch', '--depth', '1', SOURCE_REPO, corpus.revision]);
-  git(['-C', target, 'checkout', '--detach', 'FETCH_HEAD']);
+  // This separate repository must materialize the pinned LF blobs regardless of
+  // the developer's global or environment-supplied checkout conversion policy.
+  git([
+    '-C',
+    target,
+    '-c',
+    'core.autocrlf=false',
+    '-c',
+    'core.eol=lf',
+    'checkout',
+    '--detach',
+    'FETCH_HEAD',
+  ]);
   if (git(['-C', target, 'rev-parse', 'HEAD']) !== corpus.revision)
     throw new Error('Unexpected corpus revision');
   return target;

@@ -248,12 +248,26 @@ describe('dimension mismatch on the filtered path', () => {
     // Now the same query with a 5-dimensional query vector against 4-dim chunks.
     embedSpy.mockResolvedValueOnce([new Float32Array([0.1, 0.2, 0.3, 0.4, 0.5])]);
     bumpIndexVersion();
-    const mismatched = await search('', { notePath: 'no-embed.md', tag: 'system/meta', limit: 5 });
-    assert.equal(
-      mismatched.length,
-      0,
-      'a dimension mismatch must yield no results, not a prefix-derived score',
-    );
+    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      const mismatched = await search('', {
+        notePath: 'no-embed.md',
+        tag: 'system/meta',
+        limit: 5,
+      });
+      assert.equal(
+        mismatched.length,
+        0,
+        'a dimension mismatch must yield no results, not a prefix-derived score',
+      );
+      assert.equal(diagnostic.mock.calls.length, 1);
+      assert.match(
+        String(diagnostic.mock.calls[0]?.[0]),
+        /Vector search failed: Dimension mismatch/,
+      );
+    } finally {
+      diagnostic.mockRestore();
+    }
   });
 });
 

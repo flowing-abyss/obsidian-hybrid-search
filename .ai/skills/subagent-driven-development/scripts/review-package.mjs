@@ -16,7 +16,17 @@
 // not a portability shortcut like the bash/awk it replaces.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, realpathSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CliError, resolveWorkspace } from './sdd-workspace.mjs';
@@ -49,27 +59,35 @@ function isAncestor(base, head) {
   }
 }
 
-function buildReviewPackage(base, head) {
-  const commits = git(['log', '--oneline', `${base}..${head}`]);
-  const stat = git(['diff', '--stat', `${base}..${head}`]);
-  const diff = git(['diff', '-U10', `${base}..${head}`]);
+function writeReviewPackage(base, head, out) {
   const commitCount = git(['rev-list', '--count', `${base}..${head}`]).trim();
-
-  const content = [
-    `# Review package: ${base}..${head}`,
-    '',
-    '## Commits',
-    commits.trimEnd(),
-    '',
-    '## Files changed',
-    stat.trimEnd(),
-    '',
-    '## Diff',
-    diff.trimEnd(),
-    '',
-  ].join('\n');
-
-  return { content, commitCount };
+  // Keep the temporary file on the destination filesystem for atomic publication.
+  const tempDir = mkdtempSync(path.join(path.dirname(path.resolve(out)), '.review-package-'));
+  const tempFile = path.join(tempDir, 'package.diff');
+  try {
+    const fd = openSync(tempFile, 'wx');
+    try {
+      writeSync(fd, `# Review package: ${base}..${head}\n\n## Commits\n`);
+      const sections = [
+        { args: ['log', '--oneline', `${base}..${head}`], next: '\n## Files changed\n' },
+        { args: ['diff', '--stat', `${base}..${head}`], next: '\n## Diff\n' },
+        { args: ['diff', '-U10', `${base}..${head}`], next: '' },
+      ];
+      for (const { args, next } of sections) {
+        // Direct file output has no buffered stdout limit; Git failures still throw.
+        // eslint-disable-next-line sonarjs/no-os-command-from-path
+        execFileSync('git', args, { stdio: ['ignore', fd, 'inherit'] });
+        writeSync(fd, next);
+      }
+    } finally {
+      closeSync(fd);
+    }
+    const bytes = statSync(tempFile).size;
+    renameSync(tempFile, out);
+    return { commitCount, bytes };
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
@@ -118,7 +136,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.a
     }
   }
 
-  const { content, commitCount } = buildReviewPackage(base, head);
-  writeFileSync(out, content);
-  console.log(`wrote ${out}: ${commitCount} commit(s), ${Buffer.byteLength(content)} bytes`);
+  try {
+    const { commitCount, bytes } = writeReviewPackage(base, head, out);
+    console.log(`wrote ${out}: ${commitCount} commit(s), ${bytes} bytes`);
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = error.status || 1;
+  }
 }
