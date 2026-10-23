@@ -1,0 +1,33 @@
+{
+  "description": "Project-local skill bootstrap and checkout-local CodeGraph prompt context.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.ai/hooks/inject-superpowers.mjs\"",
+            "commandWindows": "powershell -NoProfile -Command \"node (Join-Path (git rev-parse --show-toplevel) '.ai/hooks/inject-superpowers.mjs')\"",
+            "async": false,
+            "timeout": 10,
+            "statusMessage": "Loading superpowers skill-check instructions"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.ai/codegraph.mjs\" prompt-hook",
+            "commandWindows": "powershell -NoProfile -Command \"node (Join-Path (git rev-parse --show-toplevel) '.ai/codegraph.mjs') prompt-hook\"",
+            "timeout": 30,
+            "statusMessage": "Loading CodeGraph context"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -16,8 +16,9 @@
 // macOS, and Linux — same usage, same output file format and content, same
 // stdout/exit-code contract.
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { CliError, resolveWorkspace } from './sdd-workspace.mjs';
 
 const TASK_HEADING = /^#+[ \t]+Task[ \t]+[0-9]+/;
@@ -90,7 +91,7 @@ export function buildTaskBrief(planText, taskNumber) {
   return `${allLines.join('\n')}\n`;
 }
 
-if (import.meta.main) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
   const args = process.argv.slice(2);
   if (args.length < 2 || args.length > 3) {
     console.error('usage: task-brief PLAN_FILE TASK_NUMBER [OUTFILE]');

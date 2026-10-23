@@ -11,18 +11,18 @@
 // directory: `node .ai/codegraph.mjs` works from the checkout root, and
 // hooks pass an absolute path to it.
 //
-// Uses `process.execPath` + the package's `bin` script rather than
-// `node_modules/.bin/codegraph`, which is a shell script on POSIX and a
-// `.cmd` on Windows — neither spawns portably without a shell.
+// Launches the exact checkout-local platform bundle and its bundled Node runtime.
+// It bypasses npm-shim.js so ancestor dependencies and the global bundle cache
+// cannot supply executable code when a local optional platform package is missing.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = realpathSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..'));
 const args = process.argv.slice(2);
 const isPromptHook = args[0] === 'prompt-hook';
 const entry = resolveCodegraphEntry();
@@ -54,7 +54,7 @@ if (!entry) {
 
 let hookPayload;
 if (isPromptHook) {
-  hookPayload = withUserWordsOnly(readHookPayload());
+  hookPayload = await localHookPayload(readHookPayload());
   if (hookPayload === null) {
     process.exit(0);
   }
@@ -63,13 +63,13 @@ if (isPromptHook) {
 const options = {
   stdio: [isPromptHook ? 'pipe' : 'inherit', 'inherit', 'inherit'],
   windowsHide: true,
+  cwd: repoRoot,
   env: {
     ...process.env,
+    CODEGRAPH_DIR: '.codegraph',
     CODEGRAPH_TELEMETRY: '0',
     CODEGRAPH_NO_DOWNLOAD: '1',
-    // CodeGraph's MCP server watches this pid and exits once it's gone. The
-    // host that launched this wrapper is our parent, so hand that pid down
-    // rather than letting the npm shim record this short-lived wrapper.
+    // CodeGraph watches the original host rather than this short-lived wrapper.
     CODEGRAPH_HOST_PPID: process.env.CODEGRAPH_HOST_PPID ?? String(process.ppid),
   },
 };
@@ -78,7 +78,7 @@ if (isPromptHook) {
   runPromptHook();
 } else {
   // Keep MCP and CLI execution unchanged; only prompts need cancellation.
-  const result = spawnSync(process.execPath, [entry, ...args], options);
+  const result = spawnSync(entry.command, [...entry.args, ...args], options);
   if (result.error) {
     process.stderr.write(`codegraph: ${result.error.message}\n`);
   }
@@ -86,10 +86,10 @@ if (isPromptHook) {
 }
 
 function runPromptHook() {
-  const child = spawn(process.execPath, [entry, ...args], {
+  const child = spawn(entry.command, [...entry.args, ...args], {
     ...options,
-    // The package shim spawns the native tool. A separate POSIX process group
-    // lets cancellation stop that whole chain, including a stalled descendant.
+    // A separate POSIX process group lets cancellation stop the runtime and
+    // any pipe-holding descendants.
     detached: process.platform !== 'win32',
   });
   let cancelled = false;
@@ -189,16 +189,71 @@ function resolveCodegraphEntry() {
   try {
     const require = createRequire(path.join(repoRoot, 'package.json'));
     const manifestPath = require.resolve('@colbymchenry/codegraph/package.json');
-    // Node resolution walks ancestors; each worktree must own its dependency.
-    if (
-      path.dirname(manifestPath) !==
-      path.join(repoRoot, 'node_modules', '@colbymchenry', 'codegraph')
-    )
+    const localMain = path.join(repoRoot, 'node_modules', '@colbymchenry', 'codegraph');
+    if (path.dirname(manifestPath) !== localMain || realpathSync(localMain) !== localMain)
       return null;
-    const { bin } = JSON.parse(readFileSync(manifestPath, 'utf8'));
-    const binPath = typeof bin === 'string' ? bin : bin?.codegraph;
-    return binPath ? path.join(path.dirname(manifestPath), binPath) : null;
+    const pinned = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'))
+      .devDependencies?.['@colbymchenry/codegraph'];
+    const main = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    if (!/^\d+\.\d+\.\d+$/.test(pinned ?? '') || main.version !== pinned) return null;
+    const name = `@colbymchenry/codegraph-${process.platform}-${process.arch}`;
+    const bundle = path.join(repoRoot, 'node_modules', name);
+    if (realpathSync(bundle) !== bundle) return null;
+    const platform = JSON.parse(readFileSync(path.join(bundle, 'package.json'), 'utf8'));
+    if (platform.name !== name || platform.version !== pinned) return null;
+    const command = path.join(bundle, process.platform === 'win32' ? 'node.exe' : 'node');
+    const script = path.join(bundle, 'lib/dist/bin/codegraph.js');
+    if (realpathSync(command) !== command || realpathSync(script) !== script) return null;
+    // Launch the pinned platform runtime directly. The npm shim can search ancestor
+    // node_modules and a global cache even with CODEGRAPH_NO_DOWNLOAD enabled.
+    return { command, args: ['--liftoff-only', '--disable-warning=ExperimentalWarning', script] };
   } catch {
     return null;
+  }
+}
+
+async function localHookPayload(payload) {
+  if (payload === null) return null;
+  try {
+    const hook = JSON.parse(payload);
+    if (typeof hook?.cwd !== 'string' || typeof hook.prompt !== 'string') return null;
+    const cwd = realpathSync(hook.cwd);
+    const relative = path.relative(repoRoot, cwd);
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+      return null;
+    // A nested worktree belongs to its own adapter, even though it lies below us.
+    for (let dir = cwd; dir !== repoRoot; dir = path.dirname(dir)) {
+      if (existsSync(path.join(dir, '.git')) || existsSync(path.join(dir, '.ai'))) return null;
+    }
+    if (!(await usableLocalIndex())) return null;
+    return withUserWordsOnly(JSON.stringify({ ...hook, cwd: repoRoot }));
+  } catch {
+    return null;
+  }
+}
+
+async function usableLocalIndex() {
+  let database;
+  try {
+    const directory = path.join(repoRoot, '.codegraph');
+    const file = path.join(directory, 'codegraph.db');
+    if (!lstatSync(directory).isDirectory() || realpathSync(directory) !== directory) return false;
+    const stat = lstatSync(file);
+    if (!stat.isFile() || stat.nlink !== 1 || realpathSync(file) !== file) return false;
+    // Node 20 has no node:sqlite. Prompt context is optional there; setup and the
+    // published utility retain their own runtime requirements.
+    const { DatabaseSync } = await import('node:sqlite');
+    database = new DatabaseSync(file, { readOnly: true });
+    const nodes = database
+      .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='nodes'")
+      .get();
+    const state = database
+      .prepare("SELECT value FROM project_metadata WHERE key='index_state'")
+      .get();
+    return Boolean(nodes) && state?.value === 'complete';
+  } catch {
+    return false;
+  } finally {
+    database?.close();
   }
 }

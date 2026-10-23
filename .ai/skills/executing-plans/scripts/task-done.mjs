@@ -20,9 +20,11 @@ import {
   existsSync,
   openSync,
   readFileSync,
+  realpathSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   CliError,
   resolveWorkspace,
@@ -72,7 +74,7 @@ function runLogged(argv, logPath) {
   }
 }
 
-if (import.meta.main) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
   const args = process.argv.slice(2);
   if (args.length < 5 || args[3] !== '--') {
     console.error('usage: task-done PLAN_FILE TASK_NUMBER BASE -- TEST_COMMAND [ARGS...]');

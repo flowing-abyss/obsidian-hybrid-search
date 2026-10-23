@@ -21,3 +21,22 @@ Run `npm run test:ai` for setup, prompt cancellation, and bundled support tests.
 The Windows hardlink ownership branch runs on every platform; Windows CI must
 also exercise native junction and rename behavior. `.ai` is development tooling
 and is excluded by the package's published file allowlist.
+
+The launcher validates the exact local main and platform package versions against
+`package.json`, then runs that platform package's bundled Node and CLI directly.
+It never delegates to the npm shim, ancestor bundles, or global caches. Automatic
+prompt context requires a complete SQLite index in this checkout's real local
+`.codegraph` directory. External or nested-checkout payloads receive no context;
+local subdirectories are normalized to the owning checkout root.
+
+Codex project hooks live in `.codex/hooks.json`, with SessionStart skill context
+and UserPromptSubmit CodeGraph context. Codex may ask you to review and trust new
+hook definitions through `/hooks` before they run. Setup does not modify hook
+trust or global settings. The schema and Windows command overrides follow the
+[official hooks documentation](https://learn.chatgpt.com/docs/hooks).
+
+OpenCode automatically loads `.opencode/plugins` adapters; `opencode.json` adds
+the local CodeGraph MCP server. Pi automatically loads `.pi/extensions`; its
+`.pi/mcp.json` direct-tool override uses the installed pi-mcp-adapter and the
+server in `.mcp.json`. The OpenCode and Pi adapters import one cancellation and
+root-discovery runner, with managed helper aliases for Windows hardlinks.

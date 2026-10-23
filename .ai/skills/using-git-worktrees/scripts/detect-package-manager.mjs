@@ -13,6 +13,9 @@
 // unit tested directly against synthetic inputs; the CLI below is a thin
 // wrapper that reads the real filesystem.
 
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 export const MANAGERS = ['pnpm', 'yarn', 'npm'];
 
 export const LOCKFILE_MANAGER = {
@@ -96,7 +99,7 @@ function parsePackageManagerField(value) {
 // Prints the detected manager name to stdout and exits 0 on success.
 // On "conflict", "unsupported", or "unknown", prints the reason to stderr
 // and exits non-zero — callers must not fall back to npm on a non-zero exit.
-if (import.meta.main) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
   const { existsSync, readFileSync } = await import('node:fs');
   const path = await import('node:path');
 

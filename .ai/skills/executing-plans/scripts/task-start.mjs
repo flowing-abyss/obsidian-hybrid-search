@@ -15,15 +15,16 @@
 // macOS, and Linux — same usage, same stdout/exit-code contract.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   CliError,
   resolveWorkspace,
 } from '../../subagent-driven-development/scripts/sdd-workspace.mjs';
 import { buildTaskBrief } from '../../subagent-driven-development/scripts/task-brief.mjs';
 
-if (import.meta.main) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
   const args = process.argv.slice(2);
   if (args.length !== 2) {
     console.error('usage: task-start PLAN_FILE TASK_NUMBER');

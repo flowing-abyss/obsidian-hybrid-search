@@ -36,6 +36,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export class CliError extends Error {
   constructor(exitCode, message) {
@@ -114,7 +115,7 @@ function owns(dir, planId) {
   return true;
 }
 
-if (import.meta.main) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
   const args = process.argv.slice(2);
   if (args.length !== 1) {
     console.error('usage: sdd-workspace PLAN_FILE');

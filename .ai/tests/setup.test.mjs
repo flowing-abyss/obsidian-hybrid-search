@@ -18,12 +18,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { mainPackage, nativePackage } from './codegraph-fixture.mjs';
 const ai = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function fixture(t) {
   const root = mkdtempSync(path.join(tmpdir(), 'ohs-ai-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(path.join(root, '.ai/configs/.codex'), { recursive: true });
   mkdirSync(path.join(root, '.ai/skills/example'), { recursive: true });
+  writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ devDependencies: { '@colbymchenry/codegraph': '1.6.2' } }),
+  );
   writeFileSync(path.join(root, '.ai/configs/AGENTS.md'), 'canonical instructions\n');
   writeFileSync(path.join(root, '.ai/configs/.codex/config.toml'), '# local index\n');
   for (const name of ['setup.mjs', 'setup-codegraph.mjs', 'codegraph.mjs']) {
@@ -31,6 +36,7 @@ function fixture(t) {
   }
   mkdirSync(path.join(root, '.ai/scripts/opencode'), { recursive: true });
   mkdirSync(path.join(root, '.ai/scripts/pi'), { recursive: true });
+  writeFileSync(path.join(root, '.ai/scripts/codegraph-prompt.mjs'), '// helper');
   writeFileSync(path.join(root, '.ai/scripts/opencode/codegraph.js'), '// adapter');
   writeFileSync(path.join(root, '.ai/scripts/pi/codegraph.ts'), '// adapter');
   return root;
@@ -159,15 +165,10 @@ test('prepare configures a checkout with no developer dependencies', (t) => {
   assert.equal(existsSync(path.join(root, 'node_modules')), false);
 });
 test('CodeGraph remains local with telemetry and download recovery disabled', (t) => {
-  const root = fixture(t),
-    packageDir = path.join(root, 'node_modules/@colbymchenry/codegraph');
-  mkdirSync(packageDir, { recursive: true });
-  writeFileSync(
-    path.join(packageDir, 'package.json'),
-    JSON.stringify({ bin: { codegraph: 'bin.cjs' } }),
-  );
-  writeFileSync(
-    path.join(packageDir, 'bin.cjs'),
+  const root = fixture(t);
+  mainPackage(root);
+  nativePackage(
+    root,
     'console.log(JSON.stringify({telemetry:process.env.CODEGRAPH_TELEMETRY,download:process.env.CODEGRAPH_NO_DOWNLOAD}));',
   );
   const result = run(root, 'codegraph.mjs', ['status'], {

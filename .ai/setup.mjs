@@ -47,6 +47,8 @@ export function setup(root, { platform = process.platform, log = console.log } =
     ['CLAUDE.md', '.ai/configs/AGENTS.md'],
     ['.claude/CLAUDE.md', '.ai/configs/AGENTS.md'],
     ['.opencode/plugins/codegraph.js', '.ai/scripts/opencode/codegraph.js'],
+    ['.opencode/codegraph-prompt.mjs', '.ai/scripts/codegraph-prompt.mjs'],
+    ['.pi/codegraph-prompt.mjs', '.ai/scripts/codegraph-prompt.mjs'],
     ['.pi/extensions/codegraph.ts', '.ai/scripts/pi/codegraph.ts'],
     ...files(configs).map((file) => [path.relative(configs, file), path.relative(root, file)]),
   ];

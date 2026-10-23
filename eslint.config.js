@@ -57,7 +57,11 @@ export default tseslint.config(
   },
   {
     // Harness adapters and the vendored browser helper are outside tsconfig.
-    files: ['.ai/scripts/**/*.{js,ts}', '.ai/skills/brainstorming/scripts/helper.js'],
+    files: [
+      '.ai/codegraph.mjs',
+      '.ai/scripts/**/*.{js,mjs,ts}',
+      '.ai/skills/brainstorming/scripts/helper.js',
+    ],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
       ...tseslint.configs.disableTypeChecked.languageOptions,

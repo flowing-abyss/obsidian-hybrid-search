@@ -16,8 +16,9 @@
 // not a portability shortcut like the bash/awk it replaces.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { CliError, resolveWorkspace } from './sdd-workspace.mjs';
 
 function git(args) {
@@ -65,7 +66,7 @@ export function buildReviewPackage(base, head) {
   return { content, commitCount };
 }
 
-if (import.meta.main) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
   const args = process.argv.slice(2);
   if (args.length < 3 || args.length > 4) {
     console.error('usage: review-package PLAN_FILE BASE HEAD [OUTFILE]');

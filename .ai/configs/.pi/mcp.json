@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "codegraph": {
+      "directTools": true,
+      "toolPrefix": "none"
+    }
+  }
+}

@@ -2,19 +2,11 @@
 // holds stdout open. Advance the real adapter deadline only after process readiness.
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { checkout, index, mainPackage, nativePackage } from './codegraph-fixture.mjs';
 
 const aiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const deadline = 30_000;
@@ -41,18 +33,18 @@ async function waitFor(predicate, timeout = 1500) {
 }
 
 function fixture(t, harness, stalledLauncher = false) {
-  const root = mkdtempSync(path.join(tmpdir(), 'codegraph-cancel-'));
+  const root = checkout(t);
+  mainPackage(root);
+  index(root);
   const ai = path.join(root, '.ai');
   const packageRoot = path.join(root, 'node_modules', '@colbymchenry', 'codegraph');
   mkdirSync(ai, { recursive: true });
   mkdirSync(packageRoot, { recursive: true });
-  writeFileSync(path.join(root, 'package.json'), '{"type":"module"}\n');
-  writeFileSync(path.join(packageRoot, 'package.json'), '{"bin":{"codegraph":"shim.cjs"}}\n');
   copyFileSync(path.join(aiRoot, 'codegraph.mjs'), path.join(ai, 'codegraph.mjs'));
   const shimPids = path.join(root, 'shim-pids.json');
   const workerPid = path.join(root, 'worker-pid.json');
-  writeFileSync(
-    path.join(packageRoot, 'shim.cjs'),
+  nativePackage(
+    root,
     `const { spawnSync } = require('node:child_process');
 const { writeFileSync } = require('node:fs');
 writeFileSync(${JSON.stringify(shimPids)}, JSON.stringify([process.ppid, process.pid]));
@@ -69,7 +61,12 @@ setTimeout(() => process.exit(0), 5000);
 `,
   );
   const suffix = harness === 'opencode' ? 'js' : 'ts';
-  const adapter = path.join(ai, `adapter.${suffix}`);
+  const adapter = path.join(ai, 'scripts', harness, `codegraph.${suffix}`);
+  mkdirSync(path.dirname(adapter), { recursive: true });
+  copyFileSync(
+    path.join(aiRoot, 'scripts/codegraph-prompt.mjs'),
+    path.join(ai, 'scripts/codegraph-prompt.mjs'),
+  );
   copyFileSync(path.join(aiRoot, 'scripts', harness, `codegraph.${suffix}`), adapter);
   if (stalledLauncher) {
     writeFileSync(
