@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterAll, expect, it } from 'vitest';
 import type { SearchOptions, SearchResult } from '../src/search/searcher.js';
 import { handleStdioLine } from '../src/transports/stdio-server.js';
@@ -102,7 +103,7 @@ it('CLI JSON, MCP and line IPC preserve the same filtered Unicode result contrac
   };
   const args = [
     '--import',
-    path.join(root, 'dist/test/fixtures/vault-config-preload.js'),
+    pathToFileURL(path.join(root, 'dist/test/fixtures/vault-config-preload.js')).href,
     path.join(root, 'dist/src/cli.js'),
   ];
   const cli = spawnSync(

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 const runner = fileURLToPath(new URL('../eval-quality.mjs', import.meta.url));
-const tsx = fileURLToPath(new URL('../../node_modules/tsx/dist/loader.mjs', import.meta.url));
+const tsx = new URL('../../node_modules/tsx/dist/loader.mjs', import.meta.url).href;
 function fixture(run) {
   const root = mkdtempSync(path.join(tmpdir(), 'ohs-quality-'));
   try {
