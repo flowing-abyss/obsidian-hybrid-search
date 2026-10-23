@@ -8,8 +8,8 @@ const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-wikilink-catalog-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
 const { closeDb, getDb, initVecTable, openDb, upsertNote, wipeDatabaseFiles } =
-  await import('../src/db.js');
-const embedder = await import('../src/embedder.js');
+  await import('../src/storage/db.js');
+const embedder = await import('../src/inference/embedder.js');
 vi.spyOn(embedder, 'embedDetailed').mockImplementation((texts: string[]) =>
   Promise.resolve(
     texts.map(() => ({ ok: true as const, embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]) })),
@@ -22,7 +22,7 @@ vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
 });
 
 const { indexFile, indexVaultSync, resetIndexingState, resolveWikilinks } =
-  await import('../src/indexer.js');
+  await import('../src/indexing/indexer.js');
 
 function writeNote(name: string, content: string): string {
   const file = path.join(vaultDir, name);

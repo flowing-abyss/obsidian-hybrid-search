@@ -9,7 +9,7 @@ import {
   parseCliIntegerOption,
   parseCliNumberOption,
   parseStringArrayParam,
-} from '../src/boundary-validation.js';
+} from '../src/contracts/boundary-validation.js';
 
 describe('formatValidationError', () => {
   it('formats field paths and messages without exposing Zod internals', () => {

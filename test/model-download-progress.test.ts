@@ -71,14 +71,14 @@ describe('model download reporting', () => {
       if (transformers.env.logLevel <= 40) process.stderr.write('model download error\n');
       return Promise.reject(new Error('download failed'));
     });
-    const { loadRerankerModel } = await import('../src/reranker-model.js');
+    const { loadRerankerModel } = await import('../src/inference/reranker-model.js');
     await assert.rejects(loadRerankerModel('test/model', 256, 'cpu'), /download failed/);
     assert.equal(terminal(), 'model download error\n');
   });
   it.each(['cpu', 'webgpu'] as const)(
     'reports actual %s reranker transfers and clears after loading',
     async (device) => {
-      const { loadRerankerModel } = await import('../src/reranker-model.js');
+      const { loadRerankerModel } = await import('../src/inference/reranker-model.js');
       const snapshots: unknown[] = [];
       transformers.model.mockImplementation(
         (_name, options: { progress_callback?: (event: unknown) => void }) => {
@@ -97,7 +97,7 @@ describe('model download reporting', () => {
   );
 
   it('clears a failed CPU model download before the error reaches its caller', async () => {
-    const { loadRerankerModel } = await import('../src/reranker-model.js');
+    const { loadRerankerModel } = await import('../src/inference/reranker-model.js');
     const snapshots: unknown[] = [];
     transformers.model.mockImplementation(
       (_name, options: { progress_callback?: (event: unknown) => void }) => {
@@ -120,7 +120,8 @@ describe('model download reporting', () => {
     async (kind) => {
       const terminal = captureTerminal();
       vi.useFakeTimers();
-      const { enableModelDownloadProgress } = await import('../src/model-download-progress.js');
+      const { enableModelDownloadProgress } =
+        await import('../src/inference/model-download-progress.js');
       enableModelDownloadProgress();
       vi.stubEnv('OPENAI_API_KEY', '');
       vi.stubEnv('OPENAI_BASE_URL', '');
@@ -144,10 +145,10 @@ describe('model download reporting', () => {
         (_task, _name, options: { progress_callback?: (event: unknown) => void }) => load(options),
       );
       if (kind === 'embedding') {
-        const { embed } = await import('../src/embedder.js');
+        const { embed } = await import('../src/inference/embedder.js');
         assert.deepEqual(await embed(['query'], 'query'), [new Float32Array([1, 2])]);
       } else {
-        const { loadRerankerModel } = await import('../src/reranker-model.js');
+        const { loadRerankerModel } = await import('../src/inference/reranker-model.js');
         const model = await loadRerankerModel('test/model', 256, 'cpu');
         assert.deepEqual(await model([{ text: 'q', text_pair: 'd' }]), [
           [{ label: 'LABEL_1', score: 2 }],
@@ -163,7 +164,8 @@ describe('model download reporting', () => {
   it.each(['cached', 'non-tty', 'disabled', 'small'])('keeps %s loads silent', async (mode) => {
     const terminal = captureTerminal();
     vi.useFakeTimers();
-    const { enableModelDownloadProgress } = await import('../src/model-download-progress.js');
+    const { enableModelDownloadProgress } =
+      await import('../src/inference/model-download-progress.js');
     if (mode !== 'disabled') enableModelDownloadProgress();
     if (mode === 'non-tty') process.stderr.isTTY = false;
     if (mode === 'cached') {
@@ -178,7 +180,7 @@ describe('model download reporting', () => {
         return () => ({});
       },
     );
-    const { loadRerankerModel } = await import('../src/reranker-model.js');
+    const { loadRerankerModel } = await import('../src/inference/reranker-model.js');
     await loadRerankerModel('test/model', 256, 'cpu');
     await vi.advanceTimersByTimeAsync(1000);
     assert.equal(terminal(), '');

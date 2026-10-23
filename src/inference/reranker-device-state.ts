@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import { getLocalStateDirectory } from './local-state.js';
+import { getLocalStateDirectory } from '../runtime/local-state.js';
 import { gpuEnvironmentFingerprint } from './reranker-platform.js';
 
 interface DeviceState {

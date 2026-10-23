@@ -1,4 +1,3 @@
-// Adapted from flowing-abyss/obsidian-abyss-tasks@551c44c3dd4335df37d9b7bc37011c4623cc3632.
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
@@ -21,46 +20,83 @@ module.exports = {
     {
       name: 'indexer-independent',
       severity: 'error',
-      from: { path: '^src/indexer[.]ts$' },
-      to: { path: '^src/searcher[.]ts$' },
+      from: { path: '^src/indexing/' },
+      to: { path: '^src/search/' },
+    },
+    {
+      name: 'search-no-indexing',
+      severity: 'error',
+      from: { path: '^src/search/' },
+      to: { path: '^src/indexing/' },
     },
     {
       name: 'pure-normalization',
       severity: 'error',
-      from: { path: '^src/(text-normalization|index-state)[.]ts$' },
+      from: { path: '^src/(content/text-normalization|storage/index-state)[.]ts$' },
       to: { path: '.' },
     },
     {
       name: 'pure-extraction',
       severity: 'error',
-      from: { path: '^src/note-extractor[.]ts$' },
+      from: { path: '^src/content/note-extractor[.]ts$' },
       to: {
-        pathNot: ['^src/text-normalization[.]ts$', '^node_modules/gray-matter/', '^gray-matter$'],
+        pathNot: [
+          '^src/content/text-normalization[.]ts$',
+          '^node_modules/gray-matter/',
+          '^gray-matter$',
+        ],
       },
     },
     {
       name: 'infrastructure-no-transports',
       severity: 'error',
-      from: {
-        path: '^src/',
-        pathNot:
-          '^src/(cli|mcp-runtime|server|mcp-http-server|mcp-stdio-server|mcp-supervisor|stdio-server)[.]ts$',
-      },
-      to: {
-        path: '^src/(cli|mcp-runtime|server|mcp-http-server|mcp-stdio-server|mcp-supervisor|stdio-server)[.]ts$',
-      },
+      from: { path: '^src/', pathNot: '^src/(transports/|(cli|server)[.]ts$)' },
+      to: { path: '^src/(transports/|(cli|server)[.]ts$)' },
     },
     {
       name: 'storage-no-orchestration',
       severity: 'error',
-      from: { path: '^src/(storage/|db[.]ts$)' },
-      to: { path: '^src/(indexer|searcher)[.]ts$' },
+      from: { path: '^src/storage/' },
+      to: { path: '^src/(indexing|search|inference)/' },
     },
     {
       name: 'sqlite-acquisition',
       severity: 'error',
-      from: { path: '^src/', pathNot: '^src/(storage/|db[.]ts$)' },
+      from: { path: '^src/', pathNot: '^src/storage/' },
       to: { path: '(^|/)(better-sqlite3|sqlite-vec)(/|$)' },
+    },
+    {
+      name: 'inference-no-application',
+      severity: 'error',
+      from: { path: '^src/inference/' },
+      to: { path: '^src/(indexing|search|storage|vault)/' },
+    },
+    {
+      name: 'content-no-application',
+      severity: 'error',
+      from: { path: '^src/content/' },
+      to: { path: '^src/', pathNot: '^src/(content/|runtime/config[.]ts$)' },
+    },
+    {
+      name: 'runtime-independent',
+      severity: 'error',
+      from: { path: '^src/runtime/' },
+      to: { path: '^src/', pathNot: '^src/runtime/' },
+    },
+    {
+      name: 'contracts-independent',
+      severity: 'error',
+      from: { path: '^src/contracts/' },
+      to: { path: '^src/', pathNot: '^src/(contracts/|content/text-normalization[.]ts$)' },
+    },
+    {
+      name: 'vault-no-application',
+      severity: 'error',
+      from: { path: '^src/vault/' },
+      to: {
+        path: '^src/',
+        pathNot: '^src/(vault/|runtime/config[.]ts$|storage/vault-locator[.]ts$)',
+      },
     },
   ],
   options: {

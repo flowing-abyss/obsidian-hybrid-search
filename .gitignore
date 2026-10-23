@@ -44,3 +44,6 @@ eval/results/*.md
 # Canonical agent configurations are tracked; generated root copies are local.
 !.ai/configs/
 !.ai/configs/**
+
+# The tracked plugin is an independent repository, outside utility analysis.
+/obsidian-plugin/

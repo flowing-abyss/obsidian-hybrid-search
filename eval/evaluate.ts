@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { config } from '../src/config.js';
+import { config } from '../src/runtime/config.js';
 import { hitAtK, mrr, ndcg, recallAtK } from './metrics.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -119,10 +119,10 @@ async function main(): Promise<void> {
   console.log();
 
   // 2. Dynamic imports (after env is set)
-  const { openDb, initVecTable } = await import('../src/db.js');
-  const { getEmbeddingDim, getContextLength } = await import('../src/embedder.js');
-  const { indexVaultSync } = await import('../src/indexer.js');
-  const { search } = await import('../src/searcher.js');
+  const { openDb, initVecTable } = await import('../src/storage/db.js');
+  const { getEmbeddingDim, getContextLength } = await import('../src/inference/embedder.js');
+  const { indexVaultSync } = await import('../src/indexing/indexer.js');
+  const { search } = await import('../src/search/searcher.js');
 
   // 3. Load golden set
   if (!fs.existsSync(goldenSet)) {
@@ -158,7 +158,7 @@ async function main(): Promise<void> {
   console.log(`[eval] output:     ${output}`);
 
   // 6. Count notes/chunks and run queries
-  const { getDb } = await import('../src/db.js');
+  const { getDb } = await import('../src/storage/db.js');
   const db = getDb();
   const noteCount = (db.prepare('SELECT COUNT(*) as n FROM notes').get() as { n: number }).n;
   const chunkCount = (db.prepare('SELECT COUNT(*) as n FROM chunks').get() as { n: number }).n;

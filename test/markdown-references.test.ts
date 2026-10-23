@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
-import { extractMarkdownReferences, resolveMarkdownNoteLinks } from '../src/markdown-references.js';
+import {
+  extractMarkdownReferences,
+  resolveMarkdownNoteLinks,
+} from '../src/content/markdown-references.js';
 
 describe('extractMarkdownReferences', () => {
   it('extracts Markdown link destinations and HTTP URLs while ignoring images and code', () => {

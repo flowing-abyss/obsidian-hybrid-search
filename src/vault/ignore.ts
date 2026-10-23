@@ -1,7 +1,7 @@
 import ignore, { type Ignore } from 'ignore';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { config } from './config.js';
+import { config } from '../runtime/config.js';
 
 const OPERATIONAL_IGNORE_PATTERNS = ['.obsidian/**', '.obsidian-hybrid-search.db*'];
 // Bump when ignore-selection semantics change. Notes that only the new matcher ignores

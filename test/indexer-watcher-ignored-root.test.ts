@@ -25,7 +25,7 @@ describe('watcher ignored() contract', () => {
     writeFileSync(path.join(vaultDir, 'one.md'), '# One');
 
     vi.resetModules();
-    const { startWatcher } = await import('../src/indexer');
+    const { startWatcher } = await import('../src/indexing/indexer');
     startWatcher(512);
     await new Promise((r) => setTimeout(r, 50));
 

@@ -1,4 +1,4 @@
-import { config } from './config.js';
+import { config } from '../runtime/config.js';
 
 export interface Chunk {
   text: string;

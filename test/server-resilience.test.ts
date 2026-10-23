@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'vitest';
 
 // Import from side-effect-free module (NOT from server.ts which calls main())
-const { registerProcessHandlers } = await import('../src/process-resilience');
+const { registerProcessHandlers } = await import('../src/runtime/process-resilience');
 
 describe('registerProcessHandlers', () => {
   let originalListeners: {

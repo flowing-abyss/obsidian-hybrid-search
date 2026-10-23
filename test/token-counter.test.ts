@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, vi } from 'vitest';
-import { estimateTokens } from '../src/chunker.js';
+import { estimateTokens } from '../src/content/chunker.js';
 import {
   createEstimatedTokenCounter,
   createOpenAiTokenCounter,
   effectiveTokenLimit,
   normalizeKnownModelName,
-} from '../src/token-counter.js';
+} from '../src/content/token-counter.js';
 
 describe('token counters', () => {
   afterEach(() => {
@@ -65,7 +65,7 @@ describe('token counters', () => {
       return { default: {} };
     });
     vi.resetModules();
-    const fresh = await import('../src/token-counter.js');
+    const fresh = await import('../src/content/token-counter.js');
 
     assert.equal(await fresh.createOpenAiTokenCounter('bge-m3'), undefined);
     assert.equal(rankLoads, 0);
@@ -87,7 +87,7 @@ describe('token counters', () => {
     }));
     vi.doMock('js-tiktoken/ranks/cl100k_base', () => ({ default: {} }));
     vi.resetModules();
-    const fresh = await import('../src/token-counter.js');
+    const fresh = await import('../src/content/token-counter.js');
 
     await assert.rejects(
       fresh.createOpenAiTokenCounter('text-embedding-3-small'),

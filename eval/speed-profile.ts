@@ -14,7 +14,7 @@ import {
   SearchTimingCollector,
   withSearchProfiling,
   type SearchStageSummary,
-} from '../src/search-profile.js';
+} from '../src/search/search-profile.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -192,9 +192,9 @@ async function main(): Promise<void> {
   const warmupQuery = pickProfileQuery(goldenSet, args.query, random);
   const measuredQueries = pickProfileQueries(goldenSet, args.query, random, args.runs);
 
-  const { openDb } = await import('../src/db.js');
-  const { search } = await import('../src/searcher.js');
-  const { bumpIndexVersion } = await import('../src/index-state.js');
+  const { openDb } = await import('../src/storage/db.js');
+  const { search } = await import('../src/search/searcher.js');
+  const { bumpIndexVersion } = await import('../src/storage/index-state.js');
   openDb();
 
   const searchOptions = {

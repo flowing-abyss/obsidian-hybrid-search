@@ -1,4 +1,4 @@
-import { getDb, upsertLinks, upsertMarkdownLinks, upsertNoteUrls } from '../db.js';
+import { getDb, upsertLinks, upsertMarkdownLinks, upsertNoteUrls } from './db.js';
 
 export function getExistingNotePathSet(): Set<string> {
   const rows = getDb().prepare('SELECT path FROM notes').all() as { path: string }[];

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, it, vi } from 'vitest';
-import { parseAliasField, parseInlineTags, parseWikilinks } from '../src/note-extractor.js';
+import { parseAliasField, parseInlineTags, parseWikilinks } from '../src/content/note-extractor.js';
 
 // ─── Vault setup (must precede any application module imports) ────────────────
 
@@ -11,8 +11,8 @@ const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-indexer-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
 // Dynamic imports so config reads the env var we just set
-const { resolveWikilinks, getIndexingStatus } = await import('../src/indexer.js');
-const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/db.js');
+const { resolveWikilinks, getIndexingStatus } = await import('../src/indexing/indexer.js');
+const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/storage/db.js');
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -145,9 +145,10 @@ describe('parseWikilinks', () => {
 
 describe('background failure diagnostics', () => {
   it('commits a good note and reports each rejected path and error count', async () => {
-    const embedder = await import('../src/embedder.js');
-    const { startBackgroundIndexing, resetIndexingState } = await import('../src/indexer.js');
-    const { getNoteByPath, wipeDatabaseFiles } = await import('../src/db.js');
+    const embedder = await import('../src/inference/embedder.js');
+    const { startBackgroundIndexing, resetIndexingState } =
+      await import('../src/indexing/indexer.js');
+    const { getNoteByPath, wipeDatabaseFiles } = await import('../src/storage/db.js');
     wipeDatabaseFiles();
     openDb();
     initVecTable(4);

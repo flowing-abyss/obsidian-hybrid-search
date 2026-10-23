@@ -5,16 +5,26 @@ description: Use when the user explicitly asks to release or publish a version o
 
 # Releasing the npm package
 
-Read the release instructions in `.ai/references/project-guide.md`, `package.json`,
-and the current GitHub release workflow before changing metadata. Use the
+Read `package.json`, `server.json`, and the current GitHub release workflow
+before changing metadata. Use the
 requested version and preserve the package's supported Node and platform matrix.
 Run the canonical completion checks and inspect the package file list before
 committing release metadata. Do not publish development tooling, fixtures,
 credentials, or local vault content.
 
 Synchronize `package.json`, the lockfile, and `server.json` before tagging. This
-repository uses `npm version X.Y.Z --no-git-tag-version`,
-`npm run sync-server-json`, a conventional release commit, and a `vX.Y.Z` tag.
+repository uses the following sequence after verification:
+
+```bash
+npm version X.Y.Z --no-git-tag-version
+npm run sync-server-json
+git add package.json package-lock.json server.json
+git commit -m "chore(release): X.Y.Z"
+git push origin master
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
 The tag must name the same commit as the synchronized version files. Push and
 publish only within the user's explicit release authorization.
 

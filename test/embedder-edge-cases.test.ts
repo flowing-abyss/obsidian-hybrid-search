@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 const { embed, embedDetailed, getContextLength, clearOllamaSemaphore } =
-  await import('../src/embedder.js');
+  await import('../src/inference/embedder.js');
 
 function mockFetchOk(embeddings: number[][], status = 200): void {
   vi.stubGlobal(

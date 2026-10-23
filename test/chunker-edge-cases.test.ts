@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
-import { buildMatchText, chunkNote, estimateTokens, slidingWindow } from '../src/chunker.js';
+import {
+  buildMatchText,
+  chunkNote,
+  estimateTokens,
+  slidingWindow,
+} from '../src/content/chunker.js';
 
 describe('chunkNote — empty and boundary content', () => {
   it('returns single empty chunk for empty content', () => {

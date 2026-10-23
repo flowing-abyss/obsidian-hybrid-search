@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, it, vi } from 'vitest';
-import { embedChunksWithRecovery } from '../src/chunk-embedding.js';
-import { createChunkBoundaryIndex, estimateTokens, type Chunk } from '../src/chunker.js';
-import * as tokenCounter from '../src/token-counter.js';
+import { createChunkBoundaryIndex, estimateTokens, type Chunk } from '../src/content/chunker.js';
+import * as tokenCounter from '../src/content/token-counter.js';
+import { embedChunksWithRecovery } from '../src/indexing/chunk-embedding.js';
 
 const huggingFaceMocks = vi.hoisted(() => ({ pipeline: vi.fn() }));
 vi.mock('@huggingface/transformers', () => ({
@@ -38,7 +38,7 @@ const {
   clearOllamaSemaphore,
   getDocumentTokenPolicy,
   prepareEmbeddingInput,
-} = await import('../src/embedder.js');
+} = await import('../src/inference/embedder.js');
 
 describe('LOCAL_MODEL constant', () => {
   it('is Xenova/multilingual-e5-small', () => {

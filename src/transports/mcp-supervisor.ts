@@ -11,8 +11,8 @@ import {
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { config } from './config.js';
-import { getLocalStateDirectory } from './local-state.js';
+import { config } from '../runtime/config.js';
+import { getLocalStateDirectory } from '../runtime/local-state.js';
 import { normalizeAllowedHosts } from './mcp-http-server.js';
 
 export interface McpState {
@@ -247,7 +247,7 @@ export async function ensureMcpServer(options: EnsureMcpOptions): Promise<Ensure
   const paths = getMcpPaths();
   mkdirSync(paths.dir, { recursive: true });
   const logFd = openSync(paths.logPath, 'a');
-  const cliPath = fileURLToPath(import.meta.url).replace(/mcp-supervisor\.js$/, 'cli.js');
+  const cliPath = fileURLToPath(new URL('../cli.js', import.meta.url));
   const urls = buildMcpUrls(options.host, options.port);
   const child = spawnChildWithLogFd(cliPath, options, logFd);
   closeSync(logFd);

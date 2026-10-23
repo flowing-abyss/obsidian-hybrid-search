@@ -5,7 +5,7 @@ delete process.env.RERANKER_MODEL;
 delete process.env.OPENAI_API_KEY;
 delete process.env.OPENAI_BASE_URL;
 
-const { reranker } = await import('../src/reranker.js');
+const { reranker } = await import('../src/inference/reranker.js');
 
 const cases = [
   {

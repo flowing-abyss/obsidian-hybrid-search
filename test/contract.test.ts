@@ -18,8 +18,8 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 // ─── Module imports ───────────────────────────────────────────────────────────
 
 const { closeDb, openDb, initVecTable, upsertNote, upsertMarkdownLinks, upsertNoteUrls } =
-  await import('../src/db.js');
-const { readNotes, search } = await import('../src/searcher.js');
+  await import('../src/storage/db.js');
+const { readNotes, search } = await import('../src/search/searcher.js');
 
 const fakeEmbedding = new Float32Array([0.5, 0.5, 0.5, 0.5]);
 

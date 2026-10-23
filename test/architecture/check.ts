@@ -1,4 +1,3 @@
-// Dependency rules and AST acquisition checks follow the upstream architecture-test approach.
 import { cruise, type ICruiseResult } from 'dependency-cruiser';
 import extractDepcruiseOptions from 'dependency-cruiser/config-utl/extract-depcruise-options';
 import path from 'node:path';
@@ -31,7 +30,7 @@ export async function checkArchitecture(baseDir: string): Promise<string[]> {
   );
   const checker = program.getTypeChecker();
   const canonicalPath = (file: string) => path.resolve(file).replaceAll('\\', '/');
-  const dbPath = canonicalPath(path.join(baseDir, 'src/db.ts'));
+  const dbPath = canonicalPath(path.join(baseDir, 'src/storage/db.ts'));
   function originalSymbol(node: ts.Node): ts.Symbol | undefined {
     let symbol = checker.getSymbolAtLocation(node);
     if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent)) {
@@ -57,8 +56,14 @@ export async function checkArchitecture(baseDir: string): Promise<string[]> {
   // aliases retain their imported name; namespace/star/dynamic acquisition exposes
   // the complete raw module and is deliberately forbidden outside its owner.
   for (const module of graph.modules) {
-    if (!module.source.startsWith('src/') || /^src\/(storage\/|db\.ts$)/.test(module.source))
-      continue;
+    if (!module.source.startsWith('src/')) continue;
+    if (
+      !/^src\/(?:(?:cli|server)\.ts$|(?:content|contracts|indexing|inference|runtime|search|storage|transports|vault)\/)/.test(
+        module.source,
+      )
+    )
+      violations.push(`source-layout: ${module.source}`);
+    if (module.source.startsWith('src/storage/')) continue;
     const fileName = path.join(baseDir, module.source);
     const text = ts.sys.readFile(fileName);
     if (text === undefined) continue;

@@ -10,10 +10,10 @@ import { afterAll, afterEach, beforeAll, describe, it, vi } from 'vitest';
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-mcp-runtime-tools-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-// Per the Wave 3 lesson: do NOT use vi.mock('../src/embedder.js', factory) — it
+// Per the Wave 3 lesson: do NOT use vi.mock('../src/inference/embedder.js', factory) — it
 // conflicts with other test files under vitest's isolate:false. Spy on the real
 // imported module instead.
-const embedder = await import('../src/embedder.js');
+const embedder = await import('../src/inference/embedder.js');
 vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
 vi.spyOn(embedder, 'getContextLength').mockResolvedValue(512);
 
@@ -27,9 +27,9 @@ const {
   getStoredModel,
   getStoredEmbeddingDim,
   getNoteByPath,
-} = await import('../src/db.js');
+} = await import('../src/storage/db.js');
 const { createMcpRuntime, createMcpServer, checkForUpdates, packageVersion } =
-  await import('../src/mcp-runtime.js');
+  await import('../src/transports/mcp-runtime.js');
 
 const fakeEmbedding = new Float32Array([0.1, 0.2, 0.3, 0.4]);
 

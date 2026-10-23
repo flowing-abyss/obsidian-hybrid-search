@@ -1,19 +1,19 @@
 import os from 'node:os';
 import path from 'node:path';
 import {
-  EmbeddingApiResponseSchema,
-  formatValidationError,
-  OllamaEmbeddingResponseSchema,
-} from './boundary-validation.js';
-import { config } from './config.js';
-import { getCpuSessionOptions } from './inference-settings.js';
-import { createDownloadIndicator, trackModelDownload } from './model-download-progress.js';
-import {
   createEstimatedTokenCounter,
   createOpenAiTokenCounter,
   effectiveTokenLimit,
   normalizeKnownModelName,
-} from './token-counter.js';
+} from '../content/token-counter.js';
+import {
+  EmbeddingApiResponseSchema,
+  formatValidationError,
+  OllamaEmbeddingResponseSchema,
+} from '../contracts/boundary-validation.js';
+import { config } from '../runtime/config.js';
+import { getCpuSessionOptions } from './inference-settings.js';
+import { createDownloadIndicator, trackModelDownload } from './model-download-progress.js';
 
 export const LOCAL_MODEL = 'Xenova/multilingual-e5-small';
 

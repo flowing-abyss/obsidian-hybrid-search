@@ -4,7 +4,7 @@ import { vi } from 'vitest';
  * Give every test file a fresh module graph.
  *
  * The suite runs with `isolate: false`, so all test files share one module registry.
- * Most files bind src/db.js and src/searcher.js to their OWN vault by setting
+ * Most files bind src/storage/db.js and src/search/searcher.js to their OWN vault by setting
  * process.env.OBSIDIAN_VAULT_PATH at module scope and then dynamically importing —
  * which only works if those modules have not already been instantiated by an earlier
  * file. A handful of files call vi.resetModules() themselves to guarantee that; the

@@ -20,7 +20,7 @@ const CLI = path.join(ROOT, 'dist/src/cli.js');
 const FIXTURE_VAULT = mkdtempSync(path.join(tmpdir(), 'ohs-cli-paths-'));
 beforeAll(async () => {
   vi.stubEnv('OBSIDIAN_VAULT_PATH', FIXTURE_VAULT);
-  const { openDb, initVecTable, upsertNote, closeDb } = await import('../src/db.js');
+  const { openDb, initVecTable, upsertNote, closeDb } = await import('../src/storage/db.js');
   openDb();
   try {
     initVecTable(4);

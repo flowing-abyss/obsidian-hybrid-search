@@ -1,4 +1,4 @@
-import { bumpIndexVersion } from '../src/index-state.js';
+import { bumpIndexVersion } from '../src/storage/index-state.js';
 /**
  * Contract for OBSIDIAN_IGNORE_PATTERNS (issue #52) and for .gitignore rules.
  *
@@ -43,7 +43,7 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 process.env.OBSIDIAN_RESPECT_GITIGNORE = 'false';
 delete process.env.OBSIDIAN_IGNORE_PATTERNS;
 
-const { config } = await import('../src/config.js');
+const { config } = await import('../src/runtime/config.js');
 const DEFAULT_PATTERNS = [...config.ignorePatterns];
 
 const {
@@ -55,9 +55,9 @@ const {
   upsertNote,
   upsertLinks,
   upsertMarkdownLinks,
-} = await import('../src/db.js');
+} = await import('../src/storage/db.js');
 
-const embedder = await import('../src/embedder.js');
+const embedder = await import('../src/inference/embedder.js');
 const EMBEDDING = new Float32Array([0.1, 0.2, 0.3, 0.4]);
 vi.spyOn(embedder, 'embed').mockResolvedValue([EMBEDDING]);
 vi.spyOn(embedder, 'embedDetailed').mockImplementation((texts: string[]) =>
@@ -69,7 +69,7 @@ vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
   count: (text) => Math.ceil(Array.from(text).length / 4),
 });
 
-const { createIgnorePolicy } = await import('../src/ignore.js');
+const { createIgnorePolicy } = await import('../src/vault/ignore.js');
 const {
   scanVault,
   indexVaultSync,
@@ -78,8 +78,8 @@ const {
   startBackgroundIndexing,
   startWatcher,
   withIndexingDbLock,
-} = await import('../src/indexer.js');
-const { search } = await import('../src/searcher.js');
+} = await import('../src/indexing/indexer.js');
+const { search } = await import('../src/search/searcher.js');
 
 function policyFor(ignorePatterns: string[]) {
   return createIgnorePolicy({

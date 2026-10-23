@@ -9,10 +9,10 @@ import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-mcp-runtime-rec-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-// Per the Wave 3 lesson: do NOT use vi.mock('../src/embedder.js', factory) — it
+// Per the Wave 3 lesson: do NOT use vi.mock('../src/inference/embedder.js', factory) — it
 // conflicts with other test files under vitest's isolate:false. Spy on the real
 // imported module instead so mocks cooperate with whatever other files installed.
-const embedder = await import('../src/embedder.js');
+const embedder = await import('../src/inference/embedder.js');
 vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
 vi.spyOn(embedder, 'getContextLength').mockResolvedValue(512);
 
@@ -24,9 +24,9 @@ const {
   getDb,
   upsertNote,
   getNoteByPath,
-} = await import('../src/db.js');
-const { indexVaultSync } = await import('../src/indexer.js');
-const { createMcpRuntime } = await import('../src/mcp-runtime.js');
+} = await import('../src/storage/db.js');
+const { indexVaultSync } = await import('../src/indexing/indexer.js');
+const { createMcpRuntime } = await import('../src/transports/mcp-runtime.js');
 
 beforeAll(() => {
   openDb();
@@ -114,7 +114,7 @@ describe('indexVaultSync — corruption recovery', () => {
   it('requireClean=true accepts the option without throwing when vault is clean', async () => {
     // Cannot easily produce an indexing error on an empty vault; the option is
     // exercised by the no-error path here, and the throw path is covered by the
-    // requireClean-with-errors semantics in src/indexer.ts:537-543.
+    // requireClean-with-errors semantics in src/indexing/indexer.ts:537-543.
     const result = await indexVaultSync(false, 'Test index...', { requireClean: true });
     assert.ok(typeof result.indexed === 'number');
   });

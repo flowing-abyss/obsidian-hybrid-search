@@ -26,7 +26,7 @@ why?
 ## Project context
 
 Build on this repository's TypeScript, npm, SQLite, CLI, and MCP boundaries.
-Read `ARCHITECTURE.md` before cross-cutting design and the linked project guide
+Read `ARCHITECTURE.md` before cross-cutting design and `CONTRIBUTING.md`
 for compatibility and evaluation requirements. Preserve vault data, CLI flags,
 MCP schemas, database migrations, native recovery, and offline local inference.
 Use source-driven-development for unfamiliar or version-sensitive APIs and
@@ -221,7 +221,7 @@ Keep the approved intent and constraints in the written design or chat brief.
 A small change proceeds through the normal implementation workflow; a project
 hands off to superpowers:writing-plans after written-design approval. Honor an
 execution method and approval already given by the user instead of asking again.
-Completion follows the commands in the canonical project guide. Use fresh
+Completion follows the commands in `AGENTS.md`. Use fresh
 verification output and before/after ranking evidence when relevant. Integration
 work uses temporary vaults and isolated databases. Do not mutate a user's real
 vault or publish a release unless requested. A throwaway spike is not production

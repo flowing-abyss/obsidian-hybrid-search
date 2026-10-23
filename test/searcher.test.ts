@@ -3,14 +3,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, it, vi } from 'vitest';
-import { bumpIndexVersion } from '../src/index-state.js';
+import { bumpIndexVersion } from '../src/storage/index-state.js';
 
 // ─── Vault setup (before any imports that read OBSIDIAN_VAULT_PATH) ──────────
 
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-searcher-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-vi.mock('../src/embedder.js', () => ({
+vi.mock('../src/inference/embedder.js', () => ({
   embed: vi.fn((texts: string[]) => Promise.resolve(texts.map(() => null))),
 }));
 
@@ -25,9 +25,9 @@ const {
   upsertMarkdownLinks,
   upsertNoteUrls,
   getDb,
-} = await import('../src/db.js');
-const { search, readNotes } = await import('../src/searcher.js');
-const { reranker } = await import('../src/reranker.js');
+} = await import('../src/storage/db.js');
+const { search, readNotes } = await import('../src/search/searcher.js');
+const { reranker } = await import('../src/inference/reranker.js');
 
 const fakeEmbedding = new Float32Array([0.1, 0.2, 0.3, 0.4]);
 
@@ -1068,7 +1068,7 @@ describe('similarity score formula', () => {
 
 describe('zero-vector guard', () => {
   it('semantic mode with zero vector returns empty results', async () => {
-    const { searchBm25 } = await import('../src/searcher.js');
+    const { searchBm25 } = await import('../src/search/searcher.js');
     // Insert a note with a ZERO embedding (simulating indexing fallback)
     upsertNote({
       path: 'zero-emb.md',

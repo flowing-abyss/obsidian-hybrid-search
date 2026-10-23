@@ -22,10 +22,10 @@ const {
   getDb,
   initVecTable,
   isLikelyDatabaseCorruption,
-} = await import('../src/db.js');
+} = await import('../src/storage/db.js');
 
 // Spy on embedder *before* importing indexer so live bindings pick up the mocks
-const embedder = await import('../src/embedder.js');
+const embedder = await import('../src/inference/embedder.js');
 vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
 vi.spyOn(embedder, 'embedDetailed').mockImplementation((texts: string[]) =>
   Promise.resolve(
@@ -139,7 +139,7 @@ const {
   getIndexingStatus,
   resetIndexingState,
   indexVaultSync,
-} = await import('../src/indexer.js');
+} = await import('../src/indexing/indexer.js');
 
 beforeAll(() => {
   openDb();
@@ -1002,7 +1002,7 @@ describe('indexVaultSync', () => {
     openDb();
     initVecTable(4);
 
-    const { upsertNote } = await import('../src/db');
+    const { upsertNote } = await import('../src/storage/db');
     upsertNote({
       path: 'temp-ignore.md',
       title: 'Ignore me',
@@ -1013,17 +1013,17 @@ describe('indexVaultSync', () => {
       chunks: [],
     });
 
-    const { getDb } = await import('../src/db');
+    const { getDb } = await import('../src/storage/db');
     const db = getDb();
     const allNotes = db.prepare('SELECT path FROM notes').all() as { path: string }[];
     assert.equal(allNotes.length, 1);
 
     // Store empty patterns first so a change is detected later
-    const { getPathsToRemoveForIgnoreChange } = await import('../src/db');
+    const { getPathsToRemoveForIgnoreChange } = await import('../src/storage/db');
     getPathsToRemoveForIgnoreChange([]);
 
     process.env.OBSIDIAN_IGNORE_PATTERNS = 'temp-ignore.md';
-    const { cleanupStaleNotes } = await import('../src/indexer');
+    const { cleanupStaleNotes } = await import('../src/indexing/indexer');
     cleanupStaleNotes();
 
     const after = db.prepare('SELECT path FROM notes').all() as { path: string }[];
@@ -1034,7 +1034,7 @@ describe('indexVaultSync', () => {
 
   it('startWatcher calls chokidar.watch', async () => {
     const chokidar = await import('chokidar');
-    const { startWatcher } = await import('../src/indexer');
+    const { startWatcher } = await import('../src/indexing/indexer');
     startWatcher(4);
     await new Promise((r) => setTimeout(r, 10));
     assert.equal((chokidar.watch as ReturnType<typeof vi.fn>).mock.calls.length, 1);
@@ -1042,7 +1042,7 @@ describe('indexVaultSync', () => {
 
   it('startWatcher does not ignore .gitignore files', async () => {
     const chokidar = await import('chokidar');
-    const { startWatcher } = await import('../src/indexer');
+    const { startWatcher } = await import('../src/indexing/indexer');
     startWatcher(4);
     await new Promise((r) => setTimeout(r, 10));
 

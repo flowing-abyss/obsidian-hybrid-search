@@ -60,11 +60,11 @@ const {
   closeDb,
   getChunkEmbeddingsByPath,
   PATH_BATCH_SIZE,
-} = await import('../src/db.js');
-const { searchBm25, searchFuzzyTitle, search } = await import('../src/searcher.js');
-const { isIgnored } = await import('../src/ignore.js');
+} = await import('../src/storage/db.js');
+const { searchBm25, searchFuzzyTitle, search } = await import('../src/search/searcher.js');
+const { isIgnored } = await import('../src/vault/ignore.js');
 
-const { config } = await import('../src/config.js');
+const { config } = await import('../src/runtime/config.js');
 
 // ─── Shared test fixtures ────────────────────────────────────────────────────
 
@@ -1015,7 +1015,7 @@ describe('aliases', () => {
 
 describe('indexFile error handling', () => {
   it('error result includes actual error message', async () => {
-    const { indexFile } = await import('../src/indexer.js');
+    const { indexFile } = await import('../src/indexing/indexer.js');
     const status = await indexFile('/nonexistent/path/note.md', 512);
     assert.ok(typeof status === 'object', 'error should be an object');
     assert.ok('error' in status, 'error object should have error property');
@@ -1029,7 +1029,7 @@ describe('indexFile error handling', () => {
 describe('frontmatter-only note indexing', () => {
   it('indexes notes with no body content so tag/frontmatter filters can find them', async () => {
     const { writeFileSync, mkdirSync } = await import('node:fs');
-    const { indexFile } = await import('../src/indexer.js');
+    const { indexFile } = await import('../src/indexing/indexer.js');
 
     // Write a note with only frontmatter and no body
     const vaultPath = process.env.OBSIDIAN_VAULT_PATH!;

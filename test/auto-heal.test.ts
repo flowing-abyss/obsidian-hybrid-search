@@ -9,7 +9,7 @@ import {
   isLikelyAbiFailure,
   tryAutoHealAbiMismatch,
   type AutoHealDeps,
-} from '../src/auto-heal';
+} from '../src/runtime/auto-heal';
 
 const INSTALL_INSTANCE_ID = '11111111-1111-4111-8111-111111111111';
 

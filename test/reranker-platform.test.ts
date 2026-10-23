@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { it } from 'vitest';
-import { inspectLinuxGpu } from '../src/reranker-platform.js';
+import { inspectLinuxGpu } from '../src/inference/reranker-platform.js';
 
 it('rejects absent/software adapters and fingerprints physical GPU driver changes without initializing GPU', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ohs-drm-'));

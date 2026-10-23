@@ -1,4 +1,4 @@
-import { bumpIndexVersion } from '../src/index-state.js';
+import { bumpIndexVersion } from '../src/storage/index-state.js';
 /**
  * Reproducer suite for the "disappearing notes" bug:
  * user adds new notes, unrelated notes temporarily vanish from search results.
@@ -21,12 +21,12 @@ import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-disappear-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-vi.mock('../src/embedder.js', () => ({
+vi.mock('../src/inference/embedder.js', () => ({
   embed: vi.fn((texts: string[]) => Promise.resolve(texts.map(() => null))),
 }));
 
-const { closeDb, openDb, initVecTable, upsertNote, getDb } = await import('../src/db.js');
-const { search } = await import('../src/searcher.js');
+const { closeDb, openDb, initVecTable, upsertNote, getDb } = await import('../src/storage/db.js');
+const { search } = await import('../src/search/searcher.js');
 
 const DIM = 4;
 // Distinct embeddings so semantic search can actually discriminate between notes.

@@ -22,33 +22,36 @@ afterEach(() => {
 
 describe('local CPU preference', () => {
   it('uses native auto when no state exists', async () => {
-    const settings = await import('../src/inference-settings.js');
+    const settings = await import('../src/inference/inference-settings.js');
     assert.equal(settings.getCpuSessionOptions(), undefined);
     assert.equal(fs.existsSync(stateFile), false);
   });
 
   it('saves a positive count, reloads it, and resets to native auto with zero', async () => {
-    const settings = await import('../src/inference-settings.js');
+    const settings = await import('../src/inference/inference-settings.js');
     settings.saveCpuThreads(7);
     assert.deepEqual(settings.getCpuSessionOptions(), { intraOpNumThreads: 7 });
     assert.deepEqual(JSON.parse(fs.readFileSync(stateFile, 'utf8')), { version: 1, threads: 7 });
     vi.resetModules();
-    const fresh = await import('../src/inference-settings.js');
+    const fresh = await import('../src/inference/inference-settings.js');
     assert.deepEqual(fresh.getCpuSessionOptions(), { intraOpNumThreads: 7 });
     fresh.saveCpuThreads(0);
     assert.equal(fresh.getCpuSessionOptions(), undefined);
     vi.resetModules();
-    assert.equal((await import('../src/inference-settings.js')).getCpuSessionOptions(), undefined);
+    assert.equal(
+      (await import('../src/inference/inference-settings.js')).getCpuSessionOptions(),
+      undefined,
+    );
   });
 
   it('accepts a positive count above hardware concurrency', async () => {
-    const settings = await import('../src/inference-settings.js');
+    const settings = await import('../src/inference/inference-settings.js');
     settings.saveCpuThreads(1024);
     assert.deepEqual(settings.getCpuSessionOptions(), { intraOpNumThreads: 1024 });
   });
 
   it.each([-1, 1.5, NaN, Infinity, 2147483648])('rejects invalid write %s', async (value) => {
-    const settings = await import('../src/inference-settings.js');
+    const settings = await import('../src/inference/inference-settings.js');
     assert.throws(() => settings.saveCpuThreads(value));
     assert.equal(fs.existsSync(stateFile), false);
   });
@@ -64,7 +67,7 @@ describe('local CPU preference', () => {
     fs.mkdirSync(path.dirname(stateFile), { recursive: true });
     fs.writeFileSync(stateFile, contents);
     const warn = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    const settings = await import('../src/inference-settings.js');
+    const settings = await import('../src/inference/inference-settings.js');
     assert.equal(settings.getCpuSessionOptions(), undefined);
     assert.equal(settings.getCpuSessionOptions(), undefined);
     assert.equal(warn.mock.calls.length, 1);
@@ -73,21 +76,21 @@ describe('local CPU preference', () => {
   it('warns once when state cannot be read', async () => {
     fs.mkdirSync(stateFile, { recursive: true });
     const warn = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    const settings = await import('../src/inference-settings.js');
+    const settings = await import('../src/inference/inference-settings.js');
     assert.equal(settings.getCpuSessionOptions(), undefined);
     assert.equal(settings.getCpuSessionOptions(), undefined);
     assert.equal(warn.mock.calls.length, 1);
   });
 
   it('keeps a loaded snapshot stable after external changes', async () => {
-    const settings = await import('../src/inference-settings.js');
+    const settings = await import('../src/inference/inference-settings.js');
     settings.saveCpuThreads(3);
     fs.writeFileSync(stateFile, JSON.stringify({ version: 1, threads: 8 }));
     assert.deepEqual(settings.getCpuSessionOptions(), { intraOpNumThreads: 3 });
   });
 
   it('atomically replaces existing state and leaves no temporary files', async () => {
-    const settings = await import('../src/inference-settings.js');
+    const settings = await import('../src/inference/inference-settings.js');
     settings.saveCpuThreads(2);
     settings.saveCpuThreads(9);
     assert.deepEqual(JSON.parse(fs.readFileSync(stateFile, 'utf8')), { version: 1, threads: 9 });
@@ -98,7 +101,7 @@ describe('local CPU preference', () => {
   });
 
   it('preserves old state and snapshot when replacement fails', async () => {
-    const settings = await import('../src/inference-settings.js');
+    const settings = await import('../src/inference/inference-settings.js');
     settings.saveCpuThreads(2);
     const original = fs.readFileSync(stateFile, 'utf8');
     vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {

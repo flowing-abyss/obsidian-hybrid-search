@@ -13,7 +13,7 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 // "strong" notes at distance 0 and the needle notes (FAR) far outside any k. That is
 // what makes the semantic assertions below discriminate: a needle can only appear if
 // the filter reached sqlite-vec as a KNN PRE-filter.
-vi.mock('../src/embedder.js', () => ({
+vi.mock('../src/inference/embedder.js', () => ({
   embed: vi.fn((texts: string[]) =>
     Promise.resolve(texts.map(() => new Float32Array([0.1, 0.2, 0.3, 0.4]))),
   ),
@@ -25,15 +25,15 @@ vi.mock('../src/embedder.js', () => ({
 // module graph so db.js, searcher.js and embedder.js are all instantiated fresh here.
 vi.resetModules();
 
-const { closeDb } = await import('../src/db.js');
-const { search, searchFuzzyTitle } = await import('../src/searcher.js');
-const { buildFilterPredicate } = await import('../src/filter-predicate.js');
+const { closeDb } = await import('../src/storage/db.js');
+const { search, searchFuzzyTitle } = await import('../src/search/searcher.js');
+const { buildFilterPredicate } = await import('../src/contracts/filter-predicate.js');
 // Imported from the SAME post-reset module graph searcher.js was, so the rerank guard
 // below can spy on the very singleton searcher.js captured. Deliberately NOT a
-// `vi.mock('../src/reranker.js', …)`: with `isolate: false` the mocked module stays in
+// `vi.mock('../src/inference/reranker.js', …)`: with `isolate: false` the mocked module stays in
 // the shared cache, and test/searcher.test.ts — which spies on the real singleton —
 // then silently gets this file's stub instead and fails depending on file order.
-const { reranker } = await import('../src/reranker.js');
+const { reranker } = await import('../src/inference/reranker.js');
 const {
   seedPushdownVault,
   NEEDLE_PATHS,

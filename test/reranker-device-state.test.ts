@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it, vi } from 'vitest';
-import { DeviceStateStore } from '../src/reranker-device-state.js';
+import { DeviceStateStore } from '../src/inference/reranker-device-state.js';
 
 let directory: string;
 beforeEach(() => {

@@ -1,6 +1,22 @@
 import path from 'node:path';
-import { buildMatchText, buildMatchTextFromMarkedSnippet, stripSnippetMarkers } from './chunker.js';
-import { config } from './config.js';
+import {
+  buildMatchText,
+  buildMatchTextFromMarkedSnippet,
+  stripSnippetMarkers,
+} from '../content/chunker.js';
+import {
+  extractMarkdownReferenceOccurrences,
+  resolveMarkdownNoteLinks,
+} from '../content/markdown-references.js';
+import { normalizeNotePath } from '../content/text-normalization.js';
+import {
+  buildFilterPredicate,
+  hasFilterValue,
+  type FilterPredicate,
+} from '../contracts/filter-predicate.js';
+import { embed } from '../inference/embedder.js';
+import { reranker, type RerankCandidate } from '../inference/reranker.js';
+import { config } from '../runtime/config.js';
 import {
   filterNotePathsByFrontmatter,
   filterNotePathsByTag,
@@ -15,16 +31,8 @@ import {
   getUrlsForPaths,
   hasVecTable,
   resolveNotePath,
-} from './db.js';
-import { embed } from './embedder.js';
-import { buildFilterPredicate, hasFilterValue, type FilterPredicate } from './filter-predicate.js';
-import { getIndexVersion } from './index-state.js';
-import {
-  extractMarkdownReferenceOccurrences,
-  resolveMarkdownNoteLinks,
-} from './markdown-references.js';
-import { reranker, type RerankCandidate } from './reranker.js';
-import { measureSearchStage, measureSearchStageSync } from './search-profile.js';
+} from '../storage/db.js';
+import { getIndexVersion } from '../storage/index-state.js';
 import {
   assertSearchStorageReady,
   createFuzzyTitleReader,
@@ -39,8 +47,8 @@ import {
   readNoteContent,
   readNoteIdentity,
   readSnippetContents,
-} from './storage/search-queries.js';
-import { normalizeNotePath } from './text-normalization.js';
+} from '../storage/search-queries.js';
+import { measureSearchStage, measureSearchStageSync } from './search-profile.js';
 
 interface NoteReadResult {
   path: string;

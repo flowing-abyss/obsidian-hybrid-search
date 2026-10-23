@@ -13,7 +13,7 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 // vector. Not strictly needed by the oracle below (it drives the vector arm through
 // a stored source embedding, not a query embedding), but the fixture is 4-dim and
 // any accidental call into the real 384-dim embedder must not reach sqlite-vec.
-vi.mock('../src/embedder.js', () => ({
+vi.mock('../src/inference/embedder.js', () => ({
   embed: vi.fn((texts: string[]) =>
     Promise.resolve(texts.map(() => new Float32Array([0.1, 0.2, 0.3, 0.4]))),
   ),
@@ -25,8 +25,8 @@ vi.mock('../src/embedder.js', () => ({
 // here — without this the whole file passes vacuously or dies on a dim mismatch.
 vi.resetModules();
 
-const { closeDb, getChunkEmbeddingsByPath } = await import('../src/db.js');
-const { search } = await import('../src/searcher.js');
+const { closeDb, getChunkEmbeddingsByPath } = await import('../src/storage/db.js');
+const { search } = await import('../src/search/searcher.js');
 const { seedPushdownVault, NEEDLE_PATHS, SRC_PATH } = await import('./fixtures/pushdown-vault.js');
 
 /**

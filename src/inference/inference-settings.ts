@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getLocalStateDirectory } from './local-state.js';
+import { getLocalStateDirectory } from '../runtime/local-state.js';
 
 export const MAX_CPU_THREADS = 2147483647;
 const FILE_NAME = 'inference-settings.json';

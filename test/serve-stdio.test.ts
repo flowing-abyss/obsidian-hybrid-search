@@ -1,4 +1,4 @@
-import { bumpIndexVersion } from '../src/index-state.js';
+import { bumpIndexVersion } from '../src/storage/index-state.js';
 /**
  * Tests for the stdio IPC server protocol (handleStdioLine).
  *
@@ -10,16 +10,16 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, it, vi } from 'vitest';
-import type { SearchFunction, StdioResponse } from '../src/stdio-server.js';
-import { handleStdioLine } from '../src/stdio-server.js';
+import type { SearchFunction, StdioResponse } from '../src/transports/stdio-server.js';
+import { handleStdioLine } from '../src/transports/stdio-server.js';
 
 // ─── Vault setup ─────────────────────────────────────────────────────────────
 
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-serve-stdio-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/db.js');
-const { search } = await import('../src/searcher.js');
+const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/storage/db.js');
+const { search } = await import('../src/search/searcher.js');
 
 const fakeEmbedding = new Float32Array([0.5, 0.5, 0.5, 0.5]);
 

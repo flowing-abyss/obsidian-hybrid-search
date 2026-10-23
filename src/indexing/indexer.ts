@@ -2,13 +2,20 @@ import { createHash } from 'node:crypto';
 import { readdirSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { chunkNote, createChunkBoundaryIndex, refineChunksToFit } from '../content/chunker.js';
 import {
-  createDocumentTextProjector,
-  embedChunksWithRecovery,
-  type EmbeddedChunk,
-} from './chunk-embedding.js';
-import { chunkNote, createChunkBoundaryIndex, refineChunksToFit } from './chunker.js';
-import { config } from './config.js';
+  extractMarkdownReferences,
+  resolveMarkdownNoteLinks,
+} from '../content/markdown-references.js';
+import { extractMarkdownNote, parseWikilinks } from '../content/note-extractor.js';
+import { normalizeNotePath } from '../content/text-normalization.js';
+import {
+  activeModelName,
+  embedDetailed,
+  getContextLength,
+  getDocumentTokenPolicy,
+} from '../inference/embedder.js';
+import { config } from '../runtime/config.js';
 import {
   deleteNote,
   getNoteMeta,
@@ -23,17 +30,7 @@ import {
   upsertNote,
   upsertNoteUrls,
   wipeDatabaseSidecars,
-} from './db.js';
-import {
-  activeModelName,
-  embedDetailed,
-  getContextLength,
-  getDocumentTokenPolicy,
-} from './embedder.js';
-import { createIgnorePolicy, createIgnorePolicyForFiles, type IgnorePolicy } from './ignore.js';
-import { bumpIndexVersion } from './index-state.js';
-import { extractMarkdownReferences, resolveMarkdownNoteLinks } from './markdown-references.js';
-import { extractMarkdownNote, parseWikilinks } from './note-extractor.js';
+} from '../storage/db.js';
 import {
   getExistingNotePathSet,
   readWikiCatalogRows,
@@ -42,8 +39,18 @@ import {
   storeResolveAllLinks,
   storeResolveAllMarkdownReferences,
   updateNoteMtime,
-} from './storage/index-queries.js';
-import { normalizeNotePath } from './text-normalization.js';
+} from '../storage/index-queries.js';
+import { bumpIndexVersion } from '../storage/index-state.js';
+import {
+  createIgnorePolicy,
+  createIgnorePolicyForFiles,
+  type IgnorePolicy,
+} from '../vault/ignore.js';
+import {
+  createDocumentTextProjector,
+  embedChunksWithRecovery,
+  type EmbeddedChunk,
+} from './chunk-embedding.js';
 
 export interface IndexResult {
   indexed: number;

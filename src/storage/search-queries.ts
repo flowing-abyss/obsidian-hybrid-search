@@ -1,5 +1,5 @@
-import { getDb } from '../db.js';
-import type { FilterPredicate } from '../filter-predicate.js';
+import type { FilterPredicate } from '../contracts/filter-predicate.js';
+import { getDb } from './db.js';
 
 type FtsRow = {
   path: string;

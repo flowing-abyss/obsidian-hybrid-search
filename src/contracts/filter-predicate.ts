@@ -1,4 +1,4 @@
-import { normalizeNotePath, normalizeTag } from './text-normalization.js';
+import { normalizeNotePath, normalizeTag } from '../content/text-normalization.js';
 
 export interface FilterPredicate {
   /** SQL boolean expression over the alias `n` (the `notes` table), already

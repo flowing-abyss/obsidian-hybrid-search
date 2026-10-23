@@ -5,8 +5,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, expect, it } from 'vitest';
-import type { SearchOptions, SearchResult } from '../src/searcher.js';
-import { handleStdioLine } from '../src/stdio-server.js';
+import type { SearchOptions, SearchResult } from '../src/search/searcher.js';
+import { handleStdioLine } from '../src/transports/stdio-server.js';
 
 const root = path.resolve(import.meta.dirname, '..');
 const vault = mkdtempSync(path.join(tmpdir(), 'ohs-transport-parity-'));
@@ -19,10 +19,10 @@ const {
   upsertLinks,
   upsertMarkdownLinks,
   upsertNoteUrls,
-} = await import('../src/db.js');
-const { search } = await import('../src/searcher.js');
+} = await import('../src/storage/db.js');
+const { search } = await import('../src/search/searcher.js');
 const { populateMissingLinks, populateMissingMarkdownReferences } =
-  await import('../src/indexer.js');
+  await import('../src/indexing/indexer.js');
 afterAll(() => {
   closeDb();
   rmSync(vault, { recursive: true, force: true });

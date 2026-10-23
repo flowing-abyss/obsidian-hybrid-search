@@ -7,7 +7,7 @@ import {
   loadNativeModuleWithRequire,
   runNativeModulePreflight,
   type NativePreflightDeps,
-} from '../src/native-preflight';
+} from '../src/runtime/native-preflight';
 
 let cacheDir: string;
 let stderr = '';

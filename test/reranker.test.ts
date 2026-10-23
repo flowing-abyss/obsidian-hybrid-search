@@ -27,7 +27,7 @@ vi.mock('@huggingface/transformers', () => ({
 }));
 
 // Device selection is tested against real persistent state in reranker-device.test.ts.
-vi.mock('../src/reranker-device.js', () => ({
+vi.mock('../src/inference/reranker-device.js', () => ({
   RerankerDevice: class {
     scoreAll(_query: string, _candidates: unknown[], cpu: () => Promise<number[]>) {
       return cpu();
@@ -68,7 +68,7 @@ async function getMockedAutoModel(): Promise<MockedSequenceClassification> {
   return transformers.PreTrainedModel;
 }
 
-const { CrossEncoderReranker, reranker } = await import('../src/reranker.js');
+const { CrossEncoderReranker, reranker } = await import('../src/inference/reranker.js');
 
 // ─── Mock pipeline factory ────────────────────────────────────────────────────
 // Simulates @huggingface/transformers text-classification output:
@@ -355,7 +355,7 @@ describe('CrossEncoderReranker._loadModel', () => {
 
 describe('GTE default reranker', () => {
   it('keeps tokenizer fetching in the download phase after native model loading', async () => {
-    const { loadRerankerModel } = await import('../src/reranker-model.js');
+    const { loadRerankerModel } = await import('../src/inference/reranker-model.js');
     const phases: unknown[] = [];
     const model = await getMockedAutoModel();
     model.from_pretrained.mockImplementation((_name, options) => {

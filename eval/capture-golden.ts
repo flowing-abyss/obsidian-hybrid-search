@@ -29,8 +29,8 @@ if (!Number.isInteger(limit) || limit < 1) {
 }
 process.env.OBSIDIAN_VAULT_PATH = vault;
 
-const { openDb } = await import('../src/db.js');
-const { search } = await import('../src/searcher.js');
+const { openDb } = await import('../src/storage/db.js');
+const { search } = await import('../src/search/searcher.js');
 
 openDb();
 

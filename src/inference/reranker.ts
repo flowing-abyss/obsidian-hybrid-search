@@ -1,4 +1,4 @@
-import { config, DEFAULT_RERANKER_MODEL } from './config.js';
+import { config, DEFAULT_RERANKER_MODEL } from '../runtime/config.js';
 import { RerankerDevice } from './reranker-device.js';
 import { loadRerankerModel, type RerankerPipeline } from './reranker-model.js';
 

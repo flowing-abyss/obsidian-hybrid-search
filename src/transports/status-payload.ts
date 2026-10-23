@@ -1,7 +1,7 @@
-import { config } from './config.js';
-import { getStats } from './db.js';
-import { activeModelName, useRemoteEmbeddings } from './embedder.js';
-import { getIndexingStatus } from './indexer.js';
+import { getIndexingStatus } from '../indexing/indexer.js';
+import { activeModelName, useRemoteEmbeddings } from '../inference/embedder.js';
+import { config } from '../runtime/config.js';
+import { getStats } from '../storage/db.js';
 
 export interface StatusPayloadOptions {
   contextLength: number;

@@ -13,7 +13,7 @@ description: Use when implementation is complete, all tests pass, and you need t
 
 ## Step 1: Verify Tests
 
-Run the completion commands in the canonical project guide, including ranking
+Run the completion commands in `AGENTS.md`, including ranking
 evaluation when applicable. Do not substitute a partial check for that gate.
 
 **If it fails**, report the failures and stop , the menu comes after a clean run:

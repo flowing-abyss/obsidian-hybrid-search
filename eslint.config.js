@@ -73,7 +73,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/embedder.ts', 'src/reranker.ts'],
+    files: ['src/inference/embedder.ts', 'src/inference/reranker.ts'],
     linterOptions: {
       reportUnusedDisableDirectives: false,
     },

@@ -348,7 +348,7 @@ it('ordinary fresh reindex retains provider-failure behavior without implicit fo
 it('an already-open writer reads a changed model marker inside its write transaction', async () => {
   await seedA();
   const script = `
-    import { openDb, closeDb, upsertNote } from ${JSON.stringify(pathToFileURL(path.join(ROOT, 'dist/src/db.js')).href)};
+    import { openDb, closeDb, upsertNote } from ${JSON.stringify(pathToFileURL(path.join(ROOT, 'dist/src/storage/db.js')).href)};
     openDb();
     process.send({ kind: 'ready' });
     process.on('message', (message) => {

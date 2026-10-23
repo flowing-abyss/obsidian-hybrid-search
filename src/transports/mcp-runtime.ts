@@ -11,8 +11,26 @@ import {
   SearchToolArgumentsSchema,
   StatusToolArgumentsSchema,
   type StringArrayParam,
-} from './boundary-validation.js';
-import { config } from './config.js';
+} from '../contracts/boundary-validation.js';
+import {
+  getIndexingStatus,
+  indexFileWithRecovery,
+  indexVaultSync,
+  populateMissingLinks,
+  populateMissingMarkdownReferences,
+  startBackgroundIndexing,
+  startWatcher,
+  withIndexingDbLock,
+} from '../indexing/indexer.js';
+import {
+  activeModelName,
+  getContextLength,
+  getEmbeddingDim,
+  primeEmbeddingDim,
+  useRemoteEmbeddings,
+} from '../inference/embedder.js';
+import { config } from '../runtime/config.js';
+import { isAmbiguousNotePathError, readNotes, search } from '../search/searcher.js';
 import {
   applyDbConfigDefaults,
   getStats,
@@ -24,33 +42,15 @@ import {
   saveConfigMeta,
   wipeDatabaseFiles,
   wipeDatabaseSidecars,
-} from './db.js';
-import {
-  activeModelName,
-  getContextLength,
-  getEmbeddingDim,
-  primeEmbeddingDim,
-  useRemoteEmbeddings,
-} from './embedder.js';
-import {
-  getIndexingStatus,
-  indexFileWithRecovery,
-  indexVaultSync,
-  populateMissingLinks,
-  populateMissingMarkdownReferences,
-  startBackgroundIndexing,
-  startWatcher,
-  withIndexingDbLock,
-} from './indexer.js';
-import { isAmbiguousNotePathError, readNotes, search } from './searcher.js';
-import { validateVaultPath } from './vault-config.js';
+} from '../storage/db.js';
+import { validateVaultPath } from '../vault/vault-config.js';
 
 const _dir = dirname(fileURLToPath(import.meta.url));
 
-// Resolve package.json whether running from src/ (tsx) or compiled dist/src/ (node)
-const _pkgPath = existsSync(resolve(_dir, '../package.json'))
-  ? resolve(_dir, '../package.json')
-  : resolve(_dir, '../../package.json');
+// Resolve package metadata in source and compiled layouts.
+const _pkgPath = existsSync(resolve(_dir, '../../package.json'))
+  ? resolve(_dir, '../../package.json')
+  : resolve(_dir, '../../../package.json');
 export const packageVersion = (JSON.parse(readFileSync(_pkgPath, 'utf-8')) as { version: string })
   .version;
 

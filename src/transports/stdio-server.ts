@@ -4,8 +4,8 @@ import {
   StdioRequestSchema,
   StdioStatusRequestSchema,
   type SearchOptionsBoundary,
-} from './boundary-validation.js';
-import type { SearchOptions, SearchResult } from './searcher.js';
+} from '../contracts/boundary-validation.js';
+import type { SearchOptions, SearchResult } from '../search/searcher.js';
 
 export type SearchFunction = (query: string, options?: SearchOptions) => Promise<SearchResult[]>;
 export type StatusFunction = () => Promise<Record<string, unknown>> | Record<string, unknown>;

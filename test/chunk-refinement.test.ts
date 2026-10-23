@@ -8,7 +8,7 @@ import {
   getChunkBoundaryIndexStats,
   refineChunksToFit,
   splitChunkForRetry,
-} from '../src/chunker.js';
+} from '../src/content/chunker.js';
 
 const countChars: ProjectedTokenCounter = (text, headings) =>
   `Title > ${headings.join(' > ')}\n${text}`.length;

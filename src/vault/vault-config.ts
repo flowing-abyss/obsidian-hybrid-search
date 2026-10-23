@@ -1,6 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { readVaultLocator } from './storage/vault-locator.js';
+import { readVaultLocator } from '../storage/vault-locator.js';
 
 export function validateVaultPath(vaultPath: string | undefined): asserts vaultPath is string {
   if (vaultPath === undefined) {

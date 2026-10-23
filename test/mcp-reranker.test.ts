@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it, vi } from 'vitest';
-import type { RerankCandidate } from '../src/reranker.js';
+import type { RerankCandidate } from '../src/inference/reranker.js';
 
 let directory: string;
 let closeRuntime: (() => Promise<void>) | undefined;
@@ -41,12 +41,12 @@ interface Results {
 async function startRuntime(mode: GpuMode, transport: 'memory' | 'http') {
   // A fresh module graph recreates CLI/MCP singletons while retaining disk state.
   vi.resetModules();
-  const embedder = await import('../src/embedder.js');
+  const embedder = await import('../src/inference/embedder.js');
   vi.spyOn(embedder, 'embed').mockImplementation((texts) =>
     Promise.resolve(texts.map(() => new Float32Array([1, 0, 0, 0]))),
   );
   vi.spyOn(embedder, 'getContextLength').mockResolvedValue(512);
-  const { RerankerGpu } = await import('../src/reranker-gpu.js');
+  const { RerankerGpu } = await import('../src/inference/reranker-gpu.js');
   const probe = vi.spyOn(RerankerGpu.prototype, 'probe').mockResolvedValue(mode !== 'absent');
   const load = vi
     .spyOn(RerankerGpu.prototype, 'load')
@@ -62,7 +62,7 @@ async function startRuntime(mode: GpuMode, transport: 'memory' | 'http') {
     );
   });
   vi.spyOn(RerankerGpu.prototype, 'close').mockResolvedValue();
-  const model = await import('../src/reranker-model.js');
+  const model = await import('../src/inference/reranker-model.js');
   const cpu = vi.fn<
     (
       inputs: Array<{ text_pair: string }>,
@@ -78,7 +78,7 @@ async function startRuntime(mode: GpuMode, transport: 'memory' | 'http') {
     ),
   );
   vi.spyOn(model, 'loadRerankerModel').mockResolvedValue(cpu);
-  const db = await import('../src/db.js');
+  const db = await import('../src/storage/db.js');
   const client = new Client({ name: 'reranker-regression', version: '1.0.0' });
   let closeServer = () => Promise.resolve();
   closeRuntime = async () => {
@@ -108,9 +108,9 @@ async function startRuntime(mode: GpuMode, transport: 'memory' | 'http') {
       chunks: [{ text: content, embedding: new Float32Array([1, 0, 0, 0]) }],
     });
   }
-  const { createMcpRuntime, createMcpServer } = await import('../src/mcp-runtime.js');
+  const { createMcpRuntime, createMcpServer } = await import('../src/transports/mcp-runtime.js');
   if (transport === 'http') {
-    const { runHttpMcpServer } = await import('../src/mcp-http-server.js');
+    const { runHttpMcpServer } = await import('../src/transports/mcp-http-server.js');
     const server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
     closeServer = () => server.close();
     await client.connect(new StreamableHTTPClientTransport(new URL(server.url)));

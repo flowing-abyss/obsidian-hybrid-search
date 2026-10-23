@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it, vi } from 'vitest';
-import { DEFAULT_RERANKER_MODEL } from '../src/config.js';
-import { RerankerDevice } from '../src/reranker-device.js';
+import { RerankerDevice } from '../src/inference/reranker-device.js';
+import { DEFAULT_RERANKER_MODEL } from '../src/runtime/config.js';
 
 let directory: string;
 beforeEach(() => {

@@ -19,7 +19,7 @@ import {
   writeMcpState,
   type EnsureMcpOptions,
   type McpState,
-} from '../src/mcp-supervisor.js';
+} from '../src/transports/mcp-supervisor.js';
 
 const originalXdgCacheHome = process.env.XDG_CACHE_HOME;
 let tempDir: string | undefined;

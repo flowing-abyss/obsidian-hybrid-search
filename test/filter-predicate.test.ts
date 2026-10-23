@@ -15,9 +15,10 @@ const {
   getDb,
   filterNotePathsByTag,
   filterNotePathsByFrontmatter,
-} = await import('../src/db.js');
-const { buildFilterPredicate, hasFilterValue } = await import('../src/filter-predicate.js');
-const { matchesScopeFilter } = await import('../src/searcher.js');
+} = await import('../src/storage/db.js');
+const { buildFilterPredicate, hasFilterValue } =
+  await import('../src/contracts/filter-predicate.js');
+const { matchesScopeFilter } = await import('../src/search/searcher.js');
 
 /**
  * 'новый' in precomposed (NFC) form: 'й' is U+0439, which NFD decomposes to

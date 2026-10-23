@@ -21,7 +21,7 @@ vi.mock('node:fs', async (importOriginal) => {
   };
 });
 
-const { createIgnorePolicy, createIgnorePolicyForFiles } = await import('../src/ignore.js');
+const { createIgnorePolicy, createIgnorePolicyForFiles } = await import('../src/vault/ignore.js');
 
 let vaultDir: string;
 

@@ -9,7 +9,7 @@ import { afterEach, describe, it } from 'vitest';
 const WORKER_COUNT = 8;
 const INSTALL_INSTANCE_FILE = '.obsidian-hybrid-search-install-instance';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const AUTO_HEAL_URL = pathToFileURL(path.resolve('src/auto-heal.ts')).href;
+const AUTO_HEAL_URL = pathToFileURL(path.resolve('src/runtime/auto-heal.ts')).href;
 
 interface WorkerOutput {
   status: 'success' | 'already-attempted';

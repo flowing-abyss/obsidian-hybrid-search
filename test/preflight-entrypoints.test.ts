@@ -18,7 +18,10 @@ function firstImportLine(filePath: string): string {
 describe('native preflight entrypoints', () => {
   for (const relativePath of ['src/cli.ts', 'src/server.ts']) {
     it(`${relativePath} imports preflight before any other module`, () => {
-      assert.equal(firstImportLine(path.join(ROOT, relativePath)), "import './preflight.js';");
+      assert.equal(
+        firstImportLine(path.join(ROOT, relativePath)),
+        "import './runtime/preflight.js';",
+      );
     });
   }
 });

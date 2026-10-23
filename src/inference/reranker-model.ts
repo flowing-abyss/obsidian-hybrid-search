@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_RERANKER_MODEL } from './config.js';
+import { DEFAULT_RERANKER_MODEL } from '../runtime/config.js';
 import { getCpuSessionOptions } from './inference-settings.js';
 import {
   createDownloadIndicator,

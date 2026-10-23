@@ -4,11 +4,11 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, it } from 'vitest';
-import type { HttpMcpServerHandle } from '../src/mcp-http-server.js';
+import type { HttpMcpServerHandle } from '../src/transports/mcp-http-server.js';
 
 const { closeDb, initVecTable, openDb, upsertMarkdownLinks, upsertNote } =
-  await import('../src/db.js');
-const { runHttpMcpServer } = await import('../src/mcp-http-server.js');
+  await import('../src/storage/db.js');
+const { runHttpMcpServer } = await import('../src/transports/mcp-http-server.js');
 
 let server: HttpMcpServerHandle | undefined;
 let vaultDir: string | undefined;

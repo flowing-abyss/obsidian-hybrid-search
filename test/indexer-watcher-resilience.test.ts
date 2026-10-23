@@ -25,8 +25,8 @@ describe('watcher error resilience', () => {
     // Scoped mock: temporarily replace deleteNote so we can observe the
     // unlink handler's try/catch without leaking the mock to other test
     // files (vitest runs with isolate: false).
-    vi.doMock('../src/db.js', async (importOriginal) => {
-      const mod = await importOriginal<typeof import('../src/db.js')>();
+    vi.doMock('../src/storage/db.js', async (importOriginal) => {
+      const mod = await importOriginal<typeof import('../src/storage/db.js')>();
       return {
         ...mod,
         deleteNote: vi.fn(() => {
@@ -36,7 +36,7 @@ describe('watcher error resilience', () => {
     });
     vi.resetModules();
 
-    const { startWatcher } = await import('../src/indexer');
+    const { startWatcher } = await import('../src/indexing/indexer');
 
     startWatcher(512);
     await new Promise((r) => setTimeout(r, 50));
@@ -58,7 +58,7 @@ describe('watcher error resilience', () => {
       unlinkHandler(path.join(vaultDir, 'nonexistent.md'));
     });
 
-    const { deleteNote } = await import('../src/db.js');
+    const { deleteNote } = await import('../src/storage/db.js');
     const deleteNoteMock = vi.mocked(deleteNote);
     assert.equal(deleteNoteMock.mock.calls.length, 1, 'deleteNote should have been called');
     assert.ok(
@@ -67,7 +67,7 @@ describe('watcher error resilience', () => {
     );
 
     warnSpy.mockRestore();
-    vi.doUnmock('../src/db.js');
+    vi.doUnmock('../src/storage/db.js');
     vi.resetModules();
   });
 });

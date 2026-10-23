@@ -42,8 +42,8 @@ legacyDb
   );
 legacyDb.close();
 
-const { openDb, getDb, wipeDatabaseFiles } = await import('../src/db.js');
-const { search } = await import('../src/searcher.js');
+const { openDb, getDb, wipeDatabaseFiles } = await import('../src/storage/db.js');
+const { search } = await import('../src/search/searcher.js');
 
 beforeAll(() => {
   openDb();

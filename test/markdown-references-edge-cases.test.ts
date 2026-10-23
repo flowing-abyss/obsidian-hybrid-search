@@ -3,7 +3,7 @@ import { describe, it } from 'vitest';
 import {
   extractMarkdownReferenceOccurrences,
   resolveMarkdownNoteLinks,
-} from '../src/markdown-references.js';
+} from '../src/content/markdown-references.js';
 
 describe('extractMarkdownReferenceOccurrences — edge cases', () => {
   it('returns empty results for empty content', () => {

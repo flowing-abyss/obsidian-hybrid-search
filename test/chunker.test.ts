@@ -8,7 +8,7 @@ import {
   slidingWindow,
   splitBySections,
   stripSnippetMarkers,
-} from '../src/chunker.js';
+} from '../src/content/chunker.js';
 
 describe('estimateTokens', () => {
   it('approximates ASCII as chars/4', () => {

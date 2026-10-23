@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Canonical configuration lives in .ai. Managed Windows files are hardlinks;
-// state records filesystem identity, never verification results or hashes.
+// state records which files belong to this installer.
 import {
   existsSync,
   linkSync,

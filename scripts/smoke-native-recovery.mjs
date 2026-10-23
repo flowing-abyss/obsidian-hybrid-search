@@ -173,9 +173,13 @@ try {
   const nativeModuleRoot = path.join(packageRoot, 'node_modules', 'better-sqlite3');
   const binding = path.join(nativeModuleRoot, 'build', 'Release', 'better_sqlite3.node');
   const sentinel = path.join(nativeModuleRoot, INSTALL_INSTANCE_FILE);
-  const packagedPreflight = path.join(packageRoot, 'dist', 'src', 'preflight.js');
+  const packagedPreflight = path.join(packageRoot, 'dist', 'src', 'runtime', 'preflight.js');
 
-  assert.equal(existsSync(packagedPreflight), true, 'packed dist/src/preflight.js is missing');
+  assert.equal(
+    existsSync(packagedPreflight),
+    true,
+    'packed dist/src/runtime/preflight.js is missing',
+  );
   assert.equal(existsSync(binding), false, 'binding exists after install with scripts blocked');
   assert.deepEqual(sentinelEntries(nativeModuleRoot), [], 'sentinel exists before recovery');
 

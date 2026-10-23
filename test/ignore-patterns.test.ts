@@ -1,4 +1,4 @@
-import { bumpIndexVersion } from '../src/index-state.js';
+import { bumpIndexVersion } from '../src/storage/index-state.js';
 /**
  * Tests for the ignore-pattern lifecycle in getPathsToRemoveForIgnoreChange.
  *
@@ -44,9 +44,9 @@ const {
   getDb,
   getPathsToRemoveForIgnoreChange,
   deleteNote,
-} = await import('../src/db.js');
-const { search } = await import('../src/searcher.js');
-const { isIgnored } = await import('../src/ignore.js');
+} = await import('../src/storage/db.js');
+const { search } = await import('../src/search/searcher.js');
+const { isIgnored } = await import('../src/vault/ignore.js');
 
 const DIM = 4;
 let _seq = 0;

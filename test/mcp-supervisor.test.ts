@@ -19,7 +19,7 @@ import {
   stopMcpServer,
   writeMcpState,
   type McpState,
-} from '../src/mcp-supervisor.js';
+} from '../src/transports/mcp-supervisor.js';
 
 let tempDir: string | undefined;
 let vaultDir: string | undefined;

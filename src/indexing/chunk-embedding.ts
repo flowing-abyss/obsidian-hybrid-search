@@ -1,5 +1,5 @@
-import { splitChunkForRetry, type Chunk, type ChunkBoundaryIndex } from './chunker.js';
-import type { EmbeddingOutcome } from './embedder.js';
+import { splitChunkForRetry, type Chunk, type ChunkBoundaryIndex } from '../content/chunker.js';
+import type { EmbeddingOutcome } from '../inference/embedder.js';
 
 interface DocumentTokenPolicy {
   limit: number;

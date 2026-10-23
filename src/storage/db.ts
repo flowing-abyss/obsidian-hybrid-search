@@ -2,9 +2,9 @@ import Database from 'better-sqlite3';
 import { statSync, unlinkSync } from 'node:fs';
 import * as sqliteVec from 'sqlite-vec';
 import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
-import { config } from './config.js';
-import { getIgnoreSignature, isIgnored } from './ignore.js';
-import { normalizeNotePath, normalizeTag } from './text-normalization.js';
+import { normalizeNotePath, normalizeTag } from '../content/text-normalization.js';
+import { config } from '../runtime/config.js';
+import { getIgnoreSignature, isIgnored } from '../vault/ignore.js';
 
 type DB = InstanceType<typeof Database>;
 

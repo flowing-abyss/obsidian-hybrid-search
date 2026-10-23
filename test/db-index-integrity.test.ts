@@ -19,7 +19,7 @@ const {
   upsertNote,
   upsertNoteUrls,
   wipeDatabaseFiles,
-} = await import('../src/db.js');
+} = await import('../src/storage/db.js');
 
 const vector = new Float32Array([0.1, 0.2, 0.3, 0.4]);
 

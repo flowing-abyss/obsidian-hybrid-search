@@ -4,10 +4,10 @@ import http, {
   type Server as NodeHttpServer,
   type ServerResponse,
 } from 'node:http';
-import { config } from './config.js';
-import { closeDb } from './db.js';
+import { config } from '../runtime/config.js';
+import { registerProcessHandlers } from '../runtime/process-resilience.js';
+import { closeDb } from '../storage/db.js';
 import { createMcpRuntime, createMcpServer, startMcpBackgroundServices } from './mcp-runtime.js';
-import { registerProcessHandlers } from './process-resilience.js';
 
 export interface HttpMcpServerOptions {
   host: string;

@@ -8,8 +8,8 @@ import { afterAll, expect, it, vi } from 'vitest';
 
 const vault = mkdtempSync(path.join(tmpdir(), 'ohs-properties-'));
 process.env.OBSIDIAN_VAULT_PATH = vault;
-const db = await import('../src/db.js');
-const embedder = await import('../src/embedder.js');
+const db = await import('../src/storage/db.js');
+const embedder = await import('../src/inference/embedder.js');
 function vector(text: string): Float32Array {
   const sum = Array.from(text).reduce((n, c) => n + c.codePointAt(0)!, 0);
   return new Float32Array([1, (sum % 101) / 101, (text.length % 97) / 97, 0.5]);
@@ -23,11 +23,11 @@ vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
   limit: 60,
   count: (text) => Array.from(text).length,
 });
-const { chunkNote, refineChunksToFit } = await import('../src/chunker.js');
-const { buildFilterPredicate } = await import('../src/filter-predicate.js');
-const { indexFile, indexVaultSync, cleanupStaleNotes } = await import('../src/indexer.js');
-const { search } = await import('../src/searcher.js');
-const { bumpIndexVersion } = await import('../src/index-state.js');
+const { chunkNote, refineChunksToFit } = await import('../src/content/chunker.js');
+const { buildFilterPredicate } = await import('../src/contracts/filter-predicate.js');
+const { indexFile, indexVaultSync, cleanupStaleNotes } = await import('../src/indexing/indexer.js');
+const { search } = await import('../src/search/searcher.js');
+const { bumpIndexVersion } = await import('../src/storage/index-state.js');
 
 const parameters = {
   seed: Number(process.env.FC_SEED ?? 20261023),

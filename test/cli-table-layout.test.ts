@@ -5,7 +5,7 @@ import {
   getSearchTableLayout,
   truncatePathMiddle,
   wrapPathForTable,
-} from '../src/cli-table-layout.js';
+} from '../src/transports/cli-table-layout.js';
 
 describe('truncatePathMiddle', () => {
   it('preserves the filename when shortening a long path', () => {

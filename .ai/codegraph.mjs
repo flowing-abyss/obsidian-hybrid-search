@@ -1,19 +1,9 @@
 #!/usr/bin/env node
 
-// Runs this checkout's own CodeGraph — the lockfile-pinned
-// `@colbymchenry/codegraph` devDependency that `npm ci` puts in
-// node_modules — with the given arguments. Every agent config goes through
-// this file (MCP `serve --mcp`, the `prompt-hook` prompt hook) instead of a
-// bare `codegraph` so no one depends on a global install, and each worktree
-// runs the version its own lockfile names.
-//
-// Resolves the package from this file's own location, not the working
-// directory: `node .ai/codegraph.mjs` works from the checkout root, and
-// hooks pass an absolute path to it.
-//
-// Launches the exact checkout-local platform bundle and its bundled Node runtime.
-// It bypasses npm-shim.js so ancestor dependencies and the global bundle cache
-// cannot supply executable code when a local optional platform package is missing.
+// Run the lockfile-pinned CodeGraph platform bundle and its bundled Node from
+// this checkout. Resolve relative to this file so hooks work from any directory.
+// Bypass npm-shim.js: it can fall back to ancestor dependencies or a global cache
+// when the local optional platform package is missing.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';

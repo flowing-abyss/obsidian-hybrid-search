@@ -59,9 +59,9 @@ afterAll(() => {
 });
 
 it('applies saved threads to one shared local pipeline before dimension probe and embeddings', async () => {
-  const settings = await import('../src/inference-settings.js');
+  const settings = await import('../src/inference/inference-settings.js');
   settings.saveCpuThreads(5);
-  const embedder = await import('../src/embedder.js');
+  const embedder = await import('../src/inference/embedder.js');
   await embedder.getEmbeddingDim({ refresh: true });
   await embedder.embed(['document'], 'document');
   await embedder.embed(['query'], 'query');
@@ -71,22 +71,22 @@ it('applies saved threads to one shared local pipeline before dimension probe an
 });
 
 it('omits native option for zero and ignores later external file edits', async () => {
-  const settings = await import('../src/inference-settings.js');
+  const settings = await import('../src/inference/inference-settings.js');
   assert.equal(settings.getCpuSessionOptions(), undefined);
   fs.mkdirSync(path.join(cache, 'obsidian-hybrid-search'), { recursive: true });
   fs.writeFileSync(
     path.join(cache, 'obsidian-hybrid-search', 'inference-settings.json'),
     JSON.stringify({ version: 1, threads: 8 }),
   );
-  const embedder = await import('../src/embedder.js');
+  const embedder = await import('../src/inference/embedder.js');
   await embedder.getEmbeddingDim({ refresh: true });
   const options = calls.pipeline.mock.calls[0]?.[2] as ModelOptions | undefined;
   assert.equal('session_options' in (options ?? {}), false);
 });
 
 it('passes preference to both CPU reranker loaders and excludes it from webgpu', async () => {
-  (await import('../src/inference-settings.js')).saveCpuThreads(6);
-  const { loadRerankerModel } = await import('../src/reranker-model.js');
+  (await import('../src/inference/inference-settings.js')).saveCpuThreads(6);
+  const { loadRerankerModel } = await import('../src/inference/reranker-model.js');
   await loadRerankerModel('onnx-community/gte-multilingual-reranker-base', 256, 'cpu');
   await loadRerankerModel('other/model', 256, 'cpu');
   await loadRerankerModel('other/model', 256, 'webgpu');
@@ -99,12 +99,12 @@ it('passes preference to both CPU reranker loaders and excludes it from webgpu',
 });
 
 it('uses saved threads in the actual CPU loader after GPU load failure', async () => {
-  (await import('../src/inference-settings.js')).saveCpuThreads(7);
+  (await import('../src/inference/inference-settings.js')).saveCpuThreads(7);
   calls.defaultModel.mockResolvedValue(() =>
     Promise.resolve({ logits: { data: new Float32Array([0.75]), dims: [1, 1] } }),
   );
-  const { RerankerDevice } = await import('../src/reranker-device.js');
-  const { loadRerankerModel } = await import('../src/reranker-model.js');
+  const { RerankerDevice } = await import('../src/inference/reranker-device.js');
+  const { loadRerankerModel } = await import('../src/inference/reranker-model.js');
   const gpu = {
     probe: () => Promise.resolve(true),
     load: () => Promise.reject(new Error('GPU load failed')),
@@ -128,7 +128,7 @@ it('uses saved threads in the actual CPU loader after GPU load failure', async (
 });
 
 it('leaves remote embedding requests unchanged and does not create local sessions', async () => {
-  (await import('../src/inference-settings.js')).saveCpuThreads(4);
+  (await import('../src/inference/inference-settings.js')).saveCpuThreads(4);
   process.env.OPENAI_API_KEY = 'key';
   process.env.OPENAI_BASE_URL = 'https://example.test/v1';
   const fetch = vi.fn().mockResolvedValue({
@@ -138,7 +138,7 @@ it('leaves remote embedding requests unchanged and does not create local session
   });
   vi.stubGlobal('fetch', fetch);
   try {
-    const { embed } = await import('../src/embedder.js');
+    const { embed } = await import('../src/inference/embedder.js');
     await embed(['hello'], 'query');
     assert.equal(calls.pipeline.mock.calls.length, 0);
     const requests = fetch.mock.calls as Array<[unknown, { body: string }]>;

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, it, vi } from 'vitest';
 let root: string;
 let a: string;
 let b: string;
-let db: typeof import('../src/db.js');
+let db: typeof import('../src/storage/db.js');
 
 beforeEach(async () => {
   vi.resetModules();
@@ -27,7 +27,7 @@ beforeEach(async () => {
   ]) {
     vi.stubEnv(key, undefined);
   }
-  db = await import('../src/db.js');
+  db = await import('../src/storage/db.js');
 });
 
 afterEach(() => {
@@ -54,7 +54,7 @@ describe('MCP actual-vault configuration bootstrap', () => {
     seed(b, 'http://b.invalid/v1', 'model-B', ['b-only/**']);
     vi.stubEnv('OBSIDIAN_VAULT_PATH', a);
     vi.spyOn(process, 'cwd').mockReturnValue(b);
-    const embedder = await import('../src/embedder.js');
+    const embedder = await import('../src/inference/embedder.js');
     vi.spyOn(embedder, 'getContextLength').mockImplementation(() => {
       assert.equal(process.env.OPENAI_BASE_URL, 'http://a.invalid/v1');
       assert.equal(process.env.OPENAI_EMBEDDING_MODEL, 'model-A');
@@ -63,8 +63,8 @@ describe('MCP actual-vault configuration bootstrap', () => {
     });
     const dimension = vi.spyOn(embedder, 'getEmbeddingDim').mockResolvedValue(8);
     const prime = vi.spyOn(embedder, 'primeEmbeddingDim').mockImplementation(() => {});
-    const { createMcpRuntime } = await import('../src/mcp-runtime.js');
-    const { config } = await import('../src/config.js');
+    const { createMcpRuntime } = await import('../src/transports/mcp-runtime.js');
+    const { config } = await import('../src/runtime/config.js');
     const runtime = await createMcpRuntime();
     assert.equal(runtime.modelName, 'model-A');
     assert.equal(runtime.embeddingDim, 4);
@@ -81,11 +81,11 @@ describe('MCP actual-vault configuration bootstrap', () => {
 
   it('keeps local mode when the stored provider URL is the OpenAI default and no key exists', async () => {
     seed(a, 'https://api.openai.com/v1', 'text-embedding-3-small', []);
-    const embedder = await import('../src/embedder.js');
+    const embedder = await import('../src/inference/embedder.js');
     vi.spyOn(embedder, 'getContextLength').mockResolvedValue(512);
     const dimension = vi.spyOn(embedder, 'getEmbeddingDim').mockResolvedValue(8);
     vi.spyOn(embedder, 'primeEmbeddingDim').mockImplementation(() => {});
-    const { createMcpRuntime } = await import('../src/mcp-runtime.js');
+    const { createMcpRuntime } = await import('../src/transports/mcp-runtime.js');
     const runtime = await createMcpRuntime();
     assert.equal(runtime.modelName, 'local:Xenova/multilingual-e5-small');
     assert.equal(process.env.OPENAI_BASE_URL, undefined);
@@ -108,7 +108,7 @@ describe('MCP actual-vault configuration bootstrap', () => {
         throw new Error('unexpected database open');
       });
       const save = vi.spyOn(db, 'saveConfigMeta');
-      const { createMcpRuntime } = await import('../src/mcp-runtime.js');
+      const { createMcpRuntime } = await import('../src/transports/mcp-runtime.js');
       await assert.rejects(createMcpRuntime(), /OBSIDIAN_VAULT_PATH/);
       assert.equal(open.mock.calls.length, 0);
       assert.equal(save.mock.calls.length, 0);

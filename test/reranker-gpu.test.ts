@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it, vi } from 'vitest';
-import { enableModelDownloadProgress } from '../src/model-download-progress.js';
-import { RerankerGpu } from '../src/reranker-gpu.js';
+import { enableModelDownloadProgress } from '../src/inference/model-download-progress.js';
+import { RerankerGpu } from '../src/inference/reranker-gpu.js';
 
 const workerUrl = new URL('./fixtures/reranker-worker.ts', import.meta.url);
 let directory: string;

@@ -1,13 +1,13 @@
 {
   "entry": [
     "src/server.ts",
-    "src/preflight.ts",
+    "src/runtime/preflight.ts",
     "eval/*.ts",
     "scripts/*.mjs",
     ".ai/*.mjs",
     ".ai/scripts/**/*.{js,mjs,ts}",
     ".ai/skills/*/scripts/*.{js,mjs}",
-    "src/reranker-worker.ts",
+    "src/inference/reranker-worker.ts",
     ".ai/tests/*.test.mjs",
     ".ai/skills/*/scripts/*.test.mjs",
     "scripts/tests/*.test.mjs"

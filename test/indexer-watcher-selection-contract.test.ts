@@ -80,7 +80,7 @@ beforeAll(async () => {
   for (const rel of NON_MD) writeFileSync(abs(rel), 'x');
 
   vi.resetModules();
-  const { startWatcher, scanVault } = await import('../src/indexer');
+  const { startWatcher, scanVault } = await import('../src/indexing/indexer');
   startWatcher(512);
   await new Promise((r) => setTimeout(r, 50));
 

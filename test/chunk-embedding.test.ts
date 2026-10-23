@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it, vi } from 'vitest';
-import { createDocumentTextProjector, embedChunksWithRecovery } from '../src/chunk-embedding.js';
-import { createChunkBoundaryIndex, type Chunk } from '../src/chunker.js';
-import type { EmbeddingOutcome } from '../src/embedder.js';
+import { createChunkBoundaryIndex, type Chunk } from '../src/content/chunker.js';
+import {
+  createDocumentTextProjector,
+  embedChunksWithRecovery,
+} from '../src/indexing/chunk-embedding.js';
+import type { EmbeddingOutcome } from '../src/inference/embedder.js';
 
 const vector = (value: number): Float32Array => new Float32Array([value, 0, 0, 0]);
 

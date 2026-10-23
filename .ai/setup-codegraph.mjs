@@ -1,24 +1,8 @@
 #!/usr/bin/env node
-// Builds or refreshes this checkout's own CodeGraph index — `.codegraph/` at
-// the checkout root, gitignored. Runs from `prepare`, so every `npm ci`
-// covers it: a fresh clone, the main checkout, and each new worktree (Step 2
-// of `using-git-worktrees` installs dependencies there). Re-run by hand with:
-//
-//   npm run codegraph:setup
-//
-// Every checkout owns its index. Never copy or symlink another checkout's
-// `.codegraph/`: CodeGraph resolves the nearest `.codegraph/` walking up, so a
-// worktree nested under `.worktrees/` without its own index would silently
-// answer from the main checkout's code.
-//
-// Checks the local `codegraph.db` file rather than `codegraph status` for the
-// same reason — status can report a parent checkout's index. `init --yes`
-// builds a missing index without prompts; an existing one (including one left
-// by an interrupted init) needs `sync`.
-//
-// Best effort: indexing is an agent convenience, not part of the build, so a
-// failure warns and still exits 0 instead of failing `npm ci`. Skipped in
-// CI, where no agent reads the index.
+// npm install builds or refreshes this checkout's own .codegraph index.
+// Check the local database directly: CodeGraph discovery can select a parent
+// checkout's index. Indexing is optional for builds and is skipped in CI;
+// after a failure, agents use file reads until npm run codegraph:setup succeeds.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';

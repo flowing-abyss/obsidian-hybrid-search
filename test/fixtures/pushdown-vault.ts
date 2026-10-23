@@ -1,4 +1,4 @@
-import { initVecTable, openDb, upsertLinks, upsertNote } from '../../src/db.js';
+import { initVecTable, openDb, upsertLinks, upsertNote } from '../../src/storage/db.js';
 
 /**
  * Alias-arm fixture. Both notes answer to the SAME alias, and it is two characters long

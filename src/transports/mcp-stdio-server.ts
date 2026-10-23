@@ -1,6 +1,6 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { registerProcessHandlers } from '../runtime/process-resilience.js';
 import { createMcpRuntime, createMcpServer, startMcpBackgroundServices } from './mcp-runtime.js';
-import { registerProcessHandlers } from './process-resilience.js';
 
 export async function runStdioMcpServer(): Promise<void> {
   const runtime = await createMcpRuntime();

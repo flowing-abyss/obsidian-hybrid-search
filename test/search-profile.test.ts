@@ -4,7 +4,7 @@ import {
   getActiveSearchProfiler,
   measureSearchStage,
   withSearchProfiling,
-} from '../src/search-profile.js';
+} from '../src/search/search-profile.js';
 
 describe('SearchTimingCollector', () => {
   it('records repeated stages and reports median and p95 durations', () => {

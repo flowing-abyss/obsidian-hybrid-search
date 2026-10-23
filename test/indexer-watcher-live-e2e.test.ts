@@ -18,9 +18,9 @@ const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-live-e2e-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 process.env.OBSIDIAN_INCLUDE_PATTERNS = 'keep/**,issue55/n*es/*.md';
 
-const { closeDb, openDb, initVecTable, getDb } = await import('../src/db.js');
-const { config } = await import('../src/config.js');
-const embedder = await import('../src/embedder.js');
+const { closeDb, openDb, initVecTable, getDb } = await import('../src/storage/db.js');
+const { config } = await import('../src/runtime/config.js');
+const embedder = await import('../src/inference/embedder.js');
 vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
 vi.spyOn(embedder, 'embedDetailed').mockImplementation((texts: string[]) =>
   Promise.resolve(
@@ -35,7 +35,7 @@ vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
   limit: 508,
   count: (text) => Math.ceil(Array.from(text).length / 4),
 });
-const { indexVaultSync, startWatcher } = await import('../src/indexer.js');
+const { indexVaultSync, startWatcher } = await import('../src/indexing/indexer.js');
 
 // Shrink the 5s per-file debounce so the live test finishes quickly.
 config.debounce = 150;

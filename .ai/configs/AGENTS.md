@@ -1,42 +1,29 @@
 # Project guide
 
-This is the npm package for local Obsidian vault search through a CLI and MCP.
-All paths below are relative to the repository root.
-Read `ARCHITECTURE.md` before changing module boundaries.
-The project reference `.ai/references/project-guide.md` owns detailed contracts,
-evaluation routing, native dependency approvals, and release instructions.
+This npm package searches local Obsidian vaults through CLI, JSON-lines IPC, and MCP.
+Read `ARCHITECTURE.md` before changing module boundaries. Put new code in its owning
+source directory; architecture tests enforce dependency direction.
 
-Use npm with the committed lockfile. `npm ci` installs dependencies and sets up
-local agent links and a checkout-local CodeGraph index. To repair agent links,
-run `node .ai/setup.mjs`. Existing custom files are reported as conflicts.
+Use npm and the committed lockfile. `npm install` prepares dependencies, hooks,
+agent symlinks, skills, and a checkout-local CodeGraph index.
 
-For task feedback after any change, run:
+After changes, run:
 
 ```bash
 npm run format
 npm run verify:task
 ```
 
-Before a PR or push, run `npm run verify`. It is the complete all-change gate;
-`npm run preflight` is its compatibility alias. Commands and CI share
-`scripts/verify.mjs`. See `CONTRIBUTING.md` for pinned development tools.
+Before a PR or push, run `npm run verify`, including for documentation changes.
+Compare ranking before and after changes to retrieval, models, chunking, or indexing.
+Never lower quality floors or coverage thresholds to make a change pass.
+See `CONTRIBUTING.md` for commands and the verification skill for targeted checks.
 
-Run ranking evaluation before and after changes to search, embeddings, chunking,
-or indexing. Follow `eval/README.md` and the project reference
-for schema changes, fixed model settings, and baseline comparisons. Never lower
-quality floors or coverage thresholds to accommodate failures.
+Preserve CLI/MCP contracts, NFD paths, native recovery, FTS trigger ownership, and
+test module isolation. Keep secrets, `docs/`, `.superpowers/`, and generated agent
+files out of commits. Leave `obsidian-plugin` alone unless requested.
 
-Preserve public CLI and MCP contracts, NFD paths, native install recovery, FTS
-trigger ownership, and test module isolation. Keep secrets out of committed
-configuration. `docs/`, `.superpowers/`, generated agent links, and CodeGraph
-indexes stay local. Leave the `obsidian-plugin` submodule alone unless requested.
-
-Use CodeGraph before broad source searches. Run it through
-`node .ai/codegraph.mjs`; pass this checkout's absolute root as `projectPath`.
-If the index is absent or stale, use file reads and `rg`. Never use another
-checkout's index or install a global copy.
-
-Skills live in `.ai/skills`. Read a relevant skill before using its workflow;
-existing user authorization and the current harness's tool schema take priority.
-Release only on an explicit request. Follow the project reference's `vX.Y.Z`
-tag and synchronized package metadata requirements.
+Use checkout-local CodeGraph before broad source searches; fall back to file reads
+and `rg` when needed. Run it through `node .ai/codegraph.mjs` with this checkout's
+absolute path. Read relevant skills in `.ai/skills`; user instructions and the
+current tool schema take priority. Release only on an explicit request.
