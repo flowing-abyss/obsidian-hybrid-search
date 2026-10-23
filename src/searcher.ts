@@ -42,7 +42,7 @@ import {
 } from './storage/search-queries.js';
 import { normalizeNotePath } from './text-normalization.js';
 
-export interface NoteReadResult {
+interface NoteReadResult {
   path: string;
   found: true;
   title: string;
@@ -56,7 +56,7 @@ export interface NoteReadResult {
   urls: string[];
 }
 
-export interface NoteReadMiss {
+interface NoteReadMiss {
   path: string;
   found: false;
   suggestions: string[];
@@ -78,7 +78,7 @@ export function isAmbiguousNotePathError(err: unknown): err is AmbiguousNotePath
   return err instanceof AmbiguousNotePathError;
 }
 
-export interface MatchAnchor {
+interface MatchAnchor {
   kind: 'bm25' | 'semantic';
   headingPath: string | null;
   matchText: string; // first ~80 stripped chars of chunk body for DOM block lookup
@@ -1648,7 +1648,6 @@ export function readNotes(
     let backlinks: string[] = [];
     let markdownLinks: string[] = [];
     let markdownBacklinks: string[] = [];
-    let urls: string[] = [];
 
     if (related) {
       const linkMap = getLinksForPaths([normalizedPath]);
@@ -1658,7 +1657,7 @@ export function readNotes(
       markdownLinks = markdownMap.links.get(normalizedPath) ?? [];
       markdownBacklinks = markdownMap.backlinks.get(normalizedPath) ?? [];
     }
-    urls = getUrlsForPaths([normalizedPath]).get(normalizedPath) ?? [];
+    const urls = getUrlsForPaths([normalizedPath]).get(normalizedPath) ?? [];
 
     results.push({
       path: note.path,

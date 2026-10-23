@@ -17,8 +17,7 @@ import {
 
 export const LOCAL_MODEL = 'Xenova/multilingual-e5-small';
 
-export type EmbeddingFailureKind =
-  'input_too_long' | 'transient' | 'permanent' | 'invalid_response';
+type EmbeddingFailureKind = 'input_too_long' | 'transient' | 'permanent' | 'invalid_response';
 
 export type EmbeddingOutcome =
   | { ok: true; embedding: Float32Array }

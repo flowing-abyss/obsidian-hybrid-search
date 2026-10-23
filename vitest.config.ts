@@ -28,6 +28,12 @@ export default defineConfig({
         lines: 71,
         functions: 77,
         branches: 55,
+        // Measured on the full unit suite; keep pure transformation boundaries covered.
+        'src/chunker.ts': { lines: 95, functions: 100, branches: 90 },
+        'src/filter-predicate.ts': { lines: 100, functions: 100, branches: 95 },
+        'src/note-extractor.ts': { lines: 95, functions: 85, branches: 85 },
+        'src/text-normalization.ts': { lines: 100, functions: 100, branches: 100 },
+        'src/index-state.ts': { lines: 100, functions: 100, branches: 100 },
       },
     },
   },

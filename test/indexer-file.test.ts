@@ -27,11 +27,13 @@ const {
 // Spy on embedder *before* importing indexer so live bindings pick up the mocks
 const embedder = await import('../src/embedder.js');
 vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
-vi.spyOn(embedder, 'embedDetailed').mockImplementation(async (texts: string[]) =>
-  texts.map(() => ({
-    ok: true as const,
-    embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
-  })),
+vi.spyOn(embedder, 'embedDetailed').mockImplementation((texts: string[]) =>
+  Promise.resolve(
+    texts.map(() => ({
+      ok: true as const,
+      embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
+    })),
+  ),
 );
 vi.spyOn(embedder, 'getContextLength').mockResolvedValue(512);
 vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
@@ -58,11 +60,13 @@ describe('indexFile oversized embedding recovery', () => {
       limit: 48,
       count: (text) => Array.from(text).length,
     });
-    detailedSpy.mockImplementation(async (texts: string[]) =>
-      texts.map((text) =>
-        Array.from(text).length <= 36
-          ? { ok: true as const, embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]) }
-          : { ok: false as const, kind: 'input_too_long', status: 400, message: 'too long' },
+    detailedSpy.mockImplementation((texts: string[]) =>
+      Promise.resolve(
+        texts.map((text) =>
+          Array.from(text).length <= 36
+            ? { ok: true as const, embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]) }
+            : { ok: false as const, kind: 'input_too_long', status: 400, message: 'too long' },
+        ),
       ),
     );
 
@@ -110,11 +114,13 @@ describe('indexFile oversized embedding recovery', () => {
       );
       assert.ok(detailedSpy.mock.calls.length > 1);
     } finally {
-      detailedSpy.mockImplementation(async (texts: string[]) =>
-        texts.map(() => ({
-          ok: true as const,
-          embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
-        })),
+      detailedSpy.mockImplementation((texts: string[]) =>
+        Promise.resolve(
+          texts.map(() => ({
+            ok: true as const,
+            embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
+          })),
+        ),
       );
     }
   });

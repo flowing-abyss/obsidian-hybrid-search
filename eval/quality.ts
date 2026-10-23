@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export interface EvalSummary {
+interface EvalSummary {
   ndcg_5: number;
   ndcg_k: number;
   mrr: number;
@@ -65,7 +65,7 @@ export function assertEvalQuality(result: EvalResult): void {
   throw new Error(`Eval quality is below the configured floor:\n${details}`);
 }
 
-export function loadEvalResult(filePath: string): EvalResult {
+function loadEvalResult(filePath: string): EvalResult {
   const absPath = isAbsolute(filePath) ? filePath : join(process.cwd(), filePath);
   return JSON.parse(readFileSync(absPath, 'utf-8')) as EvalResult;
 }

@@ -17,7 +17,9 @@ const scripts = [
   path.join(ai, 'setup-codegraph.mjs'),
 ].filter(Boolean);
 for (const script of scripts) {
-  const result = spawnSync(process.execPath, [script], { cwd: root, stdio: 'inherit' });
+  // npm 12 streams lifecycle stdout even for pack --json. Keep diagnostics visible
+  // on stderr so machine-readable npm output remains parseable.
+  const result = spawnSync(process.execPath, [script], { cwd: root, stdio: ['inherit', 2, 2] });
   if (result.error) console.error(result.error.message);
   if (result.status !== 0) {
     process.exitCode = result.status ?? 1;

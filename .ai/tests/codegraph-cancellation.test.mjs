@@ -89,6 +89,8 @@ setTimeout(() => process.exit(0), 5000);
     for (const pid of [...new Set(pids())].reverse()) {
       if (!alive(pid)) continue;
       if (process.platform === 'win32') {
+        // This fixture invokes Git or a fixed test executable on the developer PATH, without interpolating shell input.
+        // eslint-disable-next-line sonarjs/no-os-command-from-path
         spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
       } else {
         process.kill(pid, 'SIGKILL');

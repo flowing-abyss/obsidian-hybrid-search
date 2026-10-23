@@ -54,7 +54,7 @@ const _pkgPath = existsSync(resolve(_dir, '../package.json'))
 export const packageVersion = (JSON.parse(readFileSync(_pkgPath, 'utf-8')) as { version: string })
   .version;
 
-export type UpdateStatus =
+type UpdateStatus =
   | { state: 'checking' }
   | { state: 'up_to_date' }
   | { state: 'update_available'; latestVersion: string }

@@ -43,6 +43,8 @@ function extractGraphBody(dotContent) {
   let body = match[1];
 
   // Remove rankdir (we'll set it once at the top level)
+  // Graphviz input is a developer-authored local skill; preserve its whitespace grammar.
+  // eslint-disable-next-line sonarjs/super-linear-regex
   body = body.replace(/^\s*rankdir\s*=\s*\w+\s*;?\s*$/gm, '');
 
   return body.trim();
@@ -72,6 +74,8 @@ ${bodies.join('\n\n')}
 
 function renderToSvg(dotContent) {
   try {
+    // Graphviz is an explicit developer prerequisite; the shell command is constant and graph content goes through stdin.
+    // eslint-disable-next-line sonarjs/no-os-command-from-path
     return execSync('dot -Tsvg', {
       input: dotContent,
       encoding: 'utf-8',
@@ -112,6 +116,8 @@ function main() {
 
   // Check if dot is available
   try {
+    // Graphviz is an explicit developer prerequisite; the shell command is constant and graph content goes through stdin.
+    // eslint-disable-next-line sonarjs/no-os-command-from-path
     execSync('which dot', { encoding: 'utf-8' });
   } catch {
     console.error('Error: graphviz (dot) not found. Install with:');

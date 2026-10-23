@@ -58,6 +58,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.a
   }
   writeFileSync(briefPath, brief);
 
+  // Git is an explicit developer prerequisite; arguments are passed separately without a shell.
+  // eslint-disable-next-line sonarjs/no-os-command-from-path
   const base = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   console.log(`brief: ${briefPath}`);
   console.log(`base: ${base}`);

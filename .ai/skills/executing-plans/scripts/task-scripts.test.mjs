@@ -40,6 +40,8 @@ before(() => {
   repo = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'task-scripts-')));
   git = (...args) =>
     execFileSync(
+      // This fixture invokes Git or a fixed test executable on the developer PATH, without interpolating shell input.
+      // eslint-disable-next-line sonarjs/no-os-command-from-path
       'git',
       [
         '-c',

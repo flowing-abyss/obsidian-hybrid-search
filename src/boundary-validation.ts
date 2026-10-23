@@ -107,12 +107,6 @@ export const OllamaEmbeddingResponseSchema = z
   .passthrough();
 
 export type SearchOptionsBoundary = z.infer<typeof SearchOptionsBoundarySchema>;
-export type SearchToolArguments = z.infer<typeof SearchToolArgumentsSchema>;
-export type ReadToolArguments = z.infer<typeof ReadToolArgumentsSchema>;
-export type ReindexToolArguments = z.infer<typeof ReindexToolArgumentsSchema>;
-export type StatusToolArguments = z.infer<typeof StatusToolArgumentsSchema>;
-export type StdioRequest = z.infer<typeof StdioRequestSchema>;
-export type EmbeddingApiResponse = z.infer<typeof EmbeddingApiResponseSchema>;
 export type StringArrayParam = string | string[] | undefined;
 
 export function formatValidationError(context: string, error: ZodError): string {

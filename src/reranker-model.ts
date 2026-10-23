@@ -8,7 +8,7 @@ import {
   type DownloadReporter,
 } from './model-download-progress.js';
 
-export interface RerankerInput {
+interface RerankerInput {
   text: string;
   text_pair: string;
 }

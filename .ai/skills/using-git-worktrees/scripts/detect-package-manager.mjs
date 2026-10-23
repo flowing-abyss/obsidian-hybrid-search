@@ -16,9 +16,9 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-export const MANAGERS = ['pnpm', 'yarn', 'npm'];
+const MANAGERS = ['pnpm', 'yarn', 'npm'];
 
-export const LOCKFILE_MANAGER = {
+const LOCKFILE_MANAGER = {
   'pnpm-lock.yaml': 'pnpm',
   'yarn.lock': 'yarn',
   'package-lock.json': 'npm',

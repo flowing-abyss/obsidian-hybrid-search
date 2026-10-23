@@ -26,20 +26,25 @@
     "eval:prepare-evergreen-notes": "tsx eval/prepare-evergreen-notes.ts",
     "eval:prepare-longmem": "tsx eval/prepare-longmemeval.ts",
     "eval:prepare-longmemeval-s": "tsx eval/prepare-longmemeval.ts",
-    "eval:quality": "npm run eval:prepare-obsidian-help -- --vault fixtures/obsidian-help/dataset && env -u OPENAI_API_KEY -u OPENAI_BASE_URL -u OPENAI_EMBEDDING_MODEL -u LOCAL_EMBEDDING_MODEL tsx eval/evaluate.ts --output eval/results/.tmp-pre-push-quality.json && tsx eval/quality.ts eval/results/.tmp-pre-push-quality.json",
+    "eval:quality": "tsx scripts/eval-quality.mjs",
     "eval:speed": "tsx eval/benchmark-speed.ts",
     "eval:speed-profile": "tsx eval/speed-profile.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint src test eval",
+    "lint": "eslint . --max-warnings 0",
     "knip": "knip",
-    "preflight": "bash scripts/ci-preflight.sh",
+    "preflight": "npm run verify",
     "sync-server-json": "bash scripts/sync-server-json.sh",
     "setup:ai": "node .ai/setup.mjs",
     "codegraph:setup": "node .ai/setup-codegraph.mjs",
     "codegraph": "node .ai/codegraph.mjs",
     "test:ai": "node --test .ai/tests/*.test.mjs .ai/skills/*/scripts/*.test.mjs",
-    "test:architecture": "vitest run test/architecture-boundaries.test.ts"
+    "test:architecture": "vitest run test/architecture-boundaries.test.ts",
+    "verify": "node scripts/verify.mjs",
+    "verify:task": "node scripts/verify.mjs --task",
+    "verify:ci": "node scripts/verify.mjs --ci",
+    "verify:quality": "node scripts/verify.mjs --quality",
+    "test:tooling": "node --test scripts/tests/*.test.mjs"
   },
   "keywords": [
     "obsidian",
@@ -94,14 +99,13 @@
   },
   "devDependencies": {
     "@colbymchenry/codegraph": "1.6.2",
-    "@commitlint/cli": "^20.5.3",
-    "@commitlint/config-conventional": "^20.5.3",
+    "@commitlint/cli": "21.2.4",
+    "@commitlint/config-conventional": "21.2.4",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
     "@vitest/coverage-v8": "^4.1.11",
     "dependency-cruiser": "18.7.0",
-    "eslint": "^9.39.5",
-    "eslint-plugin-import": "^2.32.0",
+    "eslint": "10.13.0",
     "eslint-plugin-sonarjs": "^4.2.2",
     "fast-check": "4.10.2",
     "husky": "^9.1.7",
@@ -111,20 +115,16 @@
     "prettier-plugin-organize-imports": "^4.3.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.2",
-    "vitest": "^4.1.11"
+    "typescript-eslint": "8.72.0",
+    "vitest": "^4.1.11",
+    "@eslint/js": "10.0.1"
   },
   "lint-staged": {
-    "package.json": [
-      "npm run sync-server-json",
-      "sh -c 'npx vitest run'",
-      "sh -c 'npm run knip'"
-    ],
-    "*.{ts,js}": [
-      "eslint --fix",
+    "*.{json,md,yml,yaml}": [
       "prettier --write"
     ],
-    "*.{json,md,yml,yaml}": [
+    "*.{ts,js,mjs,cjs}": [
+      "eslint --fix",
       "prettier --write"
     ]
   },
@@ -132,6 +132,20 @@
     "better-sqlite3": true,
     "onnxruntime-node": true,
     "esbuild": true,
-    "protobufjs": true
+    "protobufjs": true,
+    "fsevents": false
+  },
+  "packageManager": "npm@12.2.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=22.22.2",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": "12.2.0",
+      "onFail": "error"
+    }
   }
 }

@@ -7,6 +7,8 @@ const shaPattern = /^[a-f0-9]{40}$/;
 const manifestPaths = ['package.json', 'package-lock.json', 'server.json'];
 
 function git(...args) {
+  // Git is an explicit developer prerequisite; arguments are passed separately without a shell.
+  // eslint-disable-next-line sonarjs/no-os-command-from-path
   const result = spawnSync('git', args, { encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`);
   return result.stdout.trim();
@@ -129,6 +131,8 @@ function synchronizedVersion(sha) {
 function masterAncestor(sha) {
   git('fetch', '--no-tags', 'origin', 'master:refs/remotes/origin/master');
   const result = spawnSync(
+    // Git is an explicit developer prerequisite; arguments are passed separately without a shell.
+    // eslint-disable-next-line sonarjs/no-os-command-from-path
     'git',
     ['merge-base', '--is-ancestor', sha, 'refs/remotes/origin/master'],
     { encoding: 'utf8' },
@@ -181,12 +185,16 @@ function tag() {
     console.log(`Tag ${releaseTag} already points to ${sha}; no tag write needed.`);
   } else {
     // Never delete or force-update a tag, including a conflicting local tag.
+    // Git is an explicit developer prerequisite; arguments are passed separately without a shell.
+    // eslint-disable-next-line sonarjs/no-os-command-from-path
     const local = spawnSync('git', ['rev-parse', '--verify', `refs/tags/${releaseTag}^{commit}`], {
       encoding: 'utf8',
     });
     if (local.status === 0 && local.stdout.trim() !== sha)
       throw new Error(`Local tag ${releaseTag} conflicts with ${sha}.`);
     if (local.status !== 0) git('tag', releaseTag, sha);
+    // Git is an explicit developer prerequisite; arguments are passed separately without a shell.
+    // eslint-disable-next-line sonarjs/no-os-command-from-path
     const push = spawnSync('git', ['push', 'origin', `refs/tags/${releaseTag}`], {
       encoding: 'utf8',
     });

@@ -22,11 +22,15 @@ import { fileURLToPath } from 'node:url';
 import { CliError, resolveWorkspace } from './sdd-workspace.mjs';
 
 function git(args) {
+  // Git is an explicit developer prerequisite; arguments are passed separately without a shell.
+  // eslint-disable-next-line sonarjs/no-os-command-from-path
   return execFileSync('git', args, { encoding: 'utf8' });
 }
 
 function verifyRevision(rev) {
   try {
+    // Git is an explicit developer prerequisite; arguments are passed separately without a shell.
+    // eslint-disable-next-line sonarjs/no-os-command-from-path
     execFileSync('git', ['rev-parse', '--verify', '--quiet', rev], { stdio: 'ignore' });
     return true;
   } catch {
@@ -36,6 +40,8 @@ function verifyRevision(rev) {
 
 function isAncestor(base, head) {
   try {
+    // Git is an explicit developer prerequisite; arguments are passed separately without a shell.
+    // eslint-disable-next-line sonarjs/no-os-command-from-path
     execFileSync('git', ['merge-base', '--is-ancestor', base, head], { stdio: 'ignore' });
     return true;
   } catch {
@@ -43,7 +49,7 @@ function isAncestor(base, head) {
   }
 }
 
-export function buildReviewPackage(base, head) {
+function buildReviewPackage(base, head) {
   const commits = git(['log', '--oneline', `${base}..${head}`]);
   const stat = git(['diff', '--stat', `${base}..${head}`]);
   const diff = git(['diff', '-U10', `${base}..${head}`]);

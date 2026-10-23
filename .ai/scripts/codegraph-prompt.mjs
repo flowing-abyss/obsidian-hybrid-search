@@ -20,6 +20,8 @@ function findAiRoot(fromPath) {
 
 export function runPromptHook(payload) {
   return new Promise((resolve) => {
+    // Agent hosts may run outside Node; resolve Node or Windows taskkill from the developer PATH with fixed arguments.
+    // eslint-disable-next-line sonarjs/no-os-command-from-path
     const child = spawn('node', [launcher, 'prompt-hook'], {
       stdio: ['pipe', 'pipe', 'ignore'],
       windowsHide: true,
@@ -34,6 +36,8 @@ export function runPromptHook(payload) {
       resolve('');
       if (process.platform === 'win32') {
         // Windows kill() terminates the wrapper without running its handlers.
+        // Agent hosts may run outside Node; resolve Node or Windows taskkill from the developer PATH with fixed arguments.
+        // eslint-disable-next-line sonarjs/no-os-command-from-path
         spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
           stdio: 'ignore',
           windowsHide: true,

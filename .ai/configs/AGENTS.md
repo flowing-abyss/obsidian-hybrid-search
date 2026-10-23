@@ -10,12 +10,16 @@ Use npm with the committed lockfile. `npm ci` installs dependencies and sets up
 local agent links and a checkout-local CodeGraph index. To repair agent links,
 run `node .ai/setup.mjs`. Existing custom files are reported as conflicts.
 
-After code changes, run:
+For task feedback after any change, run:
 
 ```bash
-npm run format && npm run build && npm test && npm run lint && npm run knip
-npm run test:ai
+npm run format
+npm run verify:task
 ```
+
+Before a PR or push, run `npm run verify`. It is the complete all-change gate;
+`npm run preflight` is its compatibility alias. Commands and CI share
+`scripts/verify.mjs`. See `CONTRIBUTING.md` for pinned development tools.
 
 Run ranking evaluation before and after changes to search, embeddings, chunking,
 or indexing. Follow `eval/README.md` and the project reference

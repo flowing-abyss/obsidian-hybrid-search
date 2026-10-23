@@ -13,6 +13,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { smokeProcess } from './smoke-process.mjs';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PACKAGE_NAME = 'obsidian-hybrid-search';
@@ -144,6 +145,12 @@ try {
   );
   const packedArtifacts = Object.values(packResult);
   assert.equal(packedArtifacts.length, 1, 'npm pack must produce exactly one tarball');
+  for (const file of packedArtifacts[0].files) {
+    assert.ok(
+      !/^(?:\.ai|fixtures|docs|test|scripts)\//.test(file.path),
+      `development file leaked into package: ${file.path}`,
+    );
+  }
   const tarball = path.join(artifactsDir, packedArtifacts[0].filename);
   assert.equal(existsSync(tarball), true, `packed tarball missing: ${tarball}`);
 
@@ -242,6 +249,8 @@ try {
     'second recovery marker is not distinct',
   );
   assertNoInstallLogs(temporaryRoot);
+
+  await smokeProcess(packageRoot, smokeEnv);
 
   console.log(`native recovery packaged smoke passed with npm ${npmVersion}`);
   console.log('  blocked install -> recovered binding, sentinel, and first marker');

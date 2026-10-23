@@ -1,28 +1,21 @@
 # Project Guide for AI Agents
 
-## Quick Reference
+## Verification
+
+Use the pinned Node/npm development versions in `CONTRIBUTING.md`.
+`scripts/verify.mjs` owns the checks used locally, by hooks, and by CI.
 
 ```bash
-npm run build          # TypeScript compile (must pass before committing)
-npm test               # Unit tests with no external services
-npm run test:integration  # Integration tests with configured or local embeddings
-npm run test:e2e-watcher  # Real file-watcher integration test
-npm run coverage       # Unit coverage with thresholds from vitest.config.ts
-npm run knip           # Dead code / unused exports check (0 issues required)
-npm run lint           # ESLint (0 errors required; warnings on `any` are ok)
-npm run format         # Prettier write (run before committing)
-npm run format:check   # Prettier check (used in CI)
+npm run format
+npm run verify:task  # deterministic task feedback
+npm run verify       # complete all-change gate before PR/push
 ```
 
-Pre-commit hooks run `lint-staged`. The pre-push hook runs `npm run preflight` and adds the ranking quality gate when relevant search code changed.
-
-## Agent Verification Checklist
-
-Run this sequence after any code change to get full feedback before committing:
-
-```bash
-npm run format && npm run build && npm test && npm run lint && npm run knip
-```
+`preflight` is a compatibility alias for `verify`. The complete gate includes
+coverage, real watcher/model checks, packaged process/native smoke, and fresh
+quality in both modes. It runs on documentation changes too. No pass receipts or
+changed-path bypasses are allowed. Lint permits zero warnings; Knip permits zero
+issues. Unit coverage runs once in the complete gate.
 
 **After modifying `searcher.ts`:**
 
@@ -31,7 +24,7 @@ npm run format && npm run build && npm test && npm run lint && npm run knip
 
 **After modifying `db.ts`:**
 
-- `npm test` catches NFD path storage, model change wipe, link integrity (`test/db.test.ts`)
+- `npm test` catches NFD path storage, model-mismatch preservation, link integrity (`test/db.test.ts`)
 - If you changed the DB **schema** (new columns, new tables, altered FTS structure), delete the eval
   fixture DB and regenerate both committed baselines with the local model.
 
@@ -83,46 +76,28 @@ Most files in `eval/results/` are working artifacts. Keep the committed `baselin
 
 Coverage gates are defined in `vitest.config.ts` and enforced by CI. Do not lower them to make a change pass.
 
-## Architecture
+## Architecture and contracts
 
-```
-CLI (cli.ts) ──┐
-               ├──▶ searcher.ts ──▶ db.ts (SQLite)
-MCP (mcp-runtime.ts)┘              └──▶ embedder.ts (remote/local)
-```
-
-- **`db.ts`** owns the SQLite schema, migrations, and queries. It uses `better-sqlite3`, FTS5, and `sqlite-vec`.
-- **`indexer.ts`** walks the vault, parses metadata and links, creates embeddings, and writes incremental updates to the database.
-- **`embedder.ts`** handles OpenAI-compatible providers and local inference through `@huggingface/transformers`. The default local model is `Xenova/multilingual-e5-small`.
-- **`searcher.ts`** implements hybrid, full-text, semantic, fuzzy title, similar-note, and graph searches. A versioned LRU cache stores up to 100 result sets.
-- **`chunker.ts`** splits notes into overlapping chunks by headings with a sliding-window fallback.
-- **`mcp-runtime.ts`** defines MCP tools and their schemas. `server.ts` is only the stdio entry point.
-- **`config.ts`** is the source of truth for environment variables. Keep the user-facing list in `README.md`.
-
-## Key Implementation Details
+Read `ARCHITECTURE.md` for ownership, dependency direction, lifecycle, and extension
+boundaries. `src/config.ts` owns environment settings; schema and public API
+changes must preserve their documented contracts. Storage owns SQL, extraction
+owns pure Markdown parsing, and `src/index-state.ts` owns local invalidation.
+The architecture tests reject imports that cross those boundaries.
 
 ### Path Normalization
 
 All note paths stored in the database are NFD-normalized with `path.normalize('NFD')`. Normalize paths before database lookups or comparisons to avoid cache misses and "note not found" bugs.
 
-### Hybrid Search (RRF)
+### Search behavior
 
-Hybrid search runs semantic, BM25, exact alias, and partial fuzzy result lists through weighted RRF with `k=60`. Semantic and BM25 lists use weight 1.5, exact aliases use 2.0, and partial fuzzy matches use 0.25. `search()` caches up to 100 result sets and invalidates them with database and in-process versions.
-
-### Related Mode (BFS)
-
-`searchRelated()` performs bidirectional BFS over wiki or Markdown links. Outgoing links have positive depth, backlinks have negative depth, and the source note is included at depth 0. The score is `1 / (1 + |depth|)`.
+`src/searcher.ts` and its contract tests own ranking, graph depth, snippets, and
+cache behavior. Do not duplicate algorithm constants here. Preserve note identity,
+source offsets, filter semantics, and the distinction between similarity and
+related traversal.
 
 ### Tag/Scope Filtering
 
 A leading `-` excludes a value. Tag and frontmatter includes use AND semantics. Scope includes use OR semantics. Every exclusion removes matching notes.
-
-### Snippet Logic
-
-1. BM25 uses SQLite `snippet()` and adds the matching heading path when available.
-2. Semantic search returns the matching chunk with its heading path.
-3. Related mode extracts context around the link that produced the result.
-4. Short or empty snippets fall back to note content and are capped by `snippetLength`.
 
 ### DB Is a Singleton
 
@@ -140,18 +115,11 @@ The `docs/` directory is local-only and gitignored. Do not add files from it to 
 - `noUncheckedIndexedAccess` is enabled. Use non-null assertions only when bounds are proven.
 - npm 12 blocks dependency install scripts unless they are listed in `allowScripts` in `package.json`. A new dependency that builds a native addon has to be approved with `npm install-scripts approve <pkg> --no-allow-scripts-pin`, otherwise its binary is missing and `openDb` fails at runtime.
 
-## Testing the Local Embedding Model
+## Local model checks
 
-To test the local model path (no API key), integration tests can be run without any API credentials:
-
-```bash
-# Unset API credentials to force local model
-unset OPENAI_API_KEY
-unset OPENAI_BASE_URL
-npm run test:integration
-```
-
-The local model downloads about 117 MB on first use and is cached in `~/.cache/huggingface/`.
+The complete gate strips remote provider credentials and pins local evaluation
+models. Use `npm run eval:quality` for both fresh ranking modes; see
+`CONTRIBUTING.md` for corpus provenance, result artifacts, and model downloads.
 
 ## Release Management
 

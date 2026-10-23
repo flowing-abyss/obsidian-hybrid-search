@@ -21,6 +21,8 @@ function fixture(t, windows = false) {
     : [path.join(root, '.ai/setup.mjs')];
   const setup = spawnSync(process.execPath, setupArgs, { encoding: 'utf8' });
   assert.equal(setup.status, 0, setup.stdout);
+  // This fixture invokes Git or a fixed test executable on the developer PATH, without interpolating shell input.
+  // eslint-disable-next-line sonarjs/no-os-command-from-path
   const git = spawnSync('git', ['init', '--quiet'], { cwd: root, encoding: 'utf8' });
   assert.equal(git.status, 0, git.stderr);
   const cwd = path.join(root, 'src/nested');

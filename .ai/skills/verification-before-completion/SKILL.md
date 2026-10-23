@@ -5,6 +5,12 @@ description: Use when about to claim work is complete, fixed, or passing, before
 
 # Verification Before Completion
 
+## Project commands
+
+Use `npm run verify:task` for task feedback and `npm run verify` before a PR or
+push. `scripts/verify.mjs` owns both stage lists. The complete gate includes fresh
+quality in both modes on every change; a previous result never replaces a run.
+
 ## Overview
 
 **Core principle:** Evidence before claims, always.

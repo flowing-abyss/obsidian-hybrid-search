@@ -1,13 +1,14 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import corpus from './obsidian-help-corpus.json' with { type: 'json' };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
-const SOURCE_REPO = 'https://github.com/obsidianmd/obsidian-help.git';
-const GIT_EXECUTABLE = '/usr/bin/git';
+const SOURCE_REPO = corpus.repository;
 
 interface PrepareObsidianHelpOptions {
   vault: string;
@@ -29,7 +30,7 @@ export function prepareObsidianHelpFixture(
   const vault = path.resolve(options.vault);
   ensureSafeFixtureVault(vault, root);
 
-  if (!options.force && hasMarkdownFiles(vault)) {
+  if (!options.force && matchesCorpus(vault, corpus.files)) {
     return {
       copied: false,
       source: options.sourceDir ? path.resolve(options.sourceDir) : SOURCE_REPO,
@@ -40,13 +41,11 @@ export function prepareObsidianHelpFixture(
   const tempDir = options.sourceDir
     ? undefined
     : fs.mkdtempSync(path.join(fs.realpathSync(tmpdir()), 'ohs-obsidian-help-'));
-  const source = options.sourceDir ? path.resolve(options.sourceDir) : cloneSource(tempDir!);
-
   try {
+    const source = options.sourceDir ? path.resolve(options.sourceDir) : cloneSource(tempDir!);
     const enDir = path.join(source, 'en');
-    if (!fs.existsSync(enDir)) {
-      throw new Error(`Obsidian Help source does not contain en/: ${source}`);
-    }
+    if (!matchesCorpus(enDir, corpus.files))
+      throw new Error(`Source does not match pinned corpus ${corpus.revision}: ${source}`);
     fs.rmSync(vault, { recursive: true, force: true });
     fs.mkdirSync(path.dirname(vault), { recursive: true });
     fs.cpSync(enDir, vault, { recursive: true });
@@ -56,30 +55,49 @@ export function prepareObsidianHelpFixture(
   }
 }
 
+function git(args: string[]): string {
+  // Git is a documented developer prerequisite; fixed arguments never invoke a shell.
+  // eslint-disable-next-line sonarjs/no-os-command-from-path
+  const result = spawnSync('git', args, { encoding: 'utf8' });
+  if (result.error || result.status !== 0)
+    throw new Error(`Git failed: ${result.error?.message ?? result.stderr}`);
+  return result.stdout.trim();
+}
+
 function cloneSource(tempDir: string): string {
   const target = path.join(tempDir, 'obsidian-help');
-  const result = spawnSync(GIT_EXECUTABLE, ['clone', '--depth', '1', SOURCE_REPO, target], {
-    encoding: 'utf-8',
-  });
-  if (result.status !== 0) {
-    const detail = result.stderr.trim() || result.stdout.trim();
-    throw new Error(`Failed to clone ${SOURCE_REPO}: ${detail}`);
-  }
+  git(['init', target]);
+  git(['-C', target, 'fetch', '--depth', '1', SOURCE_REPO, corpus.revision]);
+  git(['-C', target, 'checkout', '--detach', 'FETCH_HEAD']);
+  if (git(['-C', target, 'rev-parse', 'HEAD']) !== corpus.revision)
+    throw new Error('Unexpected corpus revision');
   return target;
 }
 
-function hasMarkdownFiles(dir: string): boolean {
+export function matchesCorpus(dir: string, expectedFiles: Record<string, string>): boolean {
   if (!fs.existsSync(dir)) return false;
-  const stack = [dir];
-  while (stack.length > 0) {
-    const current = stack.pop()!;
+  const found = new Map<string, string>();
+  const walk = (current: string): void => {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
       const full = path.join(current, entry.name);
-      if (entry.isDirectory()) stack.push(full);
-      if (entry.isFile() && entry.name.endsWith('.md')) return true;
+      if (entry.isSymbolicLink())
+        throw new Error(`Symlinks are not allowed in pinned corpus: ${full}`);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile() && entry.name.endsWith('.md')) {
+        const bytes = fs.readFileSync(full);
+        const hash = createHash('sha1')
+          .update(`blob ${bytes.length}\0`)
+          .update(bytes)
+          .digest('hex');
+        found.set(path.relative(dir, full).split(path.sep).join('/'), hash);
+      }
     }
-  }
-  return false;
+  };
+  walk(dir);
+  return (
+    found.size === Object.keys(expectedFiles).length &&
+    Object.entries(expectedFiles).every(([file, hash]) => found.get(file) === hash)
+  );
 }
 
 function ensureSafeFixtureVault(vault: string, root: string): void {

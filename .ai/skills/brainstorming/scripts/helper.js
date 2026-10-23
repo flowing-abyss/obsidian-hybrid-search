@@ -3,14 +3,10 @@
   const MAX_RECONNECT_MS = 30000;
   const TOMBSTONE_AFTER_MS = 15000; // show the "paused" overlay after this long disconnected
 
-  // Pure: next backoff delay (doubles, capped). Exported for unit tests.
+  // Next backoff delay doubles up to the cap.
   function nextReconnectDelay(current, max) {
     return Math.min(current * 2, max);
   }
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { nextReconnectDelay, MIN_RECONNECT_MS, MAX_RECONNECT_MS, TOMBSTONE_AFTER_MS };
-  }
-
   // Everything below is browser-only; bail out when loaded in Node (tests).
   if (typeof window === 'undefined') return;
 

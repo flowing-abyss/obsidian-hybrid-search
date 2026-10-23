@@ -61,6 +61,8 @@ export function resolveWorkspace(planFile) {
   // Native realpath: on Windows it also expands 8.3 short names (RUNNER~1), which
   // git's toplevel never uses — the plan and root must be spelled the same way.
   const root = realpathSync.native(
+    // Git is an explicit developer prerequisite; arguments are passed separately without a shell.
+    // eslint-disable-next-line sonarjs/no-os-command-from-path
     execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim(),
   );
   const base = path.join(root, '.superpowers', 'sdd');
@@ -69,8 +71,9 @@ export function resolveWorkspace(planFile) {
   let dir = path.join(base, slug);
   if (!owns(dir, planId)) {
     dir = path.join(base, `${slug}-${parent}`);
-    for (let n = 2; !owns(dir, planId); n++) {
-      dir = path.join(base, `${slug}-${parent}-${n}`);
+    let n = 2;
+    while (!owns(dir, planId)) {
+      dir = path.join(base, `${slug}-${parent}-${n++}`);
     }
   }
   const ignore = path.join(base, '.gitignore');

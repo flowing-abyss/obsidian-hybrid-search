@@ -97,6 +97,8 @@ function runPromptHook() {
     if (cancelled || !child.pid) return;
     cancelled = true;
     if (process.platform === 'win32') {
+      // Windows taskkill uses fixed flags and a child PID; it requires the system PATH.
+      // eslint-disable-next-line sonarjs/no-os-command-from-path
       spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
         stdio: 'ignore',
         windowsHide: true,

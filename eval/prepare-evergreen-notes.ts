@@ -9,7 +9,7 @@ const BASE_URL = 'https://notes.andymatuschak.org';
 const USER_AGENT = 'obsidian-hybrid-search-evergreen-fixture/1.0';
 const MAX_FILENAME_BYTES = 200;
 
-export const DEFAULT_EVERGREEN_SEEDS = [
+const DEFAULT_EVERGREEN_SEEDS = [
   'About_these_notes',
   'z5E5QawiXCMbtNtupvxeoEX',
   'z2hQEhqWkdRLL9JUwfawZZx',

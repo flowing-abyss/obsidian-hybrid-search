@@ -164,6 +164,14 @@ test('prepare configures a checkout with no developer dependencies', (t) => {
   assert.equal(readFileSync(path.join(root, 'CLAUDE.md'), 'utf8'), 'canonical instructions\n');
   assert.equal(existsSync(path.join(root, 'node_modules')), false);
 });
+test('prepare keeps diagnostic output off stdout for npm pack --json', (t) => {
+  const root = fixture(t);
+  cpSync(path.join(ai, 'prepare.mjs'), path.join(root, '.ai/prepare.mjs'));
+  const result = run(root, 'prepare.mjs', [], { CI: '1' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /created AGENTS.md/);
+});
 test('CodeGraph remains local with telemetry and download recovery disabled', (t) => {
   const root = fixture(t);
   mainPackage(root);
@@ -203,9 +211,13 @@ test('setup preserves an unrelated file occupying its temporary link name', asyn
 test('gitignore keeps canonical configs trackable and generated links local', (t) => {
   const root = fixture(t);
   cpSync(path.join(ai, '../.gitignore'), path.join(root, '.gitignore'));
+  // This fixture invokes Git or a fixed test executable on the developer PATH, without interpolating shell input.
+  // eslint-disable-next-line sonarjs/no-os-command-from-path
   const init = spawnSync('git', ['init', '--quiet'], { cwd: root, encoding: 'utf8' });
   assert.equal(init.status, 0, init.stderr);
   const ignored = (relative) =>
+    // This fixture invokes Git or a fixed test executable on the developer PATH, without interpolating shell input.
+    // eslint-disable-next-line sonarjs/no-os-command-from-path
     spawnSync('git', ['check-ignore', '--no-index', '--quiet', relative], { cwd: root }).status;
   assert.equal(ignored('.ai/configs/AGENTS.md'), 1);
   assert.equal(ignored('.ai/configs/.codex/config.toml'), 1);

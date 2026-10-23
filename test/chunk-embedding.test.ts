@@ -19,8 +19,8 @@ describe('embedChunksWithRecovery', () => {
   it('embeds an initially successful batch once without changing its leaves', async () => {
     const source = 'alpha\nbeta';
     const chunks = [chunk(source, 0, 5), chunk(source, 6, 10)];
-    const embed = vi.fn(async (texts: string[]): Promise<EmbeddingOutcome[]> =>
-      texts.map((_, index) => ({ ok: true, embedding: vector(index + 1) })),
+    const embed = vi.fn((texts: string[]): Promise<EmbeddingOutcome[]> =>
+      Promise.resolve(texts.map((_, index) => ({ ok: true, embedding: vector(index + 1) }))),
     );
 
     const result = await embedChunksWithRecovery({
@@ -47,12 +47,14 @@ describe('embedChunksWithRecovery', () => {
     const headings = ['# Parent', '## Child'];
     const chunks = [chunk(source, 0, 7), chunk(source, 8, source.length, headings)];
     const seen: string[][] = [];
-    const embed = vi.fn(async (texts: string[]): Promise<EmbeddingOutcome[]> => {
+    const embed = vi.fn((texts: string[]): Promise<EmbeddingOutcome[]> => {
       seen.push(texts);
-      return texts.map((text) =>
-        text !== 'sibling' && text.length > 2
-          ? { ok: false, kind: 'input_too_long', message: 'too long' }
-          : { ok: true, embedding: vector(text.length) },
+      return Promise.resolve(
+        texts.map((text) =>
+          text !== 'sibling' && text.length > 2
+            ? { ok: false, kind: 'input_too_long', message: 'too long' }
+            : { ok: true, embedding: vector(text.length) },
+        ),
       );
     });
 
@@ -87,10 +89,12 @@ describe('embedChunksWithRecovery', () => {
   it('keeps non-size failures and unsplittable size failures as one null leaf', async () => {
     const source = 'a\nb';
     const chunks = [chunk(source, 0, 1), chunk(source, 2, 3)];
-    const embed = vi.fn(async (): Promise<EmbeddingOutcome[]> => [
-      { ok: false, kind: 'permanent', status: 400, message: 'generic bad request' },
-      { ok: false, kind: 'input_too_long', message: 'too long' },
-    ]);
+    const embed = vi.fn((): Promise<EmbeddingOutcome[]> =>
+      Promise.resolve([
+        { ok: false, kind: 'permanent', status: 400, message: 'generic bad request' },
+        { ok: false, kind: 'input_too_long', message: 'too long' },
+      ]),
+    );
 
     const result = await embedChunksWithRecovery({
       source,
@@ -112,11 +116,13 @@ describe('embedChunksWithRecovery', () => {
 
   it('keeps retry child ranges source-aligned without gaps at whitespace boundaries', async () => {
     const source = 'hello world';
-    const embed = vi.fn(async (texts: string[]): Promise<EmbeddingOutcome[]> =>
-      texts.map((text) =>
-        text.length > 6
-          ? { ok: false, kind: 'input_too_long', message: 'too long' }
-          : { ok: true, embedding: vector(text.length) },
+    const embed = vi.fn((texts: string[]): Promise<EmbeddingOutcome[]> =>
+      Promise.resolve(
+        texts.map((text) =>
+          text.length > 6
+            ? { ok: false, kind: 'input_too_long', message: 'too long' }
+            : { ok: true, embedding: vector(text.length) },
+        ),
       ),
     );
 
@@ -139,8 +145,10 @@ describe('embedChunksWithRecovery', () => {
 
   it('terminates repeated size rejection at depth 8 with bounded requests and cardinality', async () => {
     const source = 'x'.repeat(512);
-    const embed = vi.fn(async (texts: string[]): Promise<EmbeddingOutcome[]> =>
-      texts.map(() => ({ ok: false, kind: 'input_too_long', message: 'still too long' })),
+    const embed = vi.fn((texts: string[]): Promise<EmbeddingOutcome[]> =>
+      Promise.resolve(
+        texts.map(() => ({ ok: false, kind: 'input_too_long', message: 'still too long' })),
+      ),
     );
 
     const result = await embedChunksWithRecovery({

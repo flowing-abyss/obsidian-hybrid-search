@@ -1,9 +1,24 @@
 {
-  "entry": ["src/**/*.ts", "eval/**/*.ts"],
-  "project": ["src/**/*.ts", "eval/**/*.ts"],
-  "ignoreDependencies": ["eslint-plugin-import", "@eslint/js"],
+  "entry": [
+    "src/server.ts",
+    "src/preflight.ts",
+    "eval/*.ts",
+    "scripts/*.mjs",
+    ".ai/*.mjs",
+    ".ai/scripts/**/*.{js,mjs,ts}",
+    ".ai/skills/*/scripts/*.{js,mjs}",
+    "src/reranker-worker.ts",
+    ".ai/tests/*.test.mjs",
+    ".ai/skills/*/scripts/*.test.mjs",
+    "scripts/tests/*.test.mjs"
+  ],
+  "project": ["src/**/*.ts", "eval/**/*.ts", "scripts/**/*.{mjs,ts}", ".ai/**/*.{mjs,js,ts}"],
+  "includeEntryExports": true,
   "ignoreBinaries": ["qmd"],
+  "ignoreDependencies": ["@earendil-works/pi-coding-agent"],
   "ignoreIssues": {
-    "src/searcher.ts": ["types"]
+    ".ai/scripts/opencode/codegraph.js": ["exports"],
+    ".ai/scripts/pi/codegraph.ts": ["exports"],
+    ".ai/setup.mjs": ["exports"]
   }
 }

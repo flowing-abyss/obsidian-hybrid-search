@@ -181,9 +181,9 @@ to the main checkout before removing the worktree.
 
 ## Step 3: Verify Clean Baseline
 
-Run tests using the same package manager detected in Step 2 (`pnpm test`,
-`yarn test`, or `npm test` for Node.js; `cargo test` / `pytest` /
-`go test ./...` for the others) to ensure the workspace starts clean.
+In this repository, run `npm run verify:task` to establish a clean baseline.
+Use `npm run verify` before a PR or push. `scripts/verify.mjs` owns the stage list;
+do not recreate it in this workflow.
 
 **If tests fail:** Report failures, ask whether to proceed or investigate.
 

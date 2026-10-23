@@ -202,7 +202,7 @@ Requested:
 Run "obsidian-hybrid-search serve stop" before starting a different server, or set an explicit XDG_CACHE_HOME for separate state.`;
 }
 
-export async function fetchHealthInfo(healthUrl: string): Promise<McpHealthInfo | null> {
+async function fetchHealthInfo(healthUrl: string): Promise<McpHealthInfo | null> {
   try {
     const res = await fetch(healthUrl, { signal: AbortSignal.timeout(500) });
     if (!res.ok) return null;
@@ -212,19 +212,6 @@ export async function fetchHealthInfo(healthUrl: string): Promise<McpHealthInfo 
   } catch {
     return null;
   }
-}
-
-export async function fetchHealth(healthUrl: string): Promise<boolean> {
-  return (await fetchHealthInfo(healthUrl)) !== null;
-}
-
-export async function waitForHealth(healthUrl: string, timeoutMs = 10_000): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await fetchHealth(healthUrl)) return true;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return false;
 }
 
 async function waitForStateHealth(state: McpState, timeoutMs = 10_000): Promise<boolean> {

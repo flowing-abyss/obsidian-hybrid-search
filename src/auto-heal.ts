@@ -284,6 +284,7 @@ export function tryAutoHealAbiMismatch(
     throw new Error(
       `obsidian-hybrid-search: native install failed for ${moduleName}: ${reason}\n` +
         `Install log: ${logPath}`,
+      { cause: err },
     );
   }
 

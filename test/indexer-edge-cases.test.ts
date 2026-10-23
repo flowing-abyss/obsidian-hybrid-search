@@ -33,11 +33,13 @@ const { closeDb, openDb, initVecTable, upsertNote, getDb, isLikelyDatabaseCorrup
 // the real embedder module, leaking the real (384-dim) local model through.
 const embedder = await import('../src/embedder.js');
 vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
-vi.spyOn(embedder, 'embedDetailed').mockImplementation(async (texts: string[]) =>
-  texts.map(() => ({
-    ok: true as const,
-    embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
-  })),
+vi.spyOn(embedder, 'embedDetailed').mockImplementation((texts: string[]) =>
+  Promise.resolve(
+    texts.map(() => ({
+      ok: true as const,
+      embedding: new Float32Array([0.1, 0.2, 0.3, 0.4]),
+    })),
+  ),
 );
 vi.spyOn(embedder, 'getContextLength').mockResolvedValue(512);
 vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
@@ -55,11 +57,13 @@ describe('indexFile embedding projection failures', () => {
       limit: 100,
       count: (text) => Array.from(text).length,
     });
-    detailedSpy.mockImplementationOnce(async (texts: string[]) =>
-      texts.map((text) =>
-        Array.from(text).length <= 100
-          ? { ok: true as const, embedding: fakeEmbedding }
-          : { ok: false as const, kind: 'input_too_long', status: 400, message: 'too long' },
+    detailedSpy.mockImplementationOnce((texts: string[]) =>
+      Promise.resolve(
+        texts.map((text) =>
+          Array.from(text).length <= 100
+            ? { ok: true as const, embedding: fakeEmbedding }
+            : { ok: false as const, kind: 'input_too_long', status: 400, message: 'too long' },
+        ),
       ),
     );
 
@@ -152,11 +156,13 @@ describe('indexFile embedding projection failures', () => {
       limit: 24,
       count: (text) => Array.from(text).length,
     });
-    detailedSpy.mockImplementationOnce(async (texts: string[]) =>
-      texts.map((text) =>
-        Array.from(text).length <= 24
-          ? { ok: true as const, embedding: fakeEmbedding }
-          : { ok: false as const, kind: 'input_too_long', status: 400, message: 'too long' },
+    detailedSpy.mockImplementationOnce((texts: string[]) =>
+      Promise.resolve(
+        texts.map((text) =>
+          Array.from(text).length <= 24
+            ? { ok: true as const, embedding: fakeEmbedding }
+            : { ok: false as const, kind: 'input_too_long', status: 400, message: 'too long' },
+        ),
       ),
     );
 

@@ -44,11 +44,15 @@ function windowsCommandLine(argv) {
 }
 
 function git(args) {
+  // Git is an explicit developer prerequisite; arguments are passed separately without a shell.
+  // eslint-disable-next-line sonarjs/no-os-command-from-path
   return execFileSync('git', args, { encoding: 'utf8' }).trim();
 }
 
 function verifyRevision(rev) {
   try {
+    // Git is an explicit developer prerequisite; arguments are passed separately without a shell.
+    // eslint-disable-next-line sonarjs/no-os-command-from-path
     execFileSync('git', ['rev-parse', '--verify', '--quiet', rev], { stdio: 'ignore' });
     return true;
   } catch {

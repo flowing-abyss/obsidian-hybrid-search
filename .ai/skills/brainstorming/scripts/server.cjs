@@ -86,7 +86,7 @@ function decodeFrame(buffer) {
 // ========== Configuration ==========
 
 const PORT_FILE = process.env.BRAINSTORM_PORT_FILE || null;
-const randomPort = () => 49152 + Math.floor(Math.random() * 16383);
+const randomPort = () => crypto.randomInt(49152, 65535);
 // Prefer an explicit port, else the port this session last bound (so a restart
 // reuses it and an already-open browser tab reconnects), else a random high port.
 function preferredPort() {
@@ -265,7 +265,8 @@ function isRegularFileInsideContentDir(filePath) {
     if (stat.nlink !== 1) return false;
     realContentDir = fs.realpathSync(CONTENT_DIR);
     realFilePath = fs.realpathSync(filePath);
-  } catch (e) {
+  } catch {
+    // A missing or unreadable file cannot be served.
     return false;
   }
   return realFilePath.startsWith(realContentDir + path.sep);
@@ -303,8 +304,7 @@ function isAuthorized(req) {
     }
   }
   const cookie = parseCookies(req.headers['cookie'])[COOKIE_NAME];
-  if (cookie && timingSafeEqualStr(cookie, TOKEN)) return true;
-  return false;
+  return Boolean(cookie && timingSafeEqualStr(cookie, TOKEN));
 }
 
 function pathnameOf(url) {

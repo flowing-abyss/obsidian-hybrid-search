@@ -58,73 +58,26 @@ export function setup(root, { platform = process.platform, log = console.log } =
       link = path.join(root, destination);
     const relative = path.relative(path.dirname(link), target);
     try {
-      // Reject linked parents outside this checkout before mkdir or replacement.
-      let parent = path.dirname(link);
-      while (!existsSync(parent)) parent = path.dirname(parent);
-      const resolved = realpathSync(parent);
-      const inside = path.relative(realpathSync(root), resolved);
-      if (inside === '..' || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside))
-        throw new Error('parent resolves outside this checkout');
-      const directory = statSync(target).isDirectory();
-      mkdirSync(path.dirname(link), { recursive: true });
-      let current;
-      try {
-        current = lstatSync(link);
-      } catch (error) {
-        if (error.code !== 'ENOENT') throw error;
-      }
-      const record = previous[destination];
-      const sameFile = current?.isFile() && identity(current) === identity(statSync(target));
-      const currentTarget = current?.isSymbolicLink() ? readlinkSync(link) : undefined;
-      const correct = !windows
-        ? currentTarget === relative
-        : directory
-          ? currentTarget && resolvesTo(link, target)
-          : sameFile;
+      const { current, currentTarget, directory } = inspectLink(root, link, target);
+      const correct = isCorrectLink({
+        windows,
+        directory,
+        current,
+        currentTarget,
+        relative,
+        link,
+        target,
+      });
       if (correct) {
         if (windows) state[destination] = ownership(link);
         log(`ok ${destination}`);
         continue;
       }
-      const owned =
-        windows &&
-        record &&
-        (currentTarget !== undefined
-          ? record.target === currentTarget
-          : current?.isFile() &&
-            record.identity === identity(current) &&
-            record.size === current.size &&
-            record.mtimeMs === current.mtimeMs);
-      if (current && !owned)
+      if (current && !isOwnedLink(windows, previous[destination], current, currentTarget))
         throw new Error(
           'existing path is custom or is not the expected link; preserve it and resolve manually',
         );
-      // Create before replacing. A failed link never removes the old configuration.
-      const temporary = `${link}.ai-setup-${process.pid}`;
-      let createdTemporary = false;
-      try {
-        if (!windows) symlinkSync(relative, temporary);
-        else if (directory) symlinkSync(target, temporary, 'junction');
-        else linkSync(target, temporary);
-        createdTemporary = true;
-        // Windows cannot atomically rename over an existing directory junction.
-        // Only a recorded junction can be removed; restore it if rename fails.
-        if (windows && process.platform === 'win32' && currentTarget !== undefined) {
-          unlinkSync(link);
-          try {
-            renameSync(temporary, link);
-          } catch (error) {
-            symlinkSync(currentTarget, link, 'junction');
-            throw error;
-          }
-        } else renameSync(temporary, link);
-      } finally {
-        try {
-          if (createdTemporary) unlinkSync(temporary);
-        } catch (error) {
-          if (error.code !== 'ENOENT') throw error;
-        }
-      }
+      replaceLink({ link, target, relative, windows, directory, currentTarget });
       if (windows) state[destination] = ownership(link);
       log(`${current ? 'replaced' : 'created'} ${destination} -> ${relative}`);
     } catch (error) {
@@ -139,6 +92,69 @@ export function setup(root, { platform = process.platform, log = console.log } =
   }
   log(`${conflicts} conflicts`);
   return conflicts ? 1 : 0;
+}
+function inspectLink(root, link, target) {
+  // Reject linked parents outside this checkout before mkdir or replacement.
+  let parent = path.dirname(link);
+  while (!existsSync(parent)) parent = path.dirname(parent);
+  const inside = path.relative(realpathSync(root), realpathSync(parent));
+  if (inside === '..' || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside))
+    throw new Error('parent resolves outside this checkout');
+  const directory = statSync(target).isDirectory();
+  mkdirSync(path.dirname(link), { recursive: true });
+  let current;
+  try {
+    current = lstatSync(link);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  return {
+    directory,
+    current,
+    currentTarget: current?.isSymbolicLink() ? readlinkSync(link) : undefined,
+  };
+}
+function isCorrectLink({ windows, directory, current, currentTarget, relative, link, target }) {
+  if (!windows) return currentTarget === relative;
+  if (directory) return currentTarget && resolvesTo(link, target);
+  return current?.isFile() && identity(current) === identity(statSync(target));
+}
+function isOwnedLink(windows, record, current, currentTarget) {
+  if (!windows || !record) return false;
+  if (currentTarget !== undefined) return record.target === currentTarget;
+  return (
+    current?.isFile() &&
+    record.identity === identity(current) &&
+    record.size === current.size &&
+    record.mtimeMs === current.mtimeMs
+  );
+}
+function replaceLink({ link, target, relative, windows, directory, currentTarget }) {
+  // Create before replacing; failure never removes a custom configuration.
+  const temporary = `${link}.ai-setup-${process.pid}`;
+  if (!windows) symlinkSync(relative, temporary);
+  else if (directory) symlinkSync(target, temporary, 'junction');
+  else linkSync(target, temporary);
+  let failure;
+  try {
+    if (windows && process.platform === 'win32' && currentTarget !== undefined) {
+      unlinkSync(link);
+      try {
+        renameSync(temporary, link);
+      } catch (error) {
+        symlinkSync(currentTarget, link, 'junction');
+        throw error;
+      }
+    } else renameSync(temporary, link);
+  } catch (error) {
+    failure = error;
+  }
+  try {
+    unlinkSync(temporary);
+  } catch (error) {
+    if (error.code !== 'ENOENT') failure ??= error;
+  }
+  if (failure) throw failure;
 }
 function identity(stat) {
   return `${stat.dev}:${stat.ino}`;

@@ -344,9 +344,9 @@ describe('local document token policy', () => {
       return new Array<number>(body.length > 2 ? 507 : 506).fill(1);
     });
     const pipeline = Object.assign(
-      vi.fn(async (prepared: string) => {
+      vi.fn((prepared: string) => {
         inferred.push(prepared);
-        return { data: new Float32Array([0.1, 0.2]) };
+        return Promise.resolve({ data: new Float32Array([0.1, 0.2]) });
       }),
       { tokenizer: { encode } },
     );

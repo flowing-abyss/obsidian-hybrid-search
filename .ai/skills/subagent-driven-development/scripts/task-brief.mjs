@@ -21,7 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CliError, resolveWorkspace } from './sdd-workspace.mjs';
 
-const TASK_HEADING = /^#+[ \t]+Task[ \t]+[0-9]+/;
+const TASK_HEADING = /^#+[ \t]+Task[ \t]+\d+/;
 const GLOBAL_CONSTRAINTS_HEADING = /^#+[ \t]+Global Constraints/;
 const HEADING = /^#+[ \t]/;
 const FENCE = /^```/;

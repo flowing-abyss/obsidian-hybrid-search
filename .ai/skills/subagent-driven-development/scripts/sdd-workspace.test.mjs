@@ -22,6 +22,8 @@ let outside;
 before(() => {
   repo = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'sdd-workspace-repo-')));
   outside = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'sdd-workspace-outside-')));
+  // This fixture invokes Git or a fixed test executable on the developer PATH, without interpolating shell input.
+  // eslint-disable-next-line sonarjs/no-os-command-from-path
   execFileSync('git', ['init', '-q'], { cwd: repo });
   for (const plan of [
     'docs/alpha/plan.md',

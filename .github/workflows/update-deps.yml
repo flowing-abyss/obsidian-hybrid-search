@@ -35,12 +35,12 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
 
       # npm 10's arborist fails on this dependency peer graph; npm 12 resolves it.
       - name: Install npm 12
-        run: npm install -g npm@12
+        run: npm install -g npm@12.2.0
 
       - name: Install dependencies
         run: npm ci
@@ -65,21 +65,9 @@ jobs:
         if: steps.changes.outputs.changed == 'true'
         run: npm run format
 
-      - name: Build
+      - name: Verify task
         if: steps.changes.outputs.changed == 'true'
-        run: npm run build
-
-      - name: Lint
-        if: steps.changes.outputs.changed == 'true'
-        run: npm run lint
-
-      - name: Unit tests
-        if: steps.changes.outputs.changed == 'true'
-        run: npm test
-
-      - name: Dead code
-        if: steps.changes.outputs.changed == 'true'
-        run: npm run knip
+        run: npm run verify:task
 
       - name: Create release App token
         if: steps.changes.outputs.changed == 'true'
@@ -110,7 +98,7 @@ jobs:
 
             - Ran `npm update --save` within the existing semver ranges.
             - Bumped the patch version to `${{ steps.bump.outputs.version }}` and synchronized all release manifests.
-            - Formatting, build, lint, unit tests, and knip passed.
+            - The canonical task verification gate passed.
             - Native CI and the required `lint-and-test` check gate auto-merge.
           labels: dependencies
 

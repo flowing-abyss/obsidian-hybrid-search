@@ -51,13 +51,11 @@ describe('release workflow contracts', () => {
       'cancel-in-progress': false,
     });
     assert.equal(workflow.jobs['update-deps']?.env?.HUSKY, '0');
-    assert.equal(step(workflow, 'update-deps', 'Install npm 12').run, 'npm install -g npm@12');
+    assert.equal(step(workflow, 'update-deps', 'Install npm 12').run, 'npm install -g npm@12.2.0');
     const names = workflow.jobs['update-deps']?.steps?.map((value) => value.name);
     assert.deepEqual(
-      names?.filter((name) =>
-        ['Format generated files', 'Build', 'Lint', 'Unit tests', 'Dead code'].includes(name ?? ''),
-      ),
-      ['Format generated files', 'Build', 'Lint', 'Unit tests', 'Dead code'],
+      names?.filter((name) => ['Format generated files', 'Verify task'].includes(name ?? '')),
+      ['Format generated files', 'Verify task'],
     );
   });
 
@@ -233,7 +231,7 @@ describe('release workflow contracts', () => {
       'macos-latest',
       'windows-latest',
     ]);
-    assert.equal(workflow.jobs['lint-and-test']?.needs, 'test');
+    assert.deepEqual(workflow.jobs['lint-and-test']?.needs, ['test', 'quality']);
     assert.equal(workflow.jobs['lint-and-test']?.if, 'always()');
   });
 });
