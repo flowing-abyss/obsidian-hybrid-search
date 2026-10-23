@@ -8,7 +8,7 @@
           {
             "type": "command",
             "command": "node \"$(git rev-parse --show-toplevel)/.ai/hooks/inject-superpowers.mjs\"",
-            "commandWindows": "node -e \"const {execFileSync,spawnSync}=require('node:child_process');const root=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();const result=spawnSync(process.execPath,[root+'/.ai/hooks/inject-superpowers.mjs'],{stdio:'inherit'});process.exit(result.status ?? 1)\"",
+            "commandWindows": "node -e \"const {execFileSync}=require('node:child_process');const {pathToFileURL}=require('node:url');const root=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();process.argv=[process.execPath,root+'/.ai/hooks/inject-superpowers.mjs'];import(pathToFileURL(process.argv[1]).href)\"",
             "async": false,
             "timeout": 10,
             "statusMessage": "Loading superpowers skill-check instructions"
@@ -22,7 +22,7 @@
           {
             "type": "command",
             "command": "node \"$(git rev-parse --show-toplevel)/.ai/codegraph.mjs\" prompt-hook",
-            "commandWindows": "node -e \"const {execFileSync,spawnSync}=require('node:child_process');const root=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();const result=spawnSync(process.execPath,[root+'/.ai/codegraph.mjs','prompt-hook'],{stdio:'inherit'});process.exit(result.status ?? 1)\"",
+            "commandWindows": "node -e \"const {execFileSync}=require('node:child_process');const {pathToFileURL}=require('node:url');const root=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();process.argv=[process.execPath,root+'/.ai/codegraph.mjs','prompt-hook'];import(pathToFileURL(process.argv[1]).href)\"",
             "timeout": 30,
             "statusMessage": "Loading CodeGraph context"
           }

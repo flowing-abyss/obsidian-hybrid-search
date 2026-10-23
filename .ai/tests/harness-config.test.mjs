@@ -40,7 +40,7 @@ for (const [harness, variant] of [
     index(root);
     nativePackage(
       root,
-      "const fs=require('node:fs');const input=JSON.parse(fs.readFileSync(0,'utf8'));console.log(JSON.stringify({cwd:input.cwd}));",
+      "const fs=require('node:fs');const input=JSON.parse(fs.readFileSync(0,'utf8'));console.log(JSON.stringify({cwd:input.cwd,prompt:input.prompt,args:process.argv.slice(2)}));",
     );
     const config = JSON.parse(
       readFileSync(
@@ -48,6 +48,7 @@ for (const [harness, variant] of [
         'utf8',
       ),
     );
+    const prompt = 'How does search handle "notes" and пути?';
     for (const event of ['SessionStart', 'UserPromptSubmit']) {
       const hook = config.hooks[event][0].hooks[0];
       const command =
@@ -59,7 +60,7 @@ for (const [harness, variant] of [
         shell: process.platform === 'win32' && harness === 'claude' ? 'bash' : true,
         encoding: 'utf8',
         env: { ...process.env, CLAUDE_PROJECT_DIR: root },
-        input: JSON.stringify({ cwd, prompt: 'How does the search architecture work?' }),
+        input: JSON.stringify({ cwd, prompt }),
       });
       assert.equal(result.status, 0, result.stderr);
       assert.ok(result.stdout.trim(), `${event} returned no JSON: ${result.stderr}`);
@@ -71,7 +72,11 @@ for (const [harness, variant] of [
             readFileSync(path.join(root, '.ai/skills/using-superpowers/SKILL.md'), 'utf8'),
           ),
         );
-      } else assert.equal(output.cwd, realpathSync(root));
+      } else {
+        assert.equal(output.cwd, realpathSync(root));
+        assert.equal(output.prompt, prompt);
+        assert.deepEqual(output.args, ['prompt-hook']);
+      }
     }
   });
 
