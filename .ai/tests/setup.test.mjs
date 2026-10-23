@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import {
   cpSync,
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -226,3 +227,45 @@ test('gitignore keeps canonical configs trackable and generated links local', (t
   assert.equal(ignored('.codex/config.toml'), 0);
   assert.equal(ignored('.ai/.setup-state.json'), 0);
 });
+
+test('CodeGraph setup rebuilds a preexisting incomplete index', (t) => {
+  const root = fixture(t);
+  mainPackage(root);
+  nativePackage(
+    root,
+    `const fs=require('node:fs');const path=require('node:path');
+if (['init','index'].includes(process.argv[2])) {
+ fs.mkdirSync('.codegraph',{recursive:true});
+ fs.writeFileSync(path.join('.codegraph','codegraph.db'),'complete');
+}`,
+  );
+  const database = path.join(root, '.codegraph/codegraph.db');
+  mkdirSync(path.dirname(database), { recursive: true });
+  writeFileSync(database, 'incomplete');
+  const result = run(root, 'setup-codegraph.mjs');
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(database, 'utf8'), 'complete');
+});
+
+for (const kind of ['directory', 'database'])
+  test(`CodeGraph setup leaves a linked foreign ${kind} unchanged`, (t) => {
+    const root = fixture(t);
+    const foreign = fixture(t);
+    const directory = path.join(root, '.codegraph');
+    const foreignDirectory = path.join(foreign, '.codegraph');
+    const foreignDatabase = path.join(foreignDirectory, 'codegraph.db');
+    mkdirSync(foreignDirectory);
+    writeFileSync(foreignDatabase, 'foreign index');
+    if (kind === 'directory') {
+      symlinkSync(foreignDirectory, directory, process.platform === 'win32' ? 'junction' : 'dir');
+    } else {
+      mkdirSync(directory);
+      linkSync(foreignDatabase, path.join(directory, 'codegraph.db'));
+    }
+    mainPackage(root);
+    nativePackage(root, "require('node:fs').writeFileSync('.codegraph/codegraph.db','replaced');");
+    const result = run(root, 'setup-codegraph.mjs');
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /setup failed/);
+    assert.equal(readFileSync(foreignDatabase, 'utf8'), 'foreign index');
+  });

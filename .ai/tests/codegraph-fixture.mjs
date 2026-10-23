@@ -1,4 +1,5 @@
-import { copyFileSync, linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, linkSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -9,7 +10,7 @@ export function checkout(t, beforeRemove = () => {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'codegraph-isolation-'));
   t.after(async () => {
     await beforeRemove(root);
-    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
   mkdirSync(path.join(root, '.ai'), { recursive: true });
   copyFileSync(path.join(aiRoot, 'codegraph.mjs'), path.join(root, '.ai/codegraph.mjs'));

@@ -5,7 +5,7 @@
 // after a failure, agents use file reads until npm run codegraph:setup succeeds.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -13,23 +13,37 @@ import { fileURLToPath } from 'node:url';
 const aiRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(aiRoot, '..');
 const launcher = path.join(aiRoot, 'codegraph.mjs');
-const database = path.join(repoRoot, '.codegraph', 'codegraph.db');
+const directory = path.join(repoRoot, '.codegraph');
+const database = path.join(directory, 'codegraph.db');
 
 if (process.env.CI) {
   console.log('codegraph: skipped in CI');
   process.exit(0);
 }
 
+// A full rebuild repairs interrupted indexes; incremental sync preserves incomplete metadata.
 const ready =
-  (existsSync(database) || codegraph('init', '--yes', repoRoot)) &&
-  existsSync(database) &&
-  codegraph('sync', '--quiet', repoRoot);
+  ownsIndex() &&
+  (existsSync(database)
+    ? codegraph('index', '--quiet', repoRoot)
+    : codegraph('init', '--yes', repoRoot)) &&
+  existsSync(database);
 
 if (!ready) {
   console.warn(
     'codegraph: setup failed — agents fall back to Read/Search in this checkout. ' +
       'Retry with `npm run codegraph:setup`.',
   );
+}
+
+function ownsIndex() {
+  try {
+    const dir = lstatSync(directory, { throwIfNoEntry: false });
+    const file = lstatSync(database, { throwIfNoEntry: false });
+    return (!dir || dir.isDirectory()) && (!file || (file.isFile() && file.nlink === 1));
+  } catch {
+    return false;
+  }
 }
 
 function codegraph(...args) {

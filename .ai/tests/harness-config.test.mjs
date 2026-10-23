@@ -73,7 +73,7 @@ for (const [harness, variant] of [
           ),
         );
       } else {
-        assert.equal(output.cwd, realpathSync(root));
+        assert.equal(output.cwd, realpathSync.native(root));
         assert.equal(output.prompt, prompt);
         assert.deepEqual(output.args, ['prompt-hook']);
       }
@@ -112,5 +112,5 @@ for (const harness of ['opencode', 'pi'])
         context = (await handler({ prompt: 'How does search work?' }, { cwd: root })).message
           .content;
       }
-      assert.equal(JSON.parse(context).cwd, realpathSync(root));
+      assert.equal(JSON.parse(context).cwd, realpathSync.native(root));
     });

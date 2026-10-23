@@ -12,7 +12,8 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-const repoRoot = realpathSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..'));
+const realpath = realpathSync.native;
+const repoRoot = realpath(path.join(path.dirname(fileURLToPath(import.meta.url)), '..'));
 const args = process.argv.slice(2);
 const isPromptHook = args[0] === 'prompt-hook';
 const entry = resolveCodegraphEntry();
@@ -182,20 +183,19 @@ function resolveCodegraphEntry() {
     const require = createRequire(path.join(repoRoot, 'package.json'));
     const manifestPath = require.resolve('@colbymchenry/codegraph/package.json');
     const localMain = path.join(repoRoot, 'node_modules', '@colbymchenry', 'codegraph');
-    if (path.dirname(manifestPath) !== localMain || realpathSync(localMain) !== localMain)
-      return null;
+    if (path.dirname(manifestPath) !== localMain || realpath(localMain) !== localMain) return null;
     const pinned = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'))
       .devDependencies?.['@colbymchenry/codegraph'];
     const main = JSON.parse(readFileSync(manifestPath, 'utf8'));
     if (!/^\d+\.\d+\.\d+$/.test(pinned ?? '') || main.version !== pinned) return null;
     const name = `@colbymchenry/codegraph-${process.platform}-${process.arch}`;
     const bundle = path.join(repoRoot, 'node_modules', name);
-    if (realpathSync(bundle) !== bundle) return null;
+    if (realpath(bundle) !== bundle) return null;
     const platform = JSON.parse(readFileSync(path.join(bundle, 'package.json'), 'utf8'));
     if (platform.name !== name || platform.version !== pinned) return null;
     const command = path.join(bundle, process.platform === 'win32' ? 'node.exe' : 'node');
     const script = path.join(bundle, 'lib/dist/bin/codegraph.js');
-    if (realpathSync(command) !== command || realpathSync(script) !== script) return null;
+    if (realpath(command) !== command || realpath(script) !== script) return null;
     // Launch the pinned platform runtime directly. The npm shim can search ancestor
     // node_modules and a global cache even with CODEGRAPH_NO_DOWNLOAD enabled.
     return { command, args: ['--liftoff-only', '--disable-warning=ExperimentalWarning', script] };
@@ -209,7 +209,7 @@ async function localHookPayload(payload) {
   try {
     const hook = JSON.parse(payload);
     if (typeof hook?.cwd !== 'string' || typeof hook.prompt !== 'string') return null;
-    const cwd = realpathSync(hook.cwd);
+    const cwd = realpath(hook.cwd);
     const relative = path.relative(repoRoot, cwd);
     if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
       return null;
@@ -229,9 +229,9 @@ async function usableLocalIndex() {
   try {
     const directory = path.join(repoRoot, '.codegraph');
     const file = path.join(directory, 'codegraph.db');
-    if (!lstatSync(directory).isDirectory() || realpathSync(directory) !== directory) return false;
+    if (!lstatSync(directory).isDirectory() || realpath(directory) !== directory) return false;
     const stat = lstatSync(file);
-    if (!stat.isFile() || stat.nlink !== 1 || realpathSync(file) !== file) return false;
+    if (!stat.isFile() || stat.nlink !== 1 || realpath(file) !== file) return false;
     // Node 20 has no node:sqlite. Prompt context is optional there; setup and the
     // published utility retain their own runtime requirements.
     const { DatabaseSync } = await import('node:sqlite');

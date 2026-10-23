@@ -43,6 +43,7 @@ function fixturePids(root) {
 
 function fixture(t, harness, stalledLauncher = false) {
   const root = checkout(t, async (root) => {
+    t.mock.timers.reset();
     const pids = [...new Set(fixturePids(root))];
     // Reap the exact fixture chain while its PID records still exist.
     for (const pid of pids.toReversed()) {

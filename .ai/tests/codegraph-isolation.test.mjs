@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import {
   aiRoot,
   checkout,
@@ -132,8 +133,8 @@ test('valid local subdirectory payload is pinned to checkout root despite ambien
   );
   assert.equal(result.status, 0, result.stderr);
   const context = JSON.parse(result.stdout);
-  assert.equal(context.root, realpathSync(root));
-  assert.equal(context.cwd, realpathSync(root));
+  assert.equal(context.root, realpathSync.native(root));
+  assert.equal(context.cwd, realpathSync.native(root));
   assert.equal(context.codegraphDir, '.codegraph');
 });
 test('local main package version must match the exact checkout pin', (t) => {
@@ -170,4 +171,35 @@ test('a parent adapter refuses a nested checkout payload', (t) => {
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, '');
+});
+
+test('native path canonicalization accepts aliases left unresolved by legacy realpath', (t) => {
+  const parent = checkout(t);
+  const root = nested(t, parent);
+  const alias = path.join(parent, 'alias');
+  symlinkSync(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  index(root);
+  nativePackage(root, "const fs=require('node:fs');console.log(fs.readFileSync(0,'utf8'));");
+  const preload = path.join(root, 'legacy-realpath.mjs');
+  writeFileSync(
+    preload,
+    `import fs from 'node:fs';
+import {syncBuiltinESMExports} from 'node:module';
+// Windows legacy realpath can retain an 8.3 alias; native realpath expands it.
+fs.realpathSync = Object.assign((file) => file, {native: fs.realpathSync.native});
+syncBuiltinESMExports();`,
+  );
+  const result = spawnSync(
+    process.execPath,
+    ['--import', pathToFileURL(preload).href, path.join(root, '.ai/codegraph.mjs'), 'prompt-hook'],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      input: JSON.stringify({ cwd: alias, prompt: 'How does search work?' }),
+      timeout: 5000,
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(result.stdout.trim(), 'the same checkout must not be rejected through a path alias');
+  assert.equal(JSON.parse(result.stdout).cwd, realpathSync.native(root));
 });
