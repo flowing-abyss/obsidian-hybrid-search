@@ -13,6 +13,8 @@ coverage/
 .obsidian-hybrid-search.db*
 .claude/settings.local.json
 AGENTS.md
+CLAUDE.md
+.ai/.setup-state.json
 .vscode/
 .opencode/
 .agents/
@@ -39,3 +41,6 @@ eval/results/*.md
 !eval/results/longmemeval-s-no-rerank.json
 !eval/results/evergreen-notes-no-rerank.json
 !eval/results/golden-prechange.json
+# Canonical agent configurations are tracked; generated root copies are local.
+!.ai/configs/
+!.ai/configs/**

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "codegraph": {
+      "type": "stdio",
+      "command": "node",
+      "args": [".ai/codegraph.mjs", "serve", "--mcp"]
+    }
+  }
+}

@@ -1,0 +1,3 @@
+[mcp_servers.codegraph]
+command = "node"
+args = [".ai/codegraph.mjs", "serve", "--mcp"]

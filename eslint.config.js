@@ -56,6 +56,39 @@ export default tseslint.config(
     },
   },
   {
+    // Harness adapters and the vendored browser helper are outside tsconfig.
+    files: ['.ai/scripts/**/*.{js,ts}', '.ai/skills/brainstorming/scripts/helper.js'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        Buffer: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        window: 'readonly',
+        document: 'readonly',
+        WebSocket: 'readonly',
+        module: 'readonly',
+      },
+    },
+    rules: {
+      ...tseslint.configs.disableTypeChecked.rules,
+      // Adapters launch Node and Windows taskkill without a shell or user command text.
+      'sonarjs/no-os-command-from-path': 'off',
+    },
+  },
+  {
+    files: ['.ai/skills/brainstorming/scripts/helper.js'],
+    rules: {
+      // This optional helper talks to the local visual-companion WebSocket server.
+      'sonarjs/no-clear-text-protocols': 'off',
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      '@typescript-eslint/no-unused-vars': ['error', { caughtErrors: 'none' }],
+    },
+  },
+  {
     ignores: ['dist/', 'node_modules/', 'eslint.config.js'],
   },
 );
