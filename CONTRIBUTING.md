@@ -4,6 +4,7 @@ Use Node **22.23.3** and npm **12.2.0** for development, with Git on PATH.
 The published utility supports Node 20 and newer.
 
 ```bash
+npm install --global npm@12.2.0
 npm install
 npm run build
 ```

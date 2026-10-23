@@ -23,8 +23,12 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-          cache: npm
+          package-manager-cache: false
       - run: npm install --global npm@12.2.0
+      - name: Cache npm packages
+        uses: actions/setup-node@v6
+        with:
+          cache: npm
       - run: npm ci
       - name: Restore model downloads
         uses: actions/cache@v4
@@ -41,8 +45,12 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-          cache: npm
+          package-manager-cache: false
       - run: npm install --global npm@12.2.0
+      - name: Cache npm packages
+        uses: actions/setup-node@v6
+        with:
+          cache: npm
       - run: npm ci
       - name: Restore model downloads
         uses: actions/cache@v4
@@ -67,6 +75,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
+          package-manager-cache: false
       - name: Verify every required job
         run: node scripts/check-ci-results.mjs
         env:
