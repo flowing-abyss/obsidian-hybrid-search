@@ -59,7 +59,10 @@ path and Git blob identity. Preparation validates the entire corpus, including
 missing and extra files, before accepting it. These hashes identify input data;
 they are not verification receipts. Evaluation uses `Xenova/multilingual-e5-small`
 and `onnx-community/gte-multilingual-reranker-base` with the committed judgments.
-Remote API settings are removed from the gate's child environment.
+Remote API settings are removed from the gate's child environment. Quality
+evaluation selects the entire pinned corpus and ignores personal vault paths,
+include/exclude patterns, and gitignore settings; ordinary runtime commands
+continue to honor those settings.
 
 Fresh per-query results remain in `eval/results/.tmp-quality-no-rerank.json` and
 `eval/results/.tmp-quality-rerank.json`; CI uploads them even on failure. A new run

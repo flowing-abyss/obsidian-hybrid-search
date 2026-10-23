@@ -61,3 +61,26 @@ test('missing output and incorrect mode metadata fail quality', () =>
     assert.notEqual(run({ MISSING: '1' }).status, 0);
     assert.notEqual(run({ WRONG: '1' }).status, 0);
   }));
+
+test('pinned corpus evaluation ignores inherited personal vault selection', () =>
+  fixture((root, run) => {
+    const result = run({
+      OBSIDIAN_VAULT_PATH: '/personal/vault',
+      OBSIDIAN_PREFIX: 'private_',
+      OBSIDIAN_INCLUDE_PATTERNS: 'private/**',
+      OBSIDIAN_IGNORE_PATTERNS: '**/*.md',
+      OBSIDIAN_RESPECT_GITIGNORE: 'true',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const calls = readFileSync(path.join(root, 'calls'), 'utf8').trim().split('\n').map(JSON.parse);
+    const evaluations = calls.filter(({ args }) => args[1] === 'eval');
+    assert.equal(evaluations.length, 2);
+    for (const { args, env } of evaluations) {
+      assert.equal(args[args.indexOf('--vault') + 1], 'fixtures/obsidian-help/dataset');
+      assert.equal(env.OBSIDIAN_INCLUDE_PATTERNS, '');
+      assert.equal(env.OBSIDIAN_IGNORE_PATTERNS, '');
+      assert.equal(env.OBSIDIAN_RESPECT_GITIGNORE, 'false');
+      assert.equal(env.OBSIDIAN_VAULT_PATH, undefined);
+      assert.equal(env.OBSIDIAN_PREFIX, undefined);
+    }
+  }));

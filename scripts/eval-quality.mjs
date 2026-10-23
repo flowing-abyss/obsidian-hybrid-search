@@ -4,6 +4,14 @@ import { assertEvalQuality } from '../eval/quality.ts';
 import { localModelEnv, runNpm } from './run-command.mjs';
 
 const env = localModelEnv();
+// Evaluation selects the entire pinned corpus, independently of personal vault settings.
+// Keep this policy local to the quality gate; runtime commands retain user filters.
+for (const name of Object.keys(env)) {
+  if (name.startsWith('OBSIDIAN_')) delete env[name];
+}
+env.OBSIDIAN_INCLUDE_PATTERNS = '';
+env.OBSIDIAN_IGNORE_PATTERNS = '';
+env.OBSIDIAN_RESPECT_GITIGNORE = 'false';
 const modes = [false, true].map((rerank) => ({
   rerank,
   output: `eval/results/.tmp-quality-${rerank ? 'rerank' : 'no-rerank'}.json`,
