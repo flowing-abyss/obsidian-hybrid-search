@@ -1,0 +1,487 @@
+{
+  "notes": [
+    {
+      "path": "Acceptance/Projects/Orion/Orion pilot access decision.md",
+      "content": "---\ntitle: Orion pilot access decision\ndate: 2026-02-12\ntags: [orion, product, decision]\n---\n# Orion pilot access decision\n\nOrion is the inventory import tool for small lending libraries. At the February 12 review, we replaced the open registration proposal from [[Orion planning meeting 2026-02-05]]. The first invitations go to six library coordinators; public self-signup is closed because duplicate trial accounts made it impossible to track feedback by library. Invitations will use each library's shared mailbox, so a volunteer change does not strand the account.\n\nPilot uploads are limited to public catalogue exports and invented sample records. The welcome checklist asks coordinators to import one shelf, inspect the rejected rows, and send a screenshot of the summary. We are testing whether the report explains a bad date or missing title clearly enough for someone to fix the original spreadsheet.\n\nThe next review is February 26, after two volunteer shifts at each library. We did not promise a public launch date. Ruth will collect import examples, and Malik will group the feedback before the review. #pilot\n"
+    },
+    {
+      "path": "Acceptance/Projects/Orion/Orion planning meeting 2026-02-05.md",
+      "content": "# Orion planning meeting — February 5\n\nThis is the planning record for the library inventory importer, not the final pilot announcement. We wanted volunteers to reach the first import without a training call. The February 5 proposal allowed public self-signup for a two-week trial, with one reminder email after the first successful import. The proposal still needed a support-capacity review before invitations could be sent.\n\nThe team expected ten libraries to try the tool, but that was an estimate rather than a recruitment commitment. We discussed collecting feedback by account name and immediately noticed that a library might create several accounts for different volunteer shifts. No one had yet decided how to join those reports.\n\nThe reminder email should ask about confusing rows, not ask for a satisfaction score. A small set of public catalogue files would be prepared for demonstrations. See [[Orion pilot access decision]] for the later access decision; this note preserves what was proposed on February 5. #orion #meeting\n"
+    },
+    {
+      "path": "Acceptance/Science/Orion winter observing.md",
+      "content": "# Orion winter observing\n\nFor our fictional neighbourhood astronomy evening, the handout starts with a familiar shape rather than a catalogue number. Find the three stars in Orion's belt, then look for the short line of the sword hanging below it; the middle patch of the sword is the nebula. Participants should sketch the shape before trying to match individual star names on the printed map.\n\nThe belt is useful because its three bright stars sit in a nearly straight line. The reddish shoulder and the bright opposite foot make a much larger outline around it. Binoculars help distinguish the fuzzy patch from the nearby points of light, but the first exercise is simply to locate the sword.\n\nOur observing cards have a wide view on one side and a closer drawing on the other. We will use the dim red table lamp when reading them. The product called Orion in the library project has no connection with this observing session. #astronomy\n"
+    },
+    {
+      "path": "Acceptance/Operations/Archive backup schedule.md",
+      "content": "---\ntags: [archive, backup, operations]\nstatus: agreed\n---\n# Archive backup schedule\n\nThis schedule covers the community workshop's notes and equipment catalogue. The automatic job copies changed files at 22:30 after the room closes. We retain fourteen daily snapshots and six weekly snapshots. Every Friday, the closing volunteer makes an offline copy on the blue drive and returns it to the locked cabinet. The blue drive is disconnected for the rest of the week.\n\nA completed job is recorded in the maintenance notebook with the snapshot date and total file count. If the count drops unexpectedly, the volunteer leaves the previous offline copy untouched and records the difference for review. The copy is not treated as good merely because a green job indicator appeared.\n\nThe weekly rotation was chosen to cover mistakes discovered after a long weekend. This note describes when copies are made and retained; the ordered checks for bringing files back are in [[Archive restoration rehearsal]]. A monthly calendar reminder asks someone other than the usual closing volunteer to practice that procedure.\n"
+    },
+    {
+      "path": "Acceptance/Operations/Archive restoration rehearsal.md",
+      "content": "# Archive restoration rehearsal\n\nThe February 18 rehearsal used a spare laptop and the workshop archive snapshot from the previous Friday. Restore the snapshot into a new temporary folder, compare its checksum list, and open twelve notes with attachments before replacing the working folder. The original working folder stays in place throughout these checks, so a failed rehearsal cannot overwrite the copy people are still using.\n\nThe February rehearsal took thirty-eight minutes from selecting the snapshot to finishing the attachment checks. We found one broken relative image link in a note that had already been broken in the source; copying again would not repair it. The result sheet separates pre-existing content problems from missing restored files.\n\nThe person running the rehearsal records the snapshot identifier, checksum result, and names of the twelve inspected notes. A second volunteer reads the result sheet before the replacement step. [[Archive backup schedule]] describes retention and the offline drive rotation, but it does not replace this verification sequence. #restore #rehearsal\n"
+    },
+    {
+      "path": "Acceptance/Operations/Archive incident timeline.md",
+      "content": "# Archive incident timeline — March 12\n\nThe reading room reported that the equipment catalogue had stopped updating, although the notes themselves still opened. At 09:20 we found that the external archive drive had been unplugged while the table was moved. The stalled copy job resumed after the drive was reconnected. No snapshot was restored during this incident.\n\nThe catalogue display was showing yesterday's generated page, which initially made the problem look like lost files. Comparing the live source folder with the latest successful job log showed that the files were present. We regenerated the page only after checking that its input folder was correct.\n\nThe follow-up action is a cable label and a tray that keeps the drive away from the folding table leg. This incident does not change the Friday offline-copy rotation. For a rehearsal that actually copies data back from a snapshot, use [[Archive restoration rehearsal]]. For the retention periods, use [[Archive backup schedule]]. Keep the distinction in the next volunteer briefing. #incident\n"
+    },
+    {
+      "path": "Acceptance/Projects/Harbor/Harbor accessibility audit.md",
+      "content": "---\ntitle: Harbor accessibility audit\ntags: [harbor, accessibility, audit]\n---\n# Harbor accessibility audit\n\nHarbor is the room-booking kiosk for the community centre. The March audit followed one complete booking using only a keyboard. Two failures remain: focus gets trapped inside the date picker, and the final confirmation button has no visible keyboard focus indicator. The first prevents a visitor from continuing; the second makes it unclear whether pressing Enter will submit the reservation.\n\nThe repeat check must open the calendar, choose a date, leave the calendar with Tab, and reach confirmation without using a mouse. The auditor will also take a screenshot of the visible focus state on the final button. The large-print labels and the room descriptions passed this particular review.\n\nThis note records the failures and the exact repeat checks. [[Harbor launch meeting]] records who must sign off and what evidence the launch group needs. A demonstration on a developer's laptop is useful during repair but does not stand in for the repeat check on the actual kiosk hardware.\n"
+    },
+    {
+      "path": "Acceptance/Projects/Harbor/Harbor launch meeting.md",
+      "content": "# Harbor launch meeting — March 20\n\nThe booking kiosk will remain beside the reception desk for staff practice while the public opening is on hold. Launch stays on hold until the two keyboard checks in the accessibility audit pass on the lobby kiosk and the centre's access coordinator signs the result sheet. We will attach the completed test record and the focus-state screenshot to the launch checklist.\n\nThe screen graphics are ready, and the printer can produce a reservation slip. Neither fact closes the keyboard findings. [[Harbor accessibility audit]] names the two failures and describes how to repeat each check; the launch group needs that evidence rather than a general statement that accessibility was reviewed.\n\nNo new opening date was announced at this meeting. Reception will keep using the paper booking sheet, and staff practice reservations will be deleted before public use. The coordinator is available to review the evidence on Wednesday afternoons. A short rehearsal with reception follows approval so that staff can explain both the kiosk and the paper alternative.\n"
+    },
+    {
+      "path": "Acceptance/Research/Commuter interview recruitment.md",
+      "content": "# Commuter interview recruitment\n\nFor the capture-tool study, recruit people who already jot down ideas while travelling rather than people who say they might adopt a new notes application. Half of the interview group should regularly use underground trains; the other half should travel on routes with continuous mobile coverage. We want to hear about an actual interrupted trip, not a prediction about ideal software.\n\nAsk each participant to bring a recent example they are comfortable discussing. The interviewer should reconstruct when the idea occurred, where the person put it, and what happened when they tried to find it later. Do not assume that synchronization speed is the main difficulty before hearing the story.\n\nWe will label the groups by travel conditions in the research summary. The notes themselves use invented example content and participant codes. [[Interview findings on offline capture]] contains the resulting observations and the priority decision. This recruitment plan alone does not establish which problem participants experienced most often. #research #capture\n"
+    },
+    {
+      "path": "Acceptance/Research/Interview findings on offline capture.md",
+      "content": "# Interview findings on offline capture\n\nThe commuter interviews changed the order of work for the capture tool. Participants lost unfinished text when the connection dropped, so preserving a local draft took priority over making automatic synchronization faster. Four underground travellers described reopening the application and finding the input field empty; their central complaint was lost wording rather than a delayed copy on another device.\n\nPeople on continuously connected routes mostly noticed the delay only when they switched devices. That contrast is why the next prototype saves the draft locally after each pause in typing and shows whether it has reached the shared account. A queue of completed notes is less useful if an unfinished thought disappears before it enters the queue.\n\n[[Commuter interview recruitment]] explains how the travel groups were chosen. The next interview round will use a deliberately interrupted journey in a demonstration, then ask people to recover their draft. The team will examine whether they understand the saved state without needing a technical explanation of synchronization. #research #offline\n"
+    },
+    {
+      "path": "Acceptance/Household/Station Road move inventory.md",
+      "content": "# Station Road move inventory\n\nThis note is for the fictional September move into the upstairs flat on Station Road. The keys become available at the agent's desk on Friday, September 4, at 16:00. The van is booked for Saturday morning, so nobody should arrange a delivery inside the flat before collecting the keys.\n\nThe labelled boxes nearest the van door contain the kettle, mugs, lamp, and extension lead. The desk parts go against the side wall because they will not be assembled until the bedroom boxes are upstairs. We put the router and its power supply in the small striped bag, not in the general cable box.\n\nThe first evening is reserved for checking lights, taking meter photographs, and finding the stopcock. The broadband visit has its own confirmed window in [[Station Road broadband appointment]]. Keeping that appointment separate avoids confusing the installer's arrival with the key collection or the van pickup. The move checklist has a blank space for the name of whoever actually collects the keys.\n"
+    },
+    {
+      "path": "Acceptance/Household/Station Road broadband appointment.md",
+      "content": "# Station Road broadband appointment\n\nThe installer is booked for Monday, September 7, between 09:00 and 12:00 at the upstairs Station Road flat. Someone must stay at the property for the full arrival window. The provider expects access to the front room wall socket and the cupboard below the landing; neither area should be blocked by moving boxes.\n\nThe appointment was originally discussed for Saturday, but that was never confirmed. Monday's window is the one written on the booking notice. We will test a wired connection at the desk before putting the router on the high shelf, because moving the shelf later would mean unpacking the books twice.\n\n[[Station Road move inventory]] has the key-collection time and the location of the router bag. If the visit finishes early, the rest of Monday can be used to assemble the desk. This note does not change the Saturday van booking. Keep the printed booking notice beside the entrance so the person waiting can find the reference without opening a laptop. #moving\n"
+    },
+    {
+      "path": "Acceptance/Workshop/Café inventory.md",
+      "content": "---\ntitle: Café inventory\naliases: [Coffee workshop stock]\ntags: [workshop, coffee, stock]\n---\n# Café inventory\n\nAfter Saturday's community coffee workshop, the shelf held 1.8 kg of whole beans: a sealed one-kilogram bag and an opened 800-gram bag. Opened beans should be used first; the 800-gram bag is clipped inside the square metal tin. The labels show roast date rather than the day a volunteer last rearranged the cupboard.\n\nThere are twenty-four clean cups, three spare paper-filter packets, and one unopened carton of oat drink. These are event supplies, not the daily kitchen stock, so the next workshop host should count them before shopping. The inventory sheet is kept under the weighing scales where someone setting up will actually see it.\n\nThe grinder has a separate care note, [[Coffee grinder cleaning]]. Cleaning does not imply that the coffee supply has been replenished. We will do the next stock count immediately after packing away the tasting table, since a count taken before the last round tends to overstate what remains. The title keeps the café accent used on the printed cupboard label.\n"
+    },
+    {
+      "path": "Acceptance/Workshop/Coffee grinder cleaning.md",
+      "content": "# Coffee grinder cleaning\n\nThe workshop grinder produced a stale aroma during the first empty test after storage. The volunteer found old grounds in the removable catch cup and around its rim. The routine at the end of a session is to switch the grinder off, unplug it, empty the removable cup, and brush loose grounds from the accessible dry surfaces. No water goes inside the grinder body.\n\nThis note records the simple external cleanup used by the workshop, not a procedure for dismantling the machine. If the catch cup is washed separately, it must be completely dry before it is returned. The small brush hangs beside the measuring spoons rather than in the general cleaning bucket.\n\nA fresh coffee inventory is still required after a busy event. [[Café inventory]] records the remaining beans and which bag was already opened. We should not infer the quantity from a clean hopper: the beans may have been packed back into the tin. Record odd sounds in the maintenance notebook instead of taking the casing apart during a class.\n"
+    },
+    {
+      "path": "Acceptance/Reading/Spaced review experiment.md",
+      "content": "# Spaced review experiment\n\nFor the book-club reading exercise, each person will summarize one short essay without looking at it, then compare that summary with the text. Follow-up reviews are scheduled two days, nine days, and sixteen days after the first reading. The calendar reminders should refer to the original reading date, not to the previous reminder, so a missed session does not silently move the entire schedule.\n\nThe comparison group rereads the essay once on the first evening and does the same final summary exercise. We are tracking remembered arguments and examples, not claiming a general rule about everyone learning in the same way. Participants may keep their own notes, but the final recall sheet is completed before opening them.\n\nThe review cards contain one question per argument. [[Flashcards import problem]] records a formatting problem with importing quoted examples; it does not alter these review dates. After the last session, the club will discuss which prompts felt useful and which merely rewarded recognizing a familiar phrase. #reading #experiment\n"
+    },
+    {
+      "path": "Acceptance/Reading/Flashcards import problem.md",
+      "content": "# Flashcards import problem\n\nThe first card import split several quotations into extra columns. Commas inside quoted passages were being treated as field separators by the hand-built export, so we agreed to use tab-separated text for the next import. Each row has the prompt, the answer, and a source reference, with no tabs inside those fields.\n\nBefore importing the whole deck, the organiser will try five cards containing punctuation and compare both sides with the source document. A quotation mark should remain visible text, not become an instruction to reshape the row. Any multiline quotation is shortened to a single paragraph for this trial, with the full passage left in the reading note.\n\nThe problem concerns the exchange file, not the review calendar. [[Spaced review experiment]] still gives the intervals measured from the first reading. Once the five-card check succeeds, the previous trial deck will be removed to avoid duplicate prompts. The organiser will keep the source file alongside the deck so a later correction can be traced back to its original row. #flashcards\n"
+    },
+    {
+      "path": "Acceptance/Community/Riverside seed library.md",
+      "content": "# Riverside seed library\n\nThe seed-sharing shelf will operate during the community room's normal opening hours. If the library room is locked, leave seed envelopes in the labelled wooden box at the reception desk, not in the outside letter slot. Reception staff will move the envelopes to the shelf when the room opens; paper packets left outside became damp during last year's spring rain.\n\nEach packet should name the plant, the collection year, and whether the seeds came from the sender's own garden. The club will sort broad categories such as flowers and vegetables, without promising a germination rate. Half-filled packets can go into the same box if their labels remain readable.\n\n[[Riverside room booking]] explains who holds the room key and which evening is reserved for sorting. The key arrangement is useful background, but donors do not need to track down a keyholder just to leave a packet. At the next meeting, volunteers will replace the box label with larger lettering and put a second sign at the locked room door. #community #seeds\n"
+    },
+    {
+      "path": "Acceptance/Community/Riverside room booking.md",
+      "content": "# Riverside room booking\n\nThe seed club has the small Riverside community room on the first Thursday of each month from 18:00 to 20:00. The reception supervisor holds the room key and lends it to the named session host after signing the booking sheet. Other Thursday evenings remain available to the repair group and the local history circle.\n\nThe room reservation includes six folding tables, but the club must return them to the alcove before leaving. Sorting trays belong in the bottom cupboard; unlabelled bags should not be stored behind the projector screen. The host will check the floor for loose seeds and take the meeting's rubbish away.\n\nPeople donating outside a meeting should follow the drop-off arrangement in [[Riverside seed library]]. This booking note deliberately does not make the host responsible for collecting individual donations around town. For the next sorting evening, the host will bring blank packet labels, pencils, and a simple tally sheet. The attendance count helps reception plan chairs but is not a count of how many seed packets were donated.\n"
+    },
+    {
+      "path": "Acceptance/Проекты/Север/Север — решение о запуске.md",
+      "content": "---\ntitle: Север — решение о запуске\ndate: 2026-05-12\ntags: [север, выставка, решение]\n---\n# Север — решение о запуске\n\nНа встрече двенадцатого мая обсуждали небольшую выставку фотографий северных посёлков в районном клубе. Открытие выставки «Север» перенесли с 24 мая на 7 июня из-за задержки рам; объявлять новую дату можно только после подтверждения доставки всей партии. Это решение касается публичного открытия, а не внутреннего просмотра подписей к фотографиям. Просмотр остаётся в календаре на следующую среду.\n\nКуратор проверит количество рам по накладной и отдельно отметит повреждённые углы. Если часть партии придёт раньше, её можно использовать для примерки развески, но это ещё не считается выполнением условия для объявления. Афиши пока хранятся в редактируемом виде, без окончательного тиража.\n\nРасходы на подписи и запас для повторной печати описаны в [[Север — черновик бюджета]]. Перенос даты не означает отказа от этого запаса: у печатных материалов своя проверка качества. Команда хочет избежать ситуации, когда дата уже разошлась по объявлениям, а несколько крупных фотографий по-прежнему нельзя закрепить на стене. #выставка\n"
+    },
+    {
+      "path": "Acceptance/Проекты/Север/Север — черновик бюджета.md",
+      "content": "# Север — черновик бюджета\n\nВ бюджете выставки отдельно записаны рамы, печать подписей, крепления и доставка. Резерв в 12 тысяч рублей оставили на повторную печать подписей, если на пробном оттиске пропадут мелкие линии схем. Этот запас не предназначен для дополнительных рам или праздничного стола. Сначала нужно увидеть образец на той бумаге, которая пойдёт в окончательный тираж.\n\nПосле переноса открытия резерв сохранили без изменений. Причина переноса относится к доставке рам и зафиксирована в [[Север — решение о запуске]]; она ничего не говорит о читаемости печатных схем. Старый макет выглядел хорошо на экране, но на обычной офисной распечатке часть тонких линий уже сливалась.\n\nВ таблице расходов будут две колонки: согласованная сумма и фактически оплаченная сумма. Чеки складывают в бумажный конверт с названием выставки, а в заметке оставляют только описание покупки. До проверки пробного оттиска не следует считать резерв свободным остатком. В конце проекта неиспользованную часть просто покажут отдельной строкой отчёта, чтобы было понятно, почему она не была потрачена.\n"
+    },
+    {
+      "path": "Acceptance/Работа/Тихие часы и дежурства.md",
+      "content": "---\ntags: [команда, поддержка, расписание]\n---\n# Тихие часы и дежурства\n\nВ рабочие дни с 10:00 до 12:00 команда мастерской оставляет общий чат без обычных вопросов, чтобы спокойно разбирать заказы и писать инструкции. Срочные обращения в тихие часы принимает дежурный по поддержке в канале #support-duty. Имя дежурного записано в верхней строке недельного расписания, а не закреплено навсегда за одним человеком.\n\nСрочным считается вопрос, из-за которого уже пришедший посетитель не может начать согласованное занятие или получить подготовленный заказ. Обсуждение новой закупки и просьбы поправить текст можно оставить до конца тихих часов. Дежурный сам решает, нужен ли ему ответ конкретного коллеги, и обращается только к нему.\n\nПосле двенадцати общий чат снова используется как обычно. Такой порядок не отменяет запись нерешённых обращений перед уходом домой: для неё есть [[Передача смены поддержки]]. В пятницу команда смотрит, сколько вопросов действительно требовали немедленного ответа, и при необходимости уточняет примеры. Цель договорённости — предсказуемое время сосредоточенной работы при сохранении понятного входа для срочной помощи.\n"
+    },
+    {
+      "path": "Acceptance/Работа/Передача смены поддержки.md",
+      "content": "# Передача смены поддержки\n\nВ конце смены дежурный оставляет короткую запись для следующего человека. Для каждого нерешённого обращения запишите номер запроса, последнюю проверенную гипотезу и время обещанного ответа. Отдельно укажите действие, с которого следующий дежурный должен начать проверку. Ссылка на длинную переписку полезна, но сама по себе не заменяет эти сведения.\n\nМы добавили последнюю проверенную гипотезу после случая, когда две смены подряд повторяли один и тот же безрезультатный опыт. Если проверка дала отрицательный результат, это тоже результат: нужно назвать, что именно уже исключили. Не стоит писать просто «разобраться» или «клиент ждёт», потому что такие строки заставляют восстанавливать контекст заново.\n\nУтром новый дежурный сначала просматривает обещанные сроки, затем берёт ближайшее обязательство. Если срок невозможно выдержать, он отмечает новый план в карточке обращения. Правило [[Тихие часы и дежурства]] объясняет, кто принимает срочные вопросы до полудня; эта заметка описывает передачу работы между людьми независимо от часа поступления вопроса. Номера в учебных примерах вымышлены и не относятся к реальным посетителям.\n"
+    },
+    {
+      "path": "Acceptance/Дом/Замена фильтра в вентиляции.md",
+      "content": "# Замена фильтра в вентиляции мастерской\n\nДля приточной установки в небольшой домашней мастерской нужен фильтр размером 287 × 187 × 20 мм. Размер переписан с рамки установленного фильтра и повторно проверен линейкой; похожая кассета 300 × 200 мм в эту рамку не входит. При следующем заказе нужно сверить именно размеры, а не выбирать первое изделие с похожей фотографией.\n\nНа старой картонной упаковке было название другой модели установки, поэтому мы больше не используем эту коробку как источник сведений. Фотография рамки лежит в папке с бытовыми заметками. В журнале отдельно отмечают дату осмотра и дату фактической замены, чтобы покупка запасной кассеты не выглядела как уже выполненная работа.\n\nЗапасной фильтр хранится на верхней полке сухого шкафа, в закрытой заводской упаковке. Рядом лежит пустая карточка для следующей записи. Эта заметка помогает найти нужный расходник; подробный порядок обслуживания остаётся в инструкции к установке. После ремонта кухни стоит снова проверить журнал, потому что строительная пыль появилась раньше обычного сезонного осмотра. #дом #расходники\n"
+    },
+    {
+      "path": "Acceptance/Дом/План ремонта кухни.md",
+      "content": "# План ремонта кухни\n\nВ первоначальном рисунке высокий шкаф стоял у окна, рядом с рабочим столом. Шкаф у окна исключили из плана, потому что его боковая стенка перекрывала доступ к ручке радиатора. На картинке оставалось достаточно места для прохода, но при примерке картонного контура рукой дотянуться до ручки было неудобно. Решение связано с доступом для обычного использования, а не с цветом фасадов.\n\nКрупы и редко используемые формы перенесут в нижний модуль у двери. Для этого верхний ящик сделали немного уже, сохранив отдельное место для противней. На следующем замере нужно проверить открывание дверцы при выдвинутом стуле: эту ситуацию первый рисунок тоже не показывал.\n\nПокупку новых ручек отложили до окончательной расстановки модулей. Старые подходят для примерки и позволяют проверить, не цепляется ли одежда в узком проходе. После пыльных работ нужно заглянуть в [[Замена фильтра в вентиляции]], но размеры кухонных шкафов не следует переносить в ту заметку. В списке покупок пока остаются только подтверждённые детали и крепления.\n"
+    },
+    {
+      "path": "Acceptance/Поездки/Поездка к озеру — окончательный маршрут.md",
+      "content": "---\ntitle: Поездка к озеру — окончательный маршрут\ndate: 2026-08-10\ntags: [озеро, маршрут, выходные]\n---\n# Поездка к озеру — окончательный маршрут\n\nЭто окончательный план клубной поездки на субботу, 15 августа. Встречаемся у северного автовокзала в 08:20 и садимся на автобус 402 в 08:40. Билеты каждый покупает самостоятельно, а организатор отмечает, все ли пришли, до выхода на платформу. У речного вокзала группа больше не собирается.\n\nВместо парома мы едем автобусом до западной тропы, потому что переправа временно закрыта. От конечной остановки идём вдоль берега до сосновой поляны, где запланирован общий перекус. Прежний вариант с восточной пристанью остался в [[Поездка к озеру — ранние варианты]] только как история обсуждения.\n\nОбратный автобус отходит от той же остановки в 17:10. На поляне организатор напомнит об этом за час до выхода, чтобы желающие успели собрать вещи без спешки. Длинный круг вокруг озера в этот день не проходим: времени между автобусами для него недостаточно. При сильном дожде поездку отменяем вечером накануне, а не пытаемся вернуться к закрытому парому.\n"
+    },
+    {
+      "path": "Acceptance/Поездки/Поездка к озеру — ранние варианты.md",
+      "content": "# Поездка к озеру — ранние варианты\n\nВ июльском обсуждении сравнивали поездку на автобусе и переправу через залив. Ранний план предлагал встречу у речного вокзала в 07:30 и паром до восточной пристани в 08:15. От пристани предполагалось пройти короткую лесную дорожку к поляне. Этот вариант нравился группе из-за красивого вида с воды, но зависел от работы переправы.\n\nВторой вариант шёл автобусом к западному берегу. Он казался менее интересным, зато не требовал отдельного водного билета. Тогда мы ещё не сверяли время обратного рейса и не выбирали конкретную остановку, поэтому эти заметки нельзя использовать как инструкцию для встречи группы.\n\nПосле сообщения о закрытии переправы организатор составил [[Поездка к озеру — окончательный маршрут]]. В нём находятся подтверждённые место встречи, номер автобуса и время возвращения. Ранние варианты сохраняются, чтобы через год понимать, почему обсуждение несколько раз меняло направление. Старое время у речного вокзала нужно убрать с распечатанного черновика, если он остался на клубной доске. #архив #поездка\n"
+    },
+    {
+      "path": "Acceptance/Мастерская/Учёт ткани для сумок.md",
+      "content": "# Учёт ткани для сумок\n\nПосле раскроя пробной партии мы пересчитали ткань отдельно по цветам и назначению. Для ручек нужно оставить плотную синюю стропу; на катушке осталось 6,4 метра. Тонкий серый хлопок идёт на подкладку и не заменяет стропу, даже если его сложить в несколько слоёв. Катушка подписана и лежит в нижнем ящике большого стола.\n\nЗелёного полотна осталось достаточно для двух внешних деталей, но сначала нужно проверить направление рисунка. Небольшие обрезки складывают в прозрачный пакет для пробных швов. Их не включают в остаток ткани, пригодной для полноценной детали, иначе следующая смена начнёт раскрой с неверной цифры.\n\nНовая длина ручек и место дополнительного припуска описаны в [[Настройка выкройки сумки]]. Эта складская заметка фиксирует материал и остаток, а не размеры готового изделия. Перед выдачей стропы следующему участнику занятия нужно записать, сколько метров отрезали. Даже короткий пробный кусок уменьшает доступный остаток. На следующем учёте будем измерять катушку заново, а не рассчитывать всё по числу сшитых сумок. #шитьё #материалы\n"
+    },
+    {
+      "path": "Acceptance/Мастерская/Настройка выкройки сумки.md",
+      "content": "# Настройка выкройки сумки\n\nПосле пробной прогулки ручки решили укоротить с 68 до 58 сантиметров, чтобы сумка не задевала колесо велосипеда. Это длина готовой ручки между точками крепления, а не длина отрезанного куска стропы. На бумажном шаблоне оба значения подписаны отдельно, поскольку на первом занятии их уже перепутали.\n\nДополнительный припуск в три сантиметра оставили только у верхнего края подкладки. Он позволяет спокойно выровнять край после сборки, прежде чем выполнять окончательный шов. Боковые детали не расширяли: лишняя ширина меняла посадку кармана и не помогала решить проблему с длиной ручек.\n\nПробную сумку сохраняем рядом с выкройкой, чтобы следующий участник мог сравнить её с исправленным образцом. Цветные линии на шаблоне обозначают старый и новый верхний край, а не разные размеры изделия. В [[Учёт ткани для сумок]] записано, какую стропу резервируют и сколько её осталось. Перед большим раскроем нужно сделать одну бумажную проверку расположения деталей; исправление шаблона ещё не означает, что ткань уже разрезана. #сумка #выкройка\n"
+    },
+    {
+      "path": "Acceptance/Знания/Как мы связываем заметки.md",
+      "content": "---\naliases: [Правила внутренних ссылок]\ntags: [заметки, связи, практика]\n---\n# Как мы связываем заметки\n\nВ клубном архиве ссылка должна объяснять, зачем читателю открывать соседнюю заметку. Тематическую связь мы помещаем в раздел «Связано», а конкретное действие со ссылкой — в раздел «Следующий шаг». Это различие помогает не превращать любую похожую мысль в задачу и не прятать реальные договорённости среди общих ассоциаций.\n\nНапример, заметка о чтении может быть тематически связана с обзором библиотеки, даже если ничего делать не требуется. А фраза «проверить страницу цитаты по каталогу» должна стоять среди следующих шагов и вести к [[Каталог прочитанных книг]]. Само наличие двойных скобок не показывает, что действие уже назначено или выполнено.\n\nПри разборе старой заметки сначала пишем короткое объяснение связи, затем добавляем ссылку. Если объяснить её не получается, ссылку лучше оставить в черновике до следующего чтения. Общие теги используются для широких подборок, но не заменяют направленный переход между двумя конкретными мыслями. На ежемесячной уборке проверяем именно понятность переходов, а не пытаемся увеличить количество ссылок ради красивой схемы графа.\n"
+    },
+    {
+      "path": "Acceptance/Знания/Каталог прочитанных книг.md",
+      "content": "# Каталог прочитанных книг\n\nКаталог нужен, чтобы восстановить источник выписки после того, как бумажная книга вернулась в библиотеку. Номер страницы цитаты записывается в поле «Источник» у самой выписки вместе с названием издания и годом. Общая карточка книги хранит впечатления и список тем, но номер страницы не нужно искать только в ней: у разных выписок он, конечно, будет разным.\n\nЕсли читаем электронное издание без постоянных страниц, вместо случайного номера экрана указываем главу и короткое название раздела. Такой ориентир легче проверить на другом устройстве. Для бумажной книги важно отличать год конкретного издания от даты, когда участник клуба закончил чтение.\n\nВ конце выписки можно добавить собственный комментарий, отделив его от точных слов автора. Тогда при следующем обсуждении будет видно, где заканчивается источник и начинается наша мысль. [[Как мы связываем заметки]] объясняет, куда помещать тематические ссылки и действия по проверке. Если страница пока не сверена, в поле источника оставляем явную пометку «проверить», а не придумываем уверенное число по памяти. #чтение #источники\n"
+    },
+    {
+      "path": "Acceptance/Клуб/Ночной кинопоказ — площадка.md",
+      "content": "# Ночной кинопоказ — площадка\n\nДля августовского показа обсуждали двор, крышу и зал первого этажа. Крышу исключили: хозяева здания не разрешили проводить там вечерние мероприятия. При дожде переносим показ в зал первого этажа, сохраняя начало в 20:30. Во дворе можно расставить стулья только после закрытия дневной ярмарки, поэтому ранний приход зрителей не означает раннего начала фильма.\n\nРешение о переносе принимаем в 17:00 по состоянию площадки и сообщению дежурного. На входе будет бумажная стрелка, чтобы опоздавшие не шли искать группу наверху. В зале оставляем проход между рядами и место у боковой стены для стойки с аппаратурой. Предварительная рассадка рассчитана на тридцать зрителей.\n\nДля внутреннего варианта нужен другой комплект звука; он описан в [[Ночной кинопоказ — техника]]. Организатор площадки отвечает за стулья и указатели, а ведущий показа — за проверку фильма и субтитров. Эти обязанности разделили после прошлого вечера, когда все считали, что стрелку на входе повесит кто-то другой. Крышу не возвращаем в список вариантов даже при ясной погоде. #кино #площадка\n"
+    },
+    {
+      "path": "Acceptance/Клуб/Ночной кинопоказ — техника.md",
+      "content": "# Ночной кинопоказ — техника\n\nНа проверке в зале встроенного динамика проектора оказалось недостаточно: речь с заднего ряда была неразборчива даже при тихой вентиляции. Для показа внутри берём две активные колонки и длинный кабель с разъёмами 3,5 мм; компактную батарейную колонку оставляем для объявлений во дворе. Переходник лежит в маленьком сером чехле рядом с кабелем, а не в коробке от проектора.\n\nПеред приходом зрителей включаем фрагмент с обычным диалогом и просим человека сесть в последний ряд. Проверка только по громкой заставке не показывает, хорошо ли слышны слова. Файл фильма и файл субтитров заранее лежат в одной папке на ноутбуке, чтобы не зависеть от сети во время сеанса.\n\n[[Ночной кинопоказ — площадка]] содержит условие переноса внутрь и время начала. Эта заметка не даёт разрешения использовать крышу и не меняет рассадку. После показа кабели сматывают отдельно от питания, а колонки возвращают на полку с подписанным комплектом. В листе выдачи отмечают полный набор, включая небольшой переходник, который легко забыть на столе. #кино #звук\n"
+    },
+    {
+      "path": "Acceptance/Проекты/Маяк/Маяк — полевой тест датчиков.md",
+      "content": "---\ntitle: Маяк — полевой тест датчиков\ndate: 2026-09-18\ntags: [маяк, датчики, полевой-тест]\n---\n# Маяк — полевой тест датчиков\n\nПроект «Маяк» измеряет освещённость в общественной теплице, чтобы сравнивать разные участки стеллажей. Пропуски вечерних показаний вызвал таймер розетки, отключавший питание шлюза в 19:00; сами датчики продолжали записывать измерения в память. Наутро накопленные записи приходили пачкой, поэтому график выглядел так, будто растения ночью оставались совсем без измерений.\n\nВо время следующего испытания шлюз подключат к постоянно включённой розетке, а журнал питания будут вести рядом с журналом отправки данных. Это позволит отличить потерю связи от отсутствия самого измерения. Датчики между полками пока не переставляют: иначе одновременно изменятся две причины различий в графиках.\n\nВ [[Маяк — прототип панели]] описано, как интерфейс показывал пустые интервалы. Исправление рисунка графика само по себе не восстановит питание шлюза, а смена розетки не объяснит зрителю старые пропуски. На общей встрече нужно показать обе заметки. В отчёте отдельно сохраняют время измерения и время получения записи, потому что при пакетной доставке это разные моменты. #теплица\n"
+    },
+    {
+      "path": "Acceptance/Проекты/Маяк/Маяк — прототип панели.md",
+      "content": "# Маяк — прототип панели\n\nВ первом прототипе панели пустые интервалы ошибочно соединялись линией на нулевом уровне. Отсутствующие данные нужно показывать разрывом линии, а подтверждённый ноль — обычной точкой на оси. Под графиком появится короткая подпись о задержанной доставке, если время получения существенно позже времени измерения. Так посетитель сможет отличить темноту от неполной истории наблюдений.\n\nНа демонстрации мы использовали запись одного дня из теплицы. После девятнадцати часов график выглядел особенно странно, однако интерфейс не мог установить причину по одному отсутствию точек. Причина вечернего обрыва связи подтверждена в [[Маяк — полевой тест датчиков]]. В панели не следует выдавать предположение о питании за результат проверки оборудования.\n\nСледующий макет сохраняет одинаковую шкалу для соседних стеллажей. Раньше автоматический выбор высоты делал маленькие колебания похожими на крупные изменения. Подписи времени будут указывать местное время теплицы, а не часовой пояс ноутбука зрителя. Проверка макета проводится на сохранённом наборе записей, чтобы изменение рисунка можно было сравнить без нового полевого дня. #маяк #интерфейс\n"
+    },
+    {
+      "path": "Acceptance/Мастерская/Регламент общего шкафа.md",
+      "content": "# Регламент общего шкафа\n\nОбщий шкаф в мастерской предназначен для материалов занятий, а не для личных вещей участников. Большие коробки стоят снизу, лёгкие лотки с бумагой — на средней полке, запасные таблички — сверху. После занятия ведущий проверяет, что дверцы закрываются без усилия и ни один рулон не упирается в петлю. На внутренней стороне дверцы висит список того, что обычно лежит на каждой полке.\n\n%%\nЗапасной ключ от общего шкафа лежит в синем конверте за настенными часами у входа. Эту подсказку оставили для ведущих занятий; при печати общего регламента комментарий скрывается. После использования ключ нужно вернуть в тот же конверт, а не оставлять на столе среди ножниц.\n%%\n\nОсновной ключ получает ведущий вместе с листом выдачи помещения. Если после занятия остались чужие вещи, их относят на стойку находок, не запирая внутри общего шкафа. Раз в месяц один участник сверяет подписи коробок с содержимым. Непонятную коробку сначала открывают и описывают, а уже потом решают, к какой полке она относится. #мастерская #порядок\n"
+    },
+    {
+      "path": "Acceptance/Inbox/Empty note.md",
+      "content": ""
+    }
+  ],
+  "queries": [
+    {
+      "id": "en01",
+      "query": "Why did we close Orion's public signup, and who gets the first invitations?",
+      "relevant_paths": [
+        "Acceptance/Projects/Orion/Orion pilot access decision.md"
+      ],
+      "partial_paths": [
+        "Acceptance/Projects/Orion/Orion planning meeting 2026-02-05.md"
+      ],
+      "category": "english|same_language|decision|entity_ambiguity",
+      "expected_fact": "The first invitations go to six library coordinators; public self-signup is closed because duplicate trial accounts made it impossible to track feedback by library."
+    },
+    {
+      "id": "en02",
+      "query": "What was proposed for public self-signup at the Orion planning meeting on February 5, before the later access decision?",
+      "relevant_paths": [
+        "Acceptance/Projects/Orion/Orion planning meeting 2026-02-05.md"
+      ],
+      "partial_paths": [
+        "Acceptance/Projects/Orion/Orion pilot access decision.md"
+      ],
+      "category": "english|same_language|historical_decision|exact",
+      "expected_fact": "The February 5 proposal allowed public self-signup for a two-week trial, with one reminder email after the first successful import."
+    },
+    {
+      "id": "en03",
+      "query": "How do I find the Orion nebula from the belt during the winter observing session?",
+      "relevant_paths": [
+        "Acceptance/Science/Orion winter observing.md"
+      ],
+      "partial_paths": [],
+      "category": "english|same_language|entity_ambiguity|spatial_relation",
+      "expected_fact": "Find the three stars in Orion's belt, then look for the short line of the sword hanging below it; the middle patch of the sword is the nebula."
+    },
+    {
+      "id": "en04",
+      "query": "How often do we make an offline archive copy, and how many weekly snapshots do we retain?",
+      "relevant_paths": [
+        "Acceptance/Operations/Archive backup schedule.md"
+      ],
+      "partial_paths": [],
+      "category": "english|same_language|backup_vs_restore|schedule",
+      "expected_fact": "We retain fourteen daily snapshots and six weekly snapshots. Every Friday, the closing volunteer makes an offline copy on the blue drive and returns it to the locked cabinet."
+    },
+    {
+      "id": "en05",
+      "query": "How should I check that the archive restore worked before replacing the working folder?",
+      "relevant_paths": [
+        "Acceptance/Operations/Archive restoration rehearsal.md"
+      ],
+      "partial_paths": [],
+      "category": "english|same_language|backup_vs_restore|procedure",
+      "expected_fact": "Restore the snapshot into a new temporary folder, compare its checksum list, and open twelve notes with attachments before replacing the working folder."
+    },
+    {
+      "id": "en06",
+      "query": "What is blocking Harbor's launch, and what evidence and sign-off are needed to go ahead?",
+      "relevant_paths": [
+        "Acceptance/Projects/Harbor/Harbor accessibility audit.md",
+        "Acceptance/Projects/Harbor/Harbor launch meeting.md"
+      ],
+      "partial_paths": [],
+      "category": "english|same_language|multi_evidence|launch_gate",
+      "expected_fact": "Two failures remain: focus gets trapped inside the date picker, and the final confirmation button has no visible keyboard focus indicator."
+    },
+    {
+      "id": "en07",
+      "query": "What problem made offline drafts a higher priority than faster automatic synchronization in the commuter study?",
+      "relevant_paths": [
+        "Acceptance/Research/Interview findings on offline capture.md"
+      ],
+      "partial_paths": [],
+      "category": "english|same_language|rationale|paraphrase",
+      "expected_fact": "Participants lost unfinished text when the connection dropped, so preserving a local draft took priority over making automatic synchronization faster."
+    },
+    {
+      "id": "en08",
+      "query": "When are the keys available for the Station Road flat, and when is the broadband installer coming?",
+      "relevant_paths": [
+        "Acceptance/Household/Station Road move inventory.md",
+        "Acceptance/Household/Station Road broadband appointment.md"
+      ],
+      "partial_paths": [],
+      "category": "english|same_language|multi_evidence|date_disambiguation",
+      "expected_fact": "The keys become available at the agent's desk on Friday, September 4, at 16:00."
+    },
+    {
+      "id": "en09",
+      "query": "Where is the spare key for the shared supply cupboard in the workshop?",
+      "relevant_paths": [
+        "Acceptance/Мастерская/Регламент общего шкафа.md"
+      ],
+      "partial_paths": [],
+      "category": "english|cross_language_en_to_ru|comment_content",
+      "expected_fact": "Запасной ключ от общего шкафа лежит в синем конверте за настенными часами у входа."
+    },
+    {
+      "id": "en10",
+      "query": "Which material should we reserve for the bag handles, and how much is left?",
+      "relevant_paths": [
+        "Acceptance/Мастерская/Учёт ткани для сумок.md"
+      ],
+      "partial_paths": [],
+      "category": "english|cross_language_en_to_ru|inventory",
+      "expected_fact": "Для ручек нужно оставить плотную синюю стропу; на катушке осталось 6,4 метра."
+    },
+    {
+      "id": "en11",
+      "query": "What changed in the final lake trip route after the ferry was ruled out?",
+      "relevant_paths": [
+        "Acceptance/Поездки/Поездка к озеру — окончательный маршрут.md"
+      ],
+      "partial_paths": [
+        "Acceptance/Поездки/Поездка к озеру — ранние варианты.md"
+      ],
+      "category": "english|cross_language_en_to_ru|superseded_plan",
+      "expected_fact": "Вместо парома мы едем автобусом до западной тропы, потому что переправа временно закрыта."
+    },
+    {
+      "id": "en12",
+      "query": "Who handles urgent support questions during quiet hours, and what should they record for the next shift if a request is still unresolved?",
+      "relevant_paths": [
+        "Acceptance/Работа/Тихие часы и дежурства.md",
+        "Acceptance/Работа/Передача смены поддержки.md"
+      ],
+      "partial_paths": [],
+      "category": "english|cross_language_en_to_ru|multi_evidence|handover",
+      "expected_fact": "Срочные обращения в тихие часы принимает дежурный по поддержке в канале #support-duty."
+    },
+    {
+      "id": "en13",
+      "query": "How much coffee was left after the Saturday café workshop, and which bag should we use first?",
+      "relevant_paths": [
+        "Acceptance/Workshop/Café inventory.md"
+      ],
+      "partial_paths": [],
+      "category": "english|same_language|unicode_nfd_path|inventory|exact",
+      "expected_fact": "After Saturday's community coffee workshop, the shelf held 1.8 kg of whole beans: a sealed one-kilogram bag and an opened 800-gram bag. Opened beans should be used first; the 800-gram bag is clipped inside the square metal tin."
+    },
+    {
+      "id": "en14",
+      "query": "When should the follow-up reviews happen in the reading experiment, and does missing one move the whole schedule?",
+      "relevant_paths": [
+        "Acceptance/Reading/Spaced review experiment.md"
+      ],
+      "partial_paths": [
+        "Acceptance/Reading/Flashcards import problem.md"
+      ],
+      "category": "english|same_language|schedule|paraphrase",
+      "expected_fact": "Follow-up reviews are scheduled two days, nine days, and sixteen days after the first reading. The calendar reminders should refer to the original reading date, not to the previous reminder, so a missed session does not silently move the entire schedule."
+    },
+    {
+      "id": "en15",
+      "query": "Where can I leave Riverside seed envelopes when the library room is locked?",
+      "relevant_paths": [
+        "Acceptance/Community/Riverside seed library.md"
+      ],
+      "partial_paths": [],
+      "category": "english|same_language|location|paraphrase",
+      "expected_fact": "If the library room is locked, leave seed envelopes in the labelled wooden box at the reception desk, not in the outside letter slot."
+    },
+    {
+      "id": "en16",
+      "query": "What explains the gaps in Mayak's evening readings, and were the measurements actually lost?",
+      "relevant_paths": [
+        "Acceptance/Проекты/Маяк/Маяк — полевой тест датчиков.md"
+      ],
+      "partial_paths": [
+        "Acceptance/Проекты/Маяк/Маяк — прототип панели.md"
+      ],
+      "category": "english|cross_language_en_to_ru|cause_vs_display|entity_transliteration",
+      "expected_fact": "Пропуски вечерних показаний вызвал таймер розетки, отключавший питание шлюза в 19:00; сами датчики продолжали записывать измерения в память."
+    },
+    {
+      "id": "ru01",
+      "query": "Какие данные разрешили загружать в пилот Orion для библиотек?",
+      "relevant_paths": [
+        "Acceptance/Projects/Orion/Orion pilot access decision.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|cross_language_ru_to_en|policy|entity_ambiguity",
+      "expected_fact": "Pilot uploads are limited to public catalogue exports and invented sample records."
+    },
+    {
+      "id": "ru02",
+      "query": "Как на зимнем наблюдении найти туманность Ориона, если я уже вижу три звезды пояса?",
+      "relevant_paths": [
+        "Acceptance/Science/Orion winter observing.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|cross_language_ru_to_en|entity_ambiguity|spatial_relation",
+      "expected_fact": "Find the three stars in Orion's belt, then look for the short line of the sword hanging below it; the middle patch of the sword is the nebula."
+    },
+    {
+      "id": "ru03",
+      "query": "Сколько заняло февральское пробное восстановление архива и что проверяли перед заменой рабочей папки?",
+      "relevant_paths": [
+        "Acceptance/Operations/Archive restoration rehearsal.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|cross_language_ru_to_en|backup_vs_restore|duration",
+      "expected_fact": "The February rehearsal took thirty-eight minutes from selecting the snapshot to finishing the attachment checks."
+    },
+    {
+      "id": "ru04",
+      "query": "Почему импорт карточек ломал цитаты с запятыми и какой формат решили попробовать вместо него?",
+      "relevant_paths": [
+        "Acceptance/Reading/Flashcards import problem.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|cross_language_ru_to_en|failure_and_workaround",
+      "expected_fact": "Commas inside quoted passages were being treated as field separators by the hand-built export, so we agreed to use tab-separated text for the next import."
+    },
+    {
+      "id": "ru05",
+      "query": "Из-за чего перенесли открытие выставки «Север» и на что оставили печатный резерв?",
+      "relevant_paths": [
+        "Acceptance/Проекты/Север/Север — решение о запуске.md",
+        "Acceptance/Проекты/Север/Север — черновик бюджета.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|same_language|multi_evidence|decision_and_budget",
+      "expected_fact": "Открытие выставки «Север» перенесли с 24 мая на 7 июня из-за задержки рам; объявлять новую дату можно только после подтверждения доставки всей партии."
+    },
+    {
+      "id": "ru06",
+      "query": "На какую дату перенесли открытие «Севера» и что должно произойти до публикации объявления?",
+      "relevant_paths": [
+        "Acceptance/Проекты/Север/Север — решение о запуске.md"
+      ],
+      "partial_paths": [
+        "Acceptance/Проекты/Север/Север — черновик бюджета.md"
+      ],
+      "category": "russian|same_language|conditional_date|entity_ambiguity",
+      "expected_fact": "Открытие выставки «Север» перенесли с 24 мая на 7 июня из-за задержки рам; объявлять новую дату можно только после подтверждения доставки всей партии."
+    },
+    {
+      "id": "ru07",
+      "query": "Куда отправлять срочный вопрос по поддержке в рабочие дни между десятью и двенадцатью?",
+      "relevant_paths": [
+        "Acceptance/Работа/Тихие часы и дежурства.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|same_language|routing|time_disambiguation",
+      "expected_fact": "Срочные обращения в тихие часы принимает дежурный по поддержке в канале #support-duty."
+    },
+    {
+      "id": "ru08",
+      "query": "Какие сведения нужно оставить следующей смене о нерешённом обращении?",
+      "relevant_paths": [
+        "Acceptance/Работа/Передача смены поддержки.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|same_language|handover|procedure",
+      "expected_fact": "Для каждого нерешённого обращения запишите номер запроса, последнюю проверенную гипотезу и время обещанного ответа. Отдельно укажите действие, с которого следующий дежурный должен начать проверку."
+    },
+    {
+      "id": "ru09",
+      "query": "Какого размера фильтр заказывать для приточной вентиляции домашней мастерской?",
+      "relevant_paths": [
+        "Acceptance/Дом/Замена фильтра в вентиляции.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|same_language|dimensions|exact",
+      "expected_fact": "Для приточной установки в небольшой домашней мастерской нужен фильтр размером 287 × 187 × 20 мм."
+    },
+    {
+      "id": "ru10",
+      "query": "Почему высокий шкаф у окна убрали из плана ремонта кухни?",
+      "relevant_paths": [
+        "Acceptance/Дом/План ремонта кухни.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|same_language|rationale|paraphrase",
+      "expected_fact": "Шкаф у окна исключили из плана, потому что его боковая стенка перекрывала доступ к ручке радиатора."
+    },
+    {
+      "id": "ru11",
+      "query": "Где и во сколько встречаемся на поездку к озеру 15 августа и на какой автобус садимся?",
+      "relevant_paths": [
+        "Acceptance/Поездки/Поездка к озеру — окончательный маршрут.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|same_language|exact|superseded_plan|meeting_time",
+      "expected_fact": "Встречаемся у северного автовокзала в 08:20 и садимся на автобус 402 в 08:40."
+    },
+    {
+      "id": "ru12",
+      "query": "Почему ручки пробной сумки решили сделать короче и у какого края оставили дополнительный припуск?",
+      "relevant_paths": [
+        "Acceptance/Мастерская/Настройка выкройки сумки.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|same_language|design_rationale|multiple_facts",
+      "expected_fact": "После пробной прогулки ручки решили укоротить с 68 до 58 сантиметров, чтобы сумка не задевала колесо велосипеда."
+    },
+    {
+      "id": "ru13",
+      "query": "Как в клубном архиве отличаем тематическую ссылку от действия, которое ещё нужно выполнить?",
+      "relevant_paths": [
+        "Acceptance/Знания/Как мы связываем заметки.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|same_language|knowledge_management|concept_distinction",
+      "expected_fact": "Тематическую связь мы помещаем в раздел «Связано», а конкретное действие со ссылкой — в раздел «Следующий шаг»."
+    },
+    {
+      "id": "ru14",
+      "query": "Где искать номер страницы цитаты, когда бумажную книгу уже вернули в библиотеку?",
+      "relevant_paths": [
+        "Acceptance/Знания/Каталог прочитанных книг.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|same_language|knowledge_management|source_location",
+      "expected_fact": "Номер страницы цитаты записывается в поле «Источник» у самой выписки вместе с названием издания и годом."
+    },
+    {
+      "id": "ru15",
+      "query": "Можно ли устроить ночной кинопоказ на крыше и куда переносим его при дожде?",
+      "relevant_paths": [
+        "Acceptance/Клуб/Ночной кинопоказ — площадка.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|same_language|constraint|fallback",
+      "expected_fact": "Крышу исключили: хозяева здания не разрешили проводить там вечерние мероприятия. При дожде переносим показ в зал первого этажа, сохраняя начало в 20:30."
+    },
+    {
+      "id": "ru16",
+      "query": "Какой звук и кабели нужно взять для кинопоказа, если переносим экран внутрь?",
+      "relevant_paths": [
+        "Acceptance/Клуб/Ночной кинопоказ — техника.md"
+      ],
+      "partial_paths": [],
+      "category": "russian|same_language|equipment|conditional_plan",
+      "expected_fact": "Для показа внутри берём две активные колонки и длинный кабель с разъёмами 3,5 мм; компактную батарейную колонку оставляем для объявлений во дворе."
+    }
+  ],
+  "explanation": "Independent fictional acceptance data authored before any retrieval, model, implementation, or ranking inspection. The 36 Markdown notes comprise 18 English notes, 17 Russian notes, and one intentionally empty English-titled note. All 35 nonempty notes target 100–200 whitespace-delimited words. All people, organisations, projects, dates, appointments, inventories, and operational arrangements in the corpus are fictional scenarios. The 32 natural information-needs queries comprise 16 English and 16 Russian queries; nine queries require cross-language retrieval (five English-to-Russian and four Russian-to-English). Category tags are pipe-separated; the first tag names the query language. In cross_language_X_to_Y, X is query language and Y is evidence language. For ordinary queries, each relevant_paths entry answers the information need; partial_paths entries provide useful but incomplete supporting information. Pure lexical distractors and contradictory superseded plans are not partial unless their historical context supports the query. For the four multi_evidence queries (en06, en08, en12, ru05), every relevant_paths entry supplies a necessary answer component, so evaluate retrieval of all listed paths as well as any-hit recall. expected_fact is an exact, non-generated quotation from at least one relevant note and is an evidence anchor rather than a complete synthesized answer; other requested components are in the listed relevant notes. The cupboard-key evidence occurs only inside an Obsidian %% comment. Café inventory.md uses decomposed e-plus-combining-acute in its filename, while its displayed title uses composed é. Other filenames contain Cyrillic. Known-answer scenarios cover old versus final decisions, a product versus an astronomical constellation, backup policy versus restoration procedure, physical cause versus chart rendering, exact quantities and times, linked notes, and multiple evidence sources. Some facts are deliberately probed in both languages, so the 32 queries are not 32 independent topics. Relevance judgments cover only these authored notes; any relevant content in the frozen public vault remains unjudged. This small synthetic corpus is not a population estimate or a promise of rank one. No model was run, no rankings were consulted, and no implementation source was inspected while authoring it."
+}

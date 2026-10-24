@@ -1,0 +1,80 @@
+name: Temporary initial-index measurement
+
+'on':
+  push:
+    branches: [verify-release-performance]
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: macos-26
+    # 18 setup + 25 preparation + 47 collection + 7 evidence + 3 overhead minutes.
+    timeout-minutes: 100
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the measurement bundle
+        timeout-minutes: 3
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check out the exact original source
+        timeout-minutes: 3
+        uses: actions/checkout@v6
+        with:
+          ref: 8109080ae62abb60504cf14a118dd75a464cf9d3
+          path: sources/base
+          persist-credentials: false
+      - name: Check out the exact candidate source
+        timeout-minutes: 3
+        uses: actions/checkout@v6
+        with:
+          ref: d9dc8f9ce873eed9d3b74f7056c56c3c70ac2a7b
+          path: sources/candidate
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        timeout-minutes: 3
+        with:
+          node-version: 26.12.0
+          package-manager-cache: false
+      - name: Select the exact npm version
+        timeout-minutes: 3
+        run: npm install --global npm@12.2.0
+      - name: Restore only E5 model downloads
+        timeout-minutes: 3
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/huggingface/Xenova/multilingual-e5-small
+          key: initial-index-e5-macos-arm64-${{ hashFiles('fixtures/performance-audit/model-artifacts.json') }}
+      - name: Build, pack, reconstruct, and verify frozen inputs
+        timeout-minutes: 25
+        run: node scripts/performance-audit/prepare.mjs prepare
+      - name: Collect the unchanged quiet protocol
+        id: collect
+        timeout-minutes: 47
+        run: |
+          set +e
+          node "$RUNNER_TEMP/initial-index-performance/measure-initial-quiet-migration.mjs" > "$RUNNER_TEMP/initial-index-performance/preparation/collector.stdout.txt" 2> "$RUNNER_TEMP/initial-index-performance/preparation/collector.stderr.txt"
+          collector_status=$?
+          printf '{"exitCode":%s}\n' "$collector_status" > "$RUNNER_TEMP/initial-index-performance/preparation/collector-exit.json"
+          exit "$collector_status"
+      - name: Stage every available observation
+        id: archive
+        timeout-minutes: 2
+        if: always()
+        run: node scripts/performance-audit/prepare.mjs archive
+      - name: Upload observations and provenance
+        id: upload
+        timeout-minutes: 5
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: initial-index-performance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/initial-index-performance-artifact
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 14

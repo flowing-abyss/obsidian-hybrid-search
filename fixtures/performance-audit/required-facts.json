@@ -1,0 +1,305 @@
+{
+  "en01": [
+    {
+      "path": "Acceptance/Projects/Orion/Orion pilot access decision.md",
+      "quotes": [
+        "The first invitations go to six library coordinators; public self-signup is closed because duplicate trial accounts made it impossible to track feedback by library."
+      ]
+    }
+  ],
+  "en02": [
+    {
+      "path": "Acceptance/Projects/Orion/Orion planning meeting 2026-02-05.md",
+      "quotes": [
+        "The February 5 proposal allowed public self-signup for a two-week trial, with one reminder email after the first successful import.",
+        "The proposal still needed a support-capacity review before invitations could be sent."
+      ]
+    }
+  ],
+  "en03": [
+    {
+      "path": "Acceptance/Science/Orion winter observing.md",
+      "quotes": [
+        "Find the three stars in Orion's belt, then look for the short line of the sword hanging below it; the middle patch of the sword is the nebula."
+      ]
+    }
+  ],
+  "en04": [
+    {
+      "path": "Acceptance/Operations/Archive backup schedule.md",
+      "quotes": [
+        "We retain fourteen daily snapshots and six weekly snapshots.",
+        "Every Friday, the closing volunteer makes an offline copy on the blue drive and returns it to the locked cabinet."
+      ]
+    }
+  ],
+  "en05": [
+    {
+      "path": "Acceptance/Operations/Archive restoration rehearsal.md",
+      "quotes": [
+        "Restore the snapshot into a new temporary folder, compare its checksum list, and open twelve notes with attachments before replacing the working folder.",
+        "The person running the rehearsal records the snapshot identifier, checksum result, and names of the twelve inspected notes. A second volunteer reads the result sheet before the replacement step."
+      ]
+    }
+  ],
+  "en06": [
+    {
+      "path": "Acceptance/Projects/Harbor/Harbor accessibility audit.md",
+      "quotes": [
+        "Two failures remain: focus gets trapped inside the date picker, and the final confirmation button has no visible keyboard focus indicator.",
+        "The repeat check must open the calendar, choose a date, leave the calendar with Tab, and reach confirmation without using a mouse. The auditor will also take a screenshot of the visible focus state on the final button."
+      ]
+    },
+    {
+      "path": "Acceptance/Projects/Harbor/Harbor launch meeting.md",
+      "quotes": [
+        "Launch stays on hold until the two keyboard checks in the accessibility audit pass on the lobby kiosk and the centre's access coordinator signs the result sheet.",
+        "We will attach the completed test record and the focus-state screenshot to the launch checklist."
+      ]
+    }
+  ],
+  "en07": [
+    {
+      "path": "Acceptance/Research/Interview findings on offline capture.md",
+      "quotes": [
+        "Participants lost unfinished text when the connection dropped, so preserving a local draft took priority over making automatic synchronization faster."
+      ]
+    }
+  ],
+  "en08": [
+    {
+      "path": "Acceptance/Household/Station Road move inventory.md",
+      "quotes": [
+        "The keys become available at the agent's desk on Friday, September 4, at 16:00."
+      ]
+    },
+    {
+      "path": "Acceptance/Household/Station Road broadband appointment.md",
+      "quotes": [
+        "The installer is booked for Monday, September 7, between 09:00 and 12:00 at the upstairs Station Road flat.",
+        "Someone must stay at the property for the full arrival window."
+      ]
+    }
+  ],
+  "en09": [
+    {
+      "path": "Acceptance/Мастерская/Регламент общего шкафа.md",
+      "quotes": [
+        "Запасной ключ от общего шкафа лежит в синем конверте за настенными часами у входа."
+      ]
+    }
+  ],
+  "en10": [
+    {
+      "path": "Acceptance/Мастерская/Учёт ткани для сумок.md",
+      "quotes": [
+        "Для ручек нужно оставить плотную синюю стропу; на катушке осталось 6,4 метра."
+      ]
+    }
+  ],
+  "en11": [
+    {
+      "path": "Acceptance/Поездки/Поездка к озеру — окончательный маршрут.md",
+      "quotes": [
+        "Вместо парома мы едем автобусом до западной тропы, потому что переправа временно закрыта.",
+        "Встречаемся у северного автовокзала в 08:20 и садимся на автобус 402 в 08:40. Билеты каждый покупает самостоятельно, а организатор отмечает, все ли пришли, до выхода на платформу. У речного вокзала группа больше не собирается.",
+        "Прежний вариант с восточной пристанью остался в [[Поездка к озеру — ранние варианты]] только как история обсуждения."
+      ]
+    }
+  ],
+  "en12": [
+    {
+      "path": "Acceptance/Работа/Тихие часы и дежурства.md",
+      "quotes": [
+        "Срочные обращения в тихие часы принимает дежурный по поддержке в канале #support-duty.",
+        "Имя дежурного записано в верхней строке недельного расписания, а не закреплено навсегда за одним человеком."
+      ]
+    },
+    {
+      "path": "Acceptance/Работа/Передача смены поддержки.md",
+      "quotes": [
+        "Для каждого нерешённого обращения запишите номер запроса, последнюю проверенную гипотезу и время обещанного ответа.",
+        "Отдельно укажите действие, с которого следующий дежурный должен начать проверку."
+      ]
+    }
+  ],
+  "en13": [
+    {
+      "path": "Acceptance/Workshop/Café inventory.md",
+      "quotes": [
+        "After Saturday's community coffee workshop, the shelf held 1.8 kg of whole beans: a sealed one-kilogram bag and an opened 800-gram bag.",
+        "Opened beans should be used first; the 800-gram bag is clipped inside the square metal tin."
+      ]
+    }
+  ],
+  "en14": [
+    {
+      "path": "Acceptance/Reading/Spaced review experiment.md",
+      "quotes": [
+        "Follow-up reviews are scheduled two days, nine days, and sixteen days after the first reading.",
+        "The calendar reminders should refer to the original reading date, not to the previous reminder, so a missed session does not silently move the entire schedule."
+      ]
+    }
+  ],
+  "en15": [
+    {
+      "path": "Acceptance/Community/Riverside seed library.md",
+      "quotes": [
+        "If the library room is locked, leave seed envelopes in the labelled wooden box at the reception desk, not in the outside letter slot."
+      ]
+    }
+  ],
+  "en16": [
+    {
+      "path": "Acceptance/Проекты/Маяк/Маяк — полевой тест датчиков.md",
+      "quotes": [
+        "Пропуски вечерних показаний вызвал таймер розетки, отключавший питание шлюза в 19:00; сами датчики продолжали записывать измерения в память.",
+        "Наутро накопленные записи приходили пачкой, поэтому график выглядел так, будто растения ночью оставались совсем без измерений."
+      ]
+    }
+  ],
+  "ru01": [
+    {
+      "path": "Acceptance/Projects/Orion/Orion pilot access decision.md",
+      "quotes": [
+        "Pilot uploads are limited to public catalogue exports and invented sample records."
+      ]
+    }
+  ],
+  "ru02": [
+    {
+      "path": "Acceptance/Science/Orion winter observing.md",
+      "quotes": [
+        "Find the three stars in Orion's belt, then look for the short line of the sword hanging below it; the middle patch of the sword is the nebula."
+      ]
+    }
+  ],
+  "ru03": [
+    {
+      "path": "Acceptance/Operations/Archive restoration rehearsal.md",
+      "quotes": [
+        "The February rehearsal took thirty-eight minutes from selecting the snapshot to finishing the attachment checks.",
+        "Restore the snapshot into a new temporary folder, compare its checksum list, and open twelve notes with attachments before replacing the working folder.",
+        "The person running the rehearsal records the snapshot identifier, checksum result, and names of the twelve inspected notes. A second volunteer reads the result sheet before the replacement step."
+      ]
+    }
+  ],
+  "ru04": [
+    {
+      "path": "Acceptance/Reading/Flashcards import problem.md",
+      "quotes": [
+        "Commas inside quoted passages were being treated as field separators by the hand-built export, so we agreed to use tab-separated text for the next import."
+      ]
+    }
+  ],
+  "ru05": [
+    {
+      "path": "Acceptance/Проекты/Север/Север — решение о запуске.md",
+      "quotes": [
+        "Открытие выставки «Север» перенесли с 24 мая на 7 июня из-за задержки рам; объявлять новую дату можно только после подтверждения доставки всей партии."
+      ]
+    },
+    {
+      "path": "Acceptance/Проекты/Север/Север — черновик бюджета.md",
+      "quotes": [
+        "Резерв в 12 тысяч рублей оставили на повторную печать подписей, если на пробном оттиске пропадут мелкие линии схем.",
+        "После переноса открытия резерв сохранили без изменений."
+      ]
+    }
+  ],
+  "ru06": [
+    {
+      "path": "Acceptance/Проекты/Север/Север — решение о запуске.md",
+      "quotes": [
+        "Открытие выставки «Север» перенесли с 24 мая на 7 июня из-за задержки рам; объявлять новую дату можно только после подтверждения доставки всей партии.",
+        "Если часть партии придёт раньше, её можно использовать для примерки развески, но это ещё не считается выполнением условия для объявления."
+      ]
+    }
+  ],
+  "ru07": [
+    {
+      "path": "Acceptance/Работа/Тихие часы и дежурства.md",
+      "quotes": [
+        "В рабочие дни с 10:00 до 12:00 команда мастерской оставляет общий чат без обычных вопросов, чтобы спокойно разбирать заказы и писать инструкции.",
+        "Срочные обращения в тихие часы принимает дежурный по поддержке в канале #support-duty."
+      ]
+    }
+  ],
+  "ru08": [
+    {
+      "path": "Acceptance/Работа/Передача смены поддержки.md",
+      "quotes": [
+        "Для каждого нерешённого обращения запишите номер запроса, последнюю проверенную гипотезу и время обещанного ответа.",
+        "Отдельно укажите действие, с которого следующий дежурный должен начать проверку."
+      ]
+    }
+  ],
+  "ru09": [
+    {
+      "path": "Acceptance/Дом/Замена фильтра в вентиляции.md",
+      "quotes": [
+        "Для приточной установки в небольшой домашней мастерской нужен фильтр размером 287 × 187 × 20 мм."
+      ]
+    }
+  ],
+  "ru10": [
+    {
+      "path": "Acceptance/Дом/План ремонта кухни.md",
+      "quotes": [
+        "Шкаф у окна исключили из плана, потому что его боковая стенка перекрывала доступ к ручке радиатора."
+      ]
+    }
+  ],
+  "ru11": [
+    {
+      "path": "Acceptance/Поездки/Поездка к озеру — окончательный маршрут.md",
+      "quotes": [
+        "Это окончательный план клубной поездки на субботу, 15 августа.",
+        "Встречаемся у северного автовокзала в 08:20 и садимся на автобус 402 в 08:40."
+      ]
+    }
+  ],
+  "ru12": [
+    {
+      "path": "Acceptance/Мастерская/Настройка выкройки сумки.md",
+      "quotes": [
+        "После пробной прогулки ручки решили укоротить с 68 до 58 сантиметров, чтобы сумка не задевала колесо велосипеда.",
+        "Дополнительный припуск в три сантиметра оставили только у верхнего края подкладки."
+      ]
+    }
+  ],
+  "ru13": [
+    {
+      "path": "Acceptance/Знания/Как мы связываем заметки.md",
+      "quotes": [
+        "Тематическую связь мы помещаем в раздел «Связано», а конкретное действие со ссылкой — в раздел «Следующий шаг»."
+      ]
+    }
+  ],
+  "ru14": [
+    {
+      "path": "Acceptance/Знания/Каталог прочитанных книг.md",
+      "quotes": [
+        "Номер страницы цитаты записывается в поле «Источник» у самой выписки вместе с названием издания и годом."
+      ]
+    }
+  ],
+  "ru15": [
+    {
+      "path": "Acceptance/Клуб/Ночной кинопоказ — площадка.md",
+      "quotes": [
+        "Крышу исключили: хозяева здания не разрешили проводить там вечерние мероприятия.",
+        "При дожде переносим показ в зал первого этажа, сохраняя начало в 20:30."
+      ]
+    }
+  ],
+  "ru16": [
+    {
+      "path": "Acceptance/Клуб/Ночной кинопоказ — техника.md",
+      "quotes": [
+        "Для показа внутри берём две активные колонки и длинный кабель с разъёмами 3,5 мм; компактную батарейную колонку оставляем для объявлений во дворе.",
+        "Переходник лежит в маленьком сером чехле рядом с кабелем, а не в коробке от проектора."
+      ]
+    }
+  ]
+}

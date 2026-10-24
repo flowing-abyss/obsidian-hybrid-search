@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "temporaryBranch": "verify-release-performance",
+  "sourceCommits": {
+    "base": "8109080ae62abb60504cf14a118dd75a464cf9d3",
+    "candidate": "d9dc8f9ce873eed9d3b74f7056c56c3c70ac2a7b"
+  },
+  "frozenHelperEquivalence": [
+    {
+      "file": "harness-safe-cleanup.mjs",
+      "frozenSha256": "361e5f38a2698f7faa70f8904f8baa84a2b99ac532694f72639cfae9ff8c63a5",
+      "preparedSha256": "9c7d8ee2083825f7b01d6a59b795ad87e81a5e9722bd4a37af4f6069a397ecbe",
+      "equivalence": "Exact after Prettier normalization, removing scoped lint comments/global declaration, and reverting the two helper SHA literals in the collector."
+    },
+    {
+      "file": "telemetry.mjs",
+      "frozenSha256": "d4812a379cdc7ea8ab2256489a145beed42a86681a31d331f91f0461b30f9443",
+      "preparedSha256": "6e20bbd05a329719df33c0ceacf9e50899f9da271d8d8c12a763b81abd476a18",
+      "equivalence": "Exact after Prettier normalization, removing scoped lint comments/global declaration, and reverting the two helper SHA literals in the collector."
+    },
+    {
+      "file": "measure-initial-quiet-migration.mjs",
+      "frozenSha256": "4c75fa31f91342a7f478cd96198e3b49d324692ca0e6d161b8a4e760140c8104",
+      "preparedSha256": "6124391b5efa68fd1c31ba060a95e35d46561e059c910df6955bc13069027206",
+      "equivalence": "Exact after Prettier normalization, removing scoped lint comments/global declaration, and reverting the two helper SHA literals in the collector."
+    }
+  ],
+  "files": [
+    {
+      "path": ".github/workflows/initial-index-performance.yml",
+      "bytes": 2925,
+      "sha256": "4786a561f16aadc964112e33db02d65adb7355273cdb701a3342e41755477965"
+    },
+    {
+      "path": "fixtures/performance-audit/corpus-manifest.json",
+      "bytes": 272359,
+      "sha256": "9181479b4410f94475b67fcd1a7561c6c62f5237b179eabcca8b23b7a8be0cdb"
+    },
+    {
+      "path": "fixtures/performance-audit/model-artifacts.json",
+      "bytes": 2452,
+      "sha256": "2c84d230c7019739412becfbfa9a394ddbdfa4216d9fc84e62aad174e3ecab54"
+    },
+    {
+      "path": "fixtures/performance-audit/ohs-acceptance-corpus.json",
+      "bytes": 80142,
+      "sha256": "71a47fca70d51528d7e3816fd7bef6c78c79352a5386ab13e84f35cb21cc93a6"
+    },
+    {
+      "path": "fixtures/performance-audit/queries.json",
+      "bytes": 56944,
+      "sha256": "5ebdaf38950df0520fc4cf9f811bb70a83c7908cede97dc9f42e2e75c591c4e0"
+    },
+    {
+      "path": "fixtures/performance-audit/quiet-initial-protocol.md",
+      "bytes": 3526,
+      "sha256": "34afc7ec113bd7b20ec1291ac6413987c1fd0db8f22430512182817212bcacaa"
+    },
+    {
+      "path": "fixtures/performance-audit/required-facts.json",
+      "bytes": 15272,
+      "sha256": "e08ffb5491cca3804b867033b0a7156727573f4365eb54bae158e2ebe86541c0"
+    },
+    {
+      "path": "fixtures/performance-audit/runtime-manifest.json",
+      "bytes": 12618,
+      "sha256": "df86910783dcce422073953501adee89c0c1496e46612faa112d13c6f48ab5ec"
+    },
+    {
+      "path": "fixtures/performance-audit/runtime-source-commit.json",
+      "bytes": 840,
+      "sha256": "100b6d9ad757dfa93771de31c463d02ba108e012fdbc2244aa6d7d6b0110a84d"
+    },
+    {
+      "path": "scripts/performance-audit/harness-safe-cleanup.mjs",
+      "bytes": 22715,
+      "sha256": "9c7d8ee2083825f7b01d6a59b795ad87e81a5e9722bd4a37af4f6069a397ecbe"
+    },
+    {
+      "path": "scripts/performance-audit/measure-initial-quiet-migration.mjs",
+      "bytes": 22936,
+      "sha256": "6124391b5efa68fd1c31ba060a95e35d46561e059c910df6955bc13069027206"
+    },
+    {
+      "path": "scripts/performance-audit/prepare.mjs",
+      "bytes": 22116,
+      "sha256": "2b068134af1bc016832beba0592fa6254d5e5a099cca8e786096412c7b904482"
+    },
+    {
+      "path": "scripts/performance-audit/telemetry.mjs",
+      "bytes": 1663,
+      "sha256": "6e20bbd05a329719df33c0ceacf9e50899f9da271d8d8c12a763b81abd476a18"
+    },
+    {
+      "path": "scripts/tests/performance-audit-prepare.test.mjs",
+      "bytes": 14147,
+      "sha256": "4d25623b805bb6c56d52684bfd9e513f07ea39ce7c56130b8247c07da4974e42"
+    }
+  ]
+}

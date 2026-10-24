@@ -14,6 +14,13 @@
   ],
   "project": ["src/**/*.ts", "eval/**/*.ts", "scripts/**/*.{mjs,ts}", ".ai/**/*.{mjs,js,ts}"],
   "includeEntryExports": true,
+  "github-actions": {
+    "entry": [
+      "scripts/performance-audit/measure-initial-quiet-migration.mjs",
+      "scripts/performance-audit/harness-safe-cleanup.mjs",
+      "scripts/performance-audit/telemetry.mjs"
+    ]
+  },
   "ignoreBinaries": ["qmd"],
   "ignoreDependencies": ["@earendil-works/pi-coding-agent"],
   "ignoreIssues": {

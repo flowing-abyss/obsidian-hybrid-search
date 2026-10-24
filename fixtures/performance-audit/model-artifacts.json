@@ -1,0 +1,69 @@
+{
+  "recordedAt": "2026-10-24T16:41:49.292Z",
+  "scope": "Observed after quality run and before final performance; not a pre-quality hash claim",
+  "files": [
+    {
+      "model": "Xenova/multilingual-e5-small",
+      "file": "config.json",
+      "bytes": 658,
+      "mtime": "2026-10-05T05:02:46.975Z",
+      "sha256": "cb99455288675345e1a4f411438d5d0adbba5fbd3a67ea4fb03c015433b996c1"
+    },
+    {
+      "model": "Xenova/multilingual-e5-small",
+      "file": "tokenizer.json",
+      "bytes": 17082730,
+      "mtime": "2026-10-05T05:03:11.971Z",
+      "sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39"
+    },
+    {
+      "model": "Xenova/multilingual-e5-small",
+      "file": "tokenizer_config.json",
+      "bytes": 443,
+      "mtime": "2026-10-05T05:02:48.967Z",
+      "sha256": "a1d6bc8734a6f635dc158508bef000f8e2e5a759c7d92f984b2c86e5ff53425b"
+    },
+    {
+      "model": "Xenova/multilingual-e5-small",
+      "file": "onnx/model_quantized.onnx",
+      "bytes": 118308185,
+      "mtime": "2026-10-05T05:04:56.164Z",
+      "sha256": "f80102d3f2a1229f387d3c81909990d8945513e347b0eab049f7de3c6f98c193"
+    },
+    {
+      "model": "onnx-community/gte-multilingual-reranker-base",
+      "file": "config.json",
+      "bytes": 1578,
+      "mtime": "2026-10-01T12:30:09.016Z",
+      "sha256": "dfa5713436ecb4616eaa576795c8d3efd1f03122031a1ad4973d0b6b7e7edfd3"
+    },
+    {
+      "model": "onnx-community/gte-multilingual-reranker-base",
+      "file": "tokenizer.json",
+      "bytes": 17082999,
+      "mtime": "2026-10-01T12:40:46.122Z",
+      "sha256": "3ffb37461c391f096759f4a9bbbc329da0f36952f88bab061fcf84940c022e98"
+    },
+    {
+      "model": "onnx-community/gte-multilingual-reranker-base",
+      "file": "tokenizer_config.json",
+      "bytes": 1340,
+      "mtime": "2026-10-01T12:40:29.083Z",
+      "sha256": "6f00514620aff01ba8b7291b2394e98daca5be264cb743805232d9ae27494b2a"
+    },
+    {
+      "model": "onnx-community/gte-multilingual-reranker-base",
+      "file": "onnx/model_fp16.onnx",
+      "bytes": 629118152,
+      "mtime": "2026-10-01T12:40:27.371Z",
+      "sha256": "baba50ee1c61dfc47601ca54518d325eab03560fd06c4b45685cc4ecc4514df4"
+    },
+    {
+      "model": "onnx-community/gte-multilingual-reranker-base",
+      "file": "onnx/model_int8.onnx",
+      "bytes": 340858200,
+      "mtime": "2026-10-23T19:34:25.633Z",
+      "sha256": "ccf51dba7f8aa9205753761cfaa68c55f741792501463a3bf25d7e5bcdac7c35"
+    }
+  ]
+}

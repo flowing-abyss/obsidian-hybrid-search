@@ -1,0 +1,18 @@
+{
+  "commit": "d9dc8f9ce873eed9d3b74f7056c56c3c70ac2a7b",
+  "base": "bc55696c8ebd5a02e599a2c983e5415cab4964a7",
+  "packageSha256": "f69cab4310e870caa31cbdc685fe49272865be0dcdfb5d526470c339400a7143",
+  "committedDiffSha256": "ab32120c40be6bbca9d60a871739bedaed806b53de13ccad2073907929ae2714",
+  "sourcePatch": "migration-committed-source.diff",
+  "previousPackageSha256": "3fe924de6ad482abc607d0991ca797479dbb6582103b5fd0fe3bbce99027240c",
+  "changedCompiledSincePreviousPackage": [
+    "dist/src/storage/db.js"
+  ],
+  "checks": {
+    "verifyTask": "exit0,109files,1958passed,1unchangedconditional skip",
+    "evalQuality": "exit0,both modes,original failing fixture retained",
+    "commitHooks": "normal lint-staged and commitlint passed",
+    "packageFileList": "73 allowed files"
+  },
+  "recordedAt": "2026-10-24T20:06:40.126209+00:00"
+}

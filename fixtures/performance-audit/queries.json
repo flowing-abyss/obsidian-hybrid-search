@@ -1,0 +1,1358 @@
+[
+  {
+    "id": "evg001",
+    "query": "Evergreen notes",
+    "relevant_paths": [
+      "notes/Evergreen notes.md"
+    ],
+    "partial_paths": [
+      "notes/Evergreen note-writing as fundamental unit of knowledge work.md",
+      "notes/§Note-writing systems.md"
+    ],
+    "category": "exact-title",
+    "notes": "Canonical hub note. Partials are nearby note-writing overview/fundamental-unit notes, but the exact title is the direct target."
+  },
+  {
+    "id": "evg002",
+    "query": "Mnemonic medium",
+    "relevant_paths": [
+      "notes/Mnemonic medium.md"
+    ],
+    "partial_paths": [
+      "notes/Quantum Country.md",
+      "notes/Spaced repetition memory system.md"
+    ],
+    "category": "exact-title",
+    "notes": "Tests exact retrieval of the main mnemonic-medium hub against closely linked Quantum Country and SRS hubs."
+  },
+  {
+    "id": "evg003",
+    "query": "Spaced repetition memory system",
+    "relevant_paths": [
+      "notes/Spaced repetition memory system.md"
+    ],
+    "partial_paths": [
+      "notes/Mnemonic medium.md",
+      "notes/Supermemo.md"
+    ],
+    "category": "exact-title",
+    "notes": "Exact concept title with many close neighbors; partials are implementation/special-case notes."
+  },
+  {
+    "id": "evg004",
+    "query": "Enacted experience",
+    "relevant_paths": [
+      "notes/Enacted experience.md"
+    ],
+    "partial_paths": [
+      "notes/Participatory environment.md",
+      "notes/Enacted experiences have incredible potential as a mass medium.md"
+    ],
+    "category": "exact-title",
+    "notes": "Direct concept title; participatory environment and mass-medium potential are useful but not definitions."
+  },
+  {
+    "id": "evg005",
+    "query": "Enabling environment",
+    "relevant_paths": [
+      "notes/Enabling environment.md"
+    ],
+    "partial_paths": [
+      "notes/Enabling environments focus on doing what’s enabled.md",
+      "notes/Enabling environments’ activities directly serve an intrinsically meaningful purpose.md"
+    ],
+    "category": "exact-title",
+    "notes": "Exact title for the central enabling-environment note; partials are important properties."
+  },
+  {
+    "id": "evg006",
+    "query": "Process over product",
+    "relevant_paths": [
+      "notes/Process over product.md"
+    ],
+    "partial_paths": [
+      "notes/Inappropriate time pressures often harm creative work.md",
+      "notes/A rigid fixation on “focus” can harm creative work.md"
+    ],
+    "category": "exact-title",
+    "notes": "Exact-title creative-work note with adjacent pressure/focus notes as partials."
+  },
+  {
+    "id": "evg007",
+    "query": "Augmental",
+    "relevant_paths": [
+      "notes/Augmental.md"
+    ],
+    "partial_paths": [
+      "notes/Silent speech interface.md",
+      "notes/Poor man’s brain-computer interface.md"
+    ],
+    "category": "exact-title",
+    "notes": "Specific product/person-visit note; related interface concepts should not outrank it."
+  },
+  {
+    "id": "evg008",
+    "query": "Harberger taxation",
+    "relevant_paths": [
+      "notes/Harberger taxation.md"
+    ],
+    "partial_paths": [],
+    "category": "exact-title",
+    "notes": "Non-core economics note to avoid evaluating only dominant memory/note-writing clusters."
+  },
+  {
+    "id": "evg009",
+    "query": "Duolingo",
+    "relevant_paths": [
+      "notes/Duolingo.md"
+    ],
+    "partial_paths": [
+      "notes/Spaced repetition memory system.md"
+    ],
+    "category": "exact-title",
+    "notes": "Specific app note; SRS is only a related component."
+  },
+  {
+    "id": "evg010",
+    "query": "All desktop EPUB readers are awful",
+    "relevant_paths": [
+      "notes/All desktop EPUB readers are awful.md"
+    ],
+    "partial_paths": [
+      "notes/Few digital reading environments support marginal notes.md",
+      "notes/Augmented reading.md"
+    ],
+    "category": "exact-title",
+    "notes": "Exact complaint title in the reading-software cluster."
+  },
+  {
+    "id": "evg011",
+    "query": "notes should be organized around concepts rather than books projects or topics",
+    "relevant_paths": [
+      "notes/Evergreen notes should be concept-oriented.md"
+    ],
+    "partial_paths": [
+      "notes/Evergreen notes.md",
+      "notes/Evergreen notes should be atomic.md"
+    ],
+    "category": "conceptual",
+    "notes": "Paraphrases concept-oriented evergreen notes without using the exact title phrase."
+  },
+  {
+    "id": "evg012",
+    "query": "one note should cover one reusable idea without fragmenting the link network",
+    "relevant_paths": [
+      "notes/Evergreen notes should be atomic.md"
+    ],
+    "partial_paths": [
+      "notes/Evergreen notes should be densely linked.md",
+      "notes/Evergreen note titles are like APIs.md"
+    ],
+    "category": "conceptual",
+    "notes": "Tests semantic retrieval of atomicity and separation-of-concerns language."
+  },
+  {
+    "id": "evg013",
+    "query": "why collecting highlights and excerpts feels productive but often does not create understanding",
+    "relevant_paths": [
+      "notes/Collecting material feels more useful than it usually is.md"
+    ],
+    "partial_paths": [
+      "notes/Write about what you read to internalize texts deeply.md",
+      "notes/Understanding requires effortful engagement.md"
+    ],
+    "category": "conceptual",
+    "notes": "Paraphrase of the note about collecting material versus effortful engagement."
+  },
+  {
+    "id": "evg014",
+    "query": "writing about a text makes the reader understand it more deeply",
+    "relevant_paths": [
+      "notes/Write about what you read to internalize texts deeply.md"
+    ],
+    "partial_paths": [
+      "notes/Writing forces sharper understanding.md",
+      "notes/How to collect observations while reading.md"
+    ],
+    "category": "conceptual",
+    "notes": "Conceptual phrasing for writing about reading; sharper-understanding is supporting but broader."
+  },
+  {
+    "id": "evg015",
+    "query": "the value of better notes is better thinking not prettier note taking",
+    "relevant_paths": [
+      "notes/“Better note-taking” misses the point; what matters is “better thinking”.md"
+    ],
+    "partial_paths": [
+      "notes/Evergreen notes.md",
+      "notes/Evergreen note-writing as fundamental unit of knowledge work.md"
+    ],
+    "category": "conceptual",
+    "notes": "Semantic query for the better-note-taking-misses-the-point claim."
+  },
+  {
+    "id": "evg016",
+    "query": "knowledge work should build up over time instead of starting from scratch",
+    "relevant_paths": [
+      "notes/Knowledge work should accrete.md"
+    ],
+    "partial_paths": [
+      "notes/Evergreen note-writing helps insight accumulate.md",
+      "notes/Evergreen note-writing as fundamental unit of knowledge work.md"
+    ],
+    "category": "conceptual",
+    "notes": "Paraphrases accretion/accumulation in knowledge work."
+  },
+  {
+    "id": "evg017",
+    "query": "spaced repetition can be more than rote facts and can support conceptual understanding",
+    "relevant_paths": [
+      "notes/Spaced repetition memory systems can be used to develop conceptual understanding.md"
+    ],
+    "partial_paths": [
+      "notes/Spaced repetition memory system.md",
+      "notes/Spaced repetition memory systems can be used to prompt application, synthesis, and creation.md"
+    ],
+    "category": "conceptual",
+    "notes": "Specific claim inside the SRS cluster; hub is partial, not the direct target."
+  },
+  {
+    "id": "evg018",
+    "query": "authors can embed review questions into prose so readers remember the ideas",
+    "relevant_paths": [
+      "notes/Mnemonic medium.md",
+      "notes/Mnemonic medium prompts are interleaved into the reading experience.md",
+      "notes/The mnemonic medium supplies expert-authored prompts to remove the burden of prompt-writing.md"
+    ],
+    "partial_paths": [
+      "notes/The mnemonic medium gives structure to normally-atomized spaced repetition memory prompts.md",
+      "notes/The mnemonic medium may help scaffold prompt-writing through author-provided prompts.md"
+    ],
+    "category": "linked-neighborhood",
+    "notes": "Multi-evidence mnemonic-medium query: the hub plus the interleaved-prompt and expert-authored-prompt design notes directly answer it."
+  },
+  {
+    "id": "evg019",
+    "query": "expert-authored prompts remove the burden of writing flashcards",
+    "relevant_paths": [
+      "notes/The mnemonic medium supplies expert-authored prompts to remove the burden of prompt-writing.md"
+    ],
+    "partial_paths": [
+      "notes/Mnemonic medium.md",
+      "notes/The mnemonic medium may help scaffold prompt-writing through author-provided prompts.md"
+    ],
+    "category": "conceptual",
+    "notes": "Targets a specific design property of the mnemonic medium."
+  },
+  {
+    "id": "evg020",
+    "query": "practice questions should help readers apply what they learned not just recall it",
+    "relevant_paths": [
+      "notes/The mnemonic medium can help readers apply what they’ve learned through simple application prompts.md"
+    ],
+    "partial_paths": [
+      "notes/Application prompts can systematically test combinations of details in the text.md",
+      "notes/Application prompts are much harder to write than recall prompts.md"
+    ],
+    "category": "conceptual",
+    "notes": "Application-prompt retrieval inside a dense prompt-design cluster."
+  },
+  {
+    "id": "evg021",
+    "query": "memory prompts become hard to communicate because each card stands alone",
+    "relevant_paths": [
+      "notes/Spaced repetition memory prompts alone are a poor communications medium.md",
+      "notes/Traditional spaced repetition memory prompts are atomized.md"
+    ],
+    "partial_paths": [
+      "notes/The mnemonic medium gives structure to normally-atomized spaced repetition memory prompts.md",
+      "notes/Mnemonic medium.md"
+    ],
+    "category": "linked-neighborhood",
+    "notes": "Requires finding two related notes about atomized prompts and why the mnemonic medium adds structure."
+  },
+  {
+    "id": "evg022",
+    "query": "forgotten SRS items should not always be reset completely",
+    "relevant_paths": [
+      "notes/Forgotten spaced repetition prompts should probably be reviewed the next day.md",
+      "notes/Simple spaced repetition algorithms mistreat expected failures.md"
+    ],
+    "partial_paths": [
+      "notes/Forgotten spaced repetition prompts should probably have smaller future spacing intervals.md",
+      "notes/Optimizing spaced repetition system schedules.md"
+    ],
+    "category": "linked-neighborhood",
+    "notes": "Tests retrieval across sibling scheduling/forgotten-item notes."
+  },
+  {
+    "id": "evg023",
+    "query": "a learning environment should expand what people can meaningfully do",
+    "relevant_paths": [
+      "notes/Enabling environment.md"
+    ],
+    "partial_paths": [
+      "notes/Enabling environments focus on creating opportunities for growth and action, not on skill-building.md",
+      "notes/Enabling environments focus on doing what’s enabled.md"
+    ],
+    "category": "conceptual",
+    "notes": "Paraphrases enabling-environment definition without exact title words."
+  },
+  {
+    "id": "evg024",
+    "query": "educational games fail when they try to make an enabling environment out of lessons",
+    "relevant_paths": [
+      "notes/Educational games are a doomed approach to creating enabling environments.md"
+    ],
+    "partial_paths": [
+      "notes/Educational games try to teach through enacted experiences.md",
+      "notes/Educational game.md"
+    ],
+    "category": "conceptual",
+    "notes": "Targets a specific negative claim in the games/enabling-environment cluster."
+  },
+  {
+    "id": "evg025",
+    "query": "novices may be unable to take advantage of powerful environments without support",
+    "relevant_paths": [
+      "notes/Novices in enabling environments often can’t do what’s enabled.md"
+    ],
+    "partial_paths": [
+      "notes/Enabling environments focus on creating opportunities for growth and action, not on skill-building.md",
+      "notes/Cognitive scaffolding.md"
+    ],
+    "category": "conceptual",
+    "notes": "Specific challenge note: enabling environments are not automatically usable by beginners."
+  },
+  {
+    "id": "evg026",
+    "query": "participants feel they caused an authored experience through their own actions",
+    "relevant_paths": [
+      "notes/Enacted experience.md"
+    ],
+    "partial_paths": [
+      "notes/Enacted experiences require participant-situated cause and effect.md",
+      "notes/Enacted experiences require blocking on participant action.md"
+    ],
+    "category": "conceptual",
+    "notes": "Semantic definition of enacted experience."
+  },
+  {
+    "id": "evg027",
+    "query": "Figma document teaches copy and paste by putting the lesson inside Figma itself",
+    "relevant_paths": [
+      "notes/Figma’s copy and paste playground situates instructional media inside the context of use.md"
+    ],
+    "partial_paths": [
+      "notes/Enacted experience.md",
+      "notes/Figma.md"
+    ],
+    "category": "conceptual",
+    "notes": "Concrete example of instructional media situated in context of use."
+  },
+  {
+    "id": "evg028",
+    "query": "too much pressure to produce can hurt creative work",
+    "relevant_paths": [
+      "notes/Inappropriate time pressures often harm creative work.md"
+    ],
+    "partial_paths": [
+      "notes/Process over product.md",
+      "notes/A rigid fixation on “focus” can harm creative work.md"
+    ],
+    "category": "conceptual",
+    "notes": "Targets the time-pressure note, with process/focus notes as nearby partials."
+  },
+  {
+    "id": "evg029",
+    "query": "fixating on focus can damage exploration in creative work",
+    "relevant_paths": [
+      "notes/A rigid fixation on “focus” can harm creative work.md"
+    ],
+    "partial_paths": [
+      "notes/Process over product.md",
+      "notes/Momentum as explore-exploit heuristic in creative work.md"
+    ],
+    "category": "conceptual",
+    "notes": "Paraphrase of the rigid-focus creative-work note."
+  },
+  {
+    "id": "evg030",
+    "query": "foundation model abilities can appear unexpectedly after training",
+    "relevant_paths": [
+      "notes/Emergent capabilities of large foundation models often surprise their creators.md"
+    ],
+    "partial_paths": [
+      "notes/AI risk.md",
+      "notes/Anthropic - Core Views on AI Safety When, Why, What, and How.md"
+    ],
+    "category": "conceptual",
+    "notes": "AI cluster query targeting emergent capabilities rather than generic AI risk."
+  },
+  {
+    "id": "evg031",
+    "query": "AI safety concern that systems could be misused by bad actors",
+    "relevant_paths": [
+      "notes/AI misuse.md"
+    ],
+    "partial_paths": [
+      "notes/AI risk.md",
+      "notes/AI alignment.md"
+    ],
+    "category": "conceptual",
+    "notes": "Distinguishes misuse from broader alignment/risk notes."
+  },
+  {
+    "id": "evg032",
+    "query": "hands free invisible input device in a dental retainer controlled by tongue",
+    "relevant_paths": [
+      "notes/Augmental.md"
+    ],
+    "partial_paths": [
+      "notes/Silent speech interface.md",
+      "notes/Poor man’s brain-computer interface.md"
+    ],
+    "category": "conceptual",
+    "notes": "Paraphrases Augmental details; silent speech and poor-man BCI are related concepts."
+  },
+  {
+    "id": "evg033",
+    "query": "silent voice input by breathing inward while holding a device near the mouth",
+    "relevant_paths": [
+      "notes/Fukumoto, M. (2018). SilentVoice Unnoticeable Voice Input by Ingressive Speech. Proceedings of the 31st Annual ACM Symposium on User Interface Software and Technology, 237–246.md"
+    ],
+    "partial_paths": [
+      "notes/Silent speech interface.md",
+      "notes/Augmental.md"
+    ],
+    "category": "conceptual",
+    "notes": "Targets the Fukumoto SilentVoice paper, not the general silent-speech hub."
+  },
+  {
+    "id": "evg034",
+    "query": "digital readers should show annotations spatially in the margins beside the document",
+    "relevant_paths": [
+      "notes/Few digital reading environments support marginal notes.md"
+    ],
+    "partial_paths": [
+      "notes/Romat, H., Pietriga, E., Riche, N. H., Hinckley, K., & Appert, C. (2019, October 1). SpaceInk Making Space for In-Context Annotations. UIST 2019 32nd ACM User Interface Software and Technology Symp.md",
+      "notes/Hypothes.is.md"
+    ],
+    "category": "conceptual",
+    "notes": "Reading-interface query for marginal notes and annotation layout."
+  },
+  {
+    "id": "evg035",
+    "query": "reading across many documents horizontally to find relevant information",
+    "relevant_paths": [
+      "notes/Graham, J. (1999). The reader’s helper A personalized document reading environment. Proceedings of the SIGCHI Conference on Human Factors in Computing Systems, 481–488.md",
+      "notes/Syntopic reading.md"
+    ],
+    "partial_paths": [
+      "notes/Augmented reading.md"
+    ],
+    "category": "linked-neighborhood",
+    "notes": "Tests retrieval of a cited system plus the syntopic-reading concept it references."
+  },
+  {
+    "id": "evg036",
+    "query": "networked note writing software built on backlinks and links between notes",
+    "relevant_paths": [
+      "notes/Networked note-writing software.md"
+    ],
+    "partial_paths": [
+      "notes/Obsidian.md",
+      "notes/Roam Research.md"
+    ],
+    "category": "conceptual",
+    "notes": "Tooling concept query where Obsidian/Roam are examples, not the target concept."
+  },
+  {
+    "id": "evg037",
+    "query": "Evergreen notes should be densely linked",
+    "relevant_paths": [
+      "notes/Evergreen notes should be densely linked.md"
+    ],
+    "partial_paths": [
+      "notes/Evergreen notes.md",
+      "notes/Evergreen notes should be concept-oriented.md"
+    ],
+    "category": "keyword",
+    "notes": "Exact phrase for a property note, with the hub and concept-oriented note as partials."
+  },
+  {
+    "id": "evg038",
+    "query": "Evergreen note titles are like APIs",
+    "relevant_paths": [
+      "notes/Evergreen note titles are like APIs.md"
+    ],
+    "partial_paths": [
+      "notes/Prefer note titles with complete phrases to sharpen claims.md",
+      "notes/Evergreen notes should be atomic.md"
+    ],
+    "category": "keyword",
+    "notes": "Tests a distinctive exact phrase in the note-title cluster."
+  },
+  {
+    "id": "evg039",
+    "query": "writing inbox for transient and incomplete notes",
+    "relevant_paths": [
+      "notes/A writing inbox for transient and incomplete notes.md"
+    ],
+    "partial_paths": [
+      "notes/A reading inbox to capture possibly-useful references.md",
+      "notes/Inboxes shouldn’t be split into multiple places.md"
+    ],
+    "category": "keyword",
+    "notes": "Operational note-writing workflow query."
+  },
+  {
+    "id": "evg040",
+    "query": "reading inbox to capture possibly useful references",
+    "relevant_paths": [
+      "notes/A reading inbox to capture possibly-useful references.md"
+    ],
+    "partial_paths": [
+      "notes/A writing inbox for transient and incomplete notes.md",
+      "notes/How to collect observations while reading.md"
+    ],
+    "category": "keyword",
+    "notes": "Companion workflow query; tests distinction between reading and writing inboxes."
+  },
+  {
+    "id": "evg041",
+    "query": "How to process reading annotations into evergreen notes",
+    "relevant_paths": [
+      "notes/How to process reading annotations into evergreen notes.md"
+    ],
+    "partial_paths": [
+      "notes/How to collect observations while reading.md",
+      "notes/Write about what you read to internalize texts deeply.md"
+    ],
+    "category": "keyword",
+    "notes": "Direct workflow title with adjacent reading/writing notes as partials."
+  },
+  {
+    "id": "evg042",
+    "query": "Quantum Country",
+    "relevant_paths": [
+      "notes/Quantum Country.md"
+    ],
+    "partial_paths": [
+      "notes/Mnemonic medium.md",
+      "notes/Quantum Country data analyses.md"
+    ],
+    "category": "keyword",
+    "notes": "Specific project note; many analyses mention the name but should not be full credit."
+  },
+  {
+    "id": "evg043",
+    "query": "Execute Program interactive programming lessons with spaced repetition",
+    "relevant_paths": [
+      "notes/Execute Program.md"
+    ],
+    "partial_paths": [
+      "notes/Execute Program’s lessons unfurl their prose in response to reader interaction.md",
+      "notes/Execute Program’s prompts act both as application prompts and recall prompts.md"
+    ],
+    "category": "keyword",
+    "notes": "Product/system note with feature-specific Execute Program notes as partials."
+  },
+  {
+    "id": "evg044",
+    "query": "SpaceInk making space for in context annotations",
+    "relevant_paths": [
+      "notes/Romat, H., Pietriga, E., Riche, N. H., Hinckley, K., & Appert, C. (2019, October 1). SpaceInk Making Space for In-Context Annotations. UIST 2019 32nd ACM User Interface Software and Technology Symp.md"
+    ],
+    "partial_paths": [
+      "notes/Few digital reading environments support marginal notes.md"
+    ],
+    "category": "keyword",
+    "notes": "Paper-title keyword query in the annotation/reading cluster."
+  },
+  {
+    "id": "evg045",
+    "query": "mechanistic interpretability",
+    "relevant_paths": [
+      "notes/Mechanistic interpretability.md"
+    ],
+    "partial_paths": [
+      "notes/Anthropic - Core Views on AI Safety When, Why, What, and How.md",
+      "notes/AI risk.md"
+    ],
+    "category": "keyword",
+    "notes": "Specific AI technique note; Anthropic/AI-risk notes mention it but are broader."
+  },
+  {
+    "id": "evg046",
+    "query": "Transclusion is limited by the data model composability",
+    "relevant_paths": [
+      "notes/Transclusion is limited by the data model’s composability.md"
+    ],
+    "partial_paths": [
+      "notes/Transclusion.md"
+    ],
+    "category": "keyword",
+    "notes": "Targets a specific transclusion claim rather than the generic transclusion note."
+  },
+  {
+    "id": "evg047",
+    "query": "Ahrens How to Take Smart Notes",
+    "relevant_paths": [
+      "notes/How to Take Smart Notes - Ahrens.md"
+    ],
+    "partial_paths": [
+      "notes/Evergreen notes.md",
+      "notes/Similarities and differences between evergreen note-writing and Zettelkasten.md"
+    ],
+    "category": "author-work",
+    "notes": "Author/work lookup for a long literature note; evergreen/Zettelkasten notes cite it but are not the work note."
+  },
+  {
+    "id": "evg048",
+    "query": "Lave and Wenger Situated Learning",
+    "relevant_paths": [
+      "notes/Situated Learning - Lave and Wenger.md"
+    ],
+    "partial_paths": [
+      "notes/Situated learning.md"
+    ],
+    "category": "author-work",
+    "notes": "Book/work note versus the concept note."
+  },
+  {
+    "id": "evg049",
+    "query": "Kirschner Sweller Clark minimal guidance during instruction does not work",
+    "relevant_paths": [
+      "notes/Kirschner, P. A., Sweller, J., & Clark, R. E. (2006). Why Minimal Guidance During Instruction Does Not Work An Analysis of the Failure of Constructivist, Discovery, Problem-Based, Experiential, and.md"
+    ],
+    "partial_paths": [
+      "notes/Cognitive load theory.md",
+      "notes/Anchored instruction.md"
+    ],
+    "category": "author-work",
+    "notes": "Citation lookup with related learning-theory concepts as partials."
+  },
+  {
+    "id": "evg050",
+    "query": "Ericsson and Pool Peak deliberate practice",
+    "relevant_paths": [
+      "notes/Peak - Ericsson and Pool.md"
+    ],
+    "partial_paths": [
+      "notes/Athletes and musicians pursue virtuosity in fundamental skills much more rigorously than knowledge workers do.md",
+      "notes/Bloom’s three-phase model of talent development.md"
+    ],
+    "category": "author-work",
+    "notes": "Author/work query in skill-development cluster."
+  },
+  {
+    "id": "evg051",
+    "query": "Bloom three phase model of talent development",
+    "relevant_paths": [
+      "notes/Bloom’s three-phase model of talent development.md"
+    ],
+    "partial_paths": [
+      "notes/Bloom’s taxonomy.md",
+      "notes/Peak - Ericsson and Pool.md"
+    ],
+    "category": "author-work",
+    "notes": "Tests named model retrieval distinct from Bloom's taxonomy."
+  },
+  {
+    "id": "evg052",
+    "query": "Fukumoto SilentVoice unnoticeable voice input by ingressive speech",
+    "relevant_paths": [
+      "notes/Fukumoto, M. (2018). SilentVoice Unnoticeable Voice Input by Ingressive Speech. Proceedings of the 31st Annual ACM Symposium on User Interface Software and Technology, 237–246.md"
+    ],
+    "partial_paths": [
+      "notes/Silent speech interface.md",
+      "notes/Augmental.md"
+    ],
+    "category": "author-work",
+    "notes": "Paper lookup; general silent-speech notes are partial."
+  },
+  {
+    "id": "evg053",
+    "query": "Romat Pietriga Riche Hinckley Appert SpaceInk",
+    "relevant_paths": [
+      "notes/Romat, H., Pietriga, E., Riche, N. H., Hinckley, K., & Appert, C. (2019, October 1). SpaceInk Making Space for In-Context Annotations. UIST 2019 32nd ACM User Interface Software and Technology Symp.md"
+    ],
+    "partial_paths": [
+      "notes/Few digital reading environments support marginal notes.md"
+    ],
+    "category": "author-work",
+    "notes": "Author-list paper lookup."
+  },
+  {
+    "id": "evg054",
+    "query": "Anthropic Core Views on AI Safety",
+    "relevant_paths": [
+      "notes/Anthropic - Core Views on AI Safety When, Why, What, and How.md"
+    ],
+    "partial_paths": [
+      "notes/AI risk.md",
+      "notes/Mechanistic interpretability.md"
+    ],
+    "category": "author-work",
+    "notes": "Specific article/work note; broader AI-risk and technique notes are partial."
+  },
+  {
+    "id": "evg055",
+    "query": "Michael Nielsen building a better memory system",
+    "relevant_paths": [
+      "notes/Building a better memory system - Michael Nielsen.md"
+    ],
+    "partial_paths": [
+      "notes/Spaced repetition memory system.md",
+      "notes/Quantum Country.md"
+    ],
+    "category": "author-work",
+    "notes": "Specific external essay/work note in memory-system cluster."
+  },
+  {
+    "id": "evg056",
+    "query": "Tom Vega Corten Singer dental retainer upper molars touchpad",
+    "relevant_paths": [
+      "notes/Augmental.md"
+    ],
+    "partial_paths": [
+      "notes/Silent speech interface.md"
+    ],
+    "category": "quote-fragment",
+    "notes": "Fragment-like entity/details query for Augmental's data section."
+  },
+  {
+    "id": "evg057",
+    "query": "Great Creator I will take care of the quantity you take care of the quality",
+    "relevant_paths": [
+      "notes/Process over product.md"
+    ],
+    "partial_paths": [],
+    "category": "quote-fragment",
+    "notes": "Short quoted aphorism embedded in the process-over-product note."
+  },
+  {
+    "id": "evg058",
+    "query": "question is in which context will I want to stumble upon it again",
+    "relevant_paths": [
+      "notes/Evergreen notes should be concept-oriented.md"
+    ],
+    "partial_paths": [
+      "notes/How to Take Smart Notes - Ahrens.md"
+    ],
+    "category": "quote-fragment",
+    "notes": "Ahrens quote fragment appears in the concept-oriented note; the source-work note is partial."
+  },
+  {
+    "id": "evg059",
+    "query": "separation of concerns modules should only be about one thing",
+    "relevant_paths": [
+      "notes/Evergreen notes should be atomic.md"
+    ],
+    "partial_paths": [
+      "notes/Evergreen note titles are like APIs.md"
+    ],
+    "category": "quote-fragment",
+    "notes": "Distinct analogy in atomic evergreen notes."
+  },
+  {
+    "id": "evg060",
+    "query": "If you want to really understand an idea you have to grapple with it",
+    "relevant_paths": [
+      "notes/Understanding requires effortful engagement.md"
+    ],
+    "partial_paths": [
+      "notes/Writing forces sharper understanding.md",
+      "notes/Write about what you read to internalize texts deeply.md"
+    ],
+    "category": "quote-fragment",
+    "notes": "Short body fragment from the effortful-engagement note; writing/reading notes are supporting applications."
+  },
+  {
+    "id": "evg061",
+    "query": "there is no path only a heading a direction in conversation with the elements",
+    "relevant_paths": [
+      "notes/Process over product.md"
+    ],
+    "partial_paths": [],
+    "category": "quote-fragment",
+    "notes": "David Whyte quote fragment inside Process over product."
+  },
+  {
+    "id": "evg062",
+    "query": "edge marks in the gutter of its sidebar",
+    "relevant_paths": [
+      "notes/Few digital reading environments support marginal notes.md"
+    ],
+    "partial_paths": [
+      "notes/Hypothes.is.md"
+    ],
+    "category": "quote-fragment",
+    "notes": "Specific Hypothes.is annotation UI description in marginal-notes note."
+  },
+  {
+    "id": "evg063",
+    "query": "the lessons interleave prose with live programming problems",
+    "relevant_paths": [
+      "notes/Execute Program.md"
+    ],
+    "partial_paths": [
+      "notes/Execute Program’s lessons unfurl their prose in response to reader interaction.md",
+      "notes/Execute Program’s prompts act both as application prompts and recall prompts.md"
+    ],
+    "category": "quote-fragment",
+    "notes": "Distinct description of Execute Program."
+  },
+  {
+    "id": "evg064",
+    "query": "writing good spaced repetition memory prompts and their important attributes",
+    "relevant_paths": [
+      "notes/Writing good spaced repetition memory prompts is hard.md",
+      "notes/Important attributes of good spaced repetition memory prompts.md"
+    ],
+    "partial_paths": [
+      "notes/Spaced repetition memory prompts should unambiguously produce a specific answer.md",
+      "notes/Spaced repetition memory prompts should connect and relate ideas.md",
+      "notes/Spaced repetition memory prompts should encode ideas from multiple angles.md",
+      "notes/Spaced repetition memory system.md",
+      "notes/Mnemonic medium.md",
+      "notes/Traditional spaced repetition memory prompts are atomized.md"
+    ],
+    "category": "ambiguous-topic",
+    "notes": "Prompt-design query: full credit for the hard-to-write and important-attributes notes; partial credit for concrete prompt-quality properties and broader hubs."
+  },
+  {
+    "id": "evg065",
+    "query": "reading annotations",
+    "relevant_paths": [
+      "notes/How to collect observations while reading.md",
+      "notes/How to process reading annotations into evergreen notes.md"
+    ],
+    "partial_paths": [
+      "notes/Few digital reading environments support marginal notes.md",
+      "notes/Write about what you read to internalize texts deeply.md"
+    ],
+    "category": "ambiguous-topic",
+    "notes": "Broad workflow phrase; full credit for capture/process notes, partial for adjacent reading-interface/internalization notes."
+  },
+  {
+    "id": "evg066",
+    "query": "AI safety",
+    "relevant_paths": [
+      "notes/AI risk.md",
+      "notes/Anthropic - Core Views on AI Safety When, Why, What, and How.md"
+    ],
+    "partial_paths": [
+      "notes/AI alignment.md",
+      "notes/AI misuse.md",
+      "notes/Mechanistic interpretability.md"
+    ],
+    "category": "ambiguous-topic",
+    "notes": "Broad AI query where risk and a specific safety article are direct; alignment/misuse/interpretability are partial facets."
+  },
+  {
+    "id": "evg067",
+    "query": "focus",
+    "relevant_paths": [
+      "notes/A rigid fixation on “focus” can harm creative work.md"
+    ],
+    "partial_paths": [
+      "notes/Process over product.md",
+      "notes/Effective deep work depends on both time and intensity.md"
+    ],
+    "category": "ambiguous-topic",
+    "notes": "Intentionally short query; should surface the rigid-focus note but allow process/deep-work partials."
+  },
+  {
+    "id": "evg068",
+    "query": "games and learning",
+    "relevant_paths": [
+      "notes/Educational games are a doomed approach to creating enabling environments.md",
+      "notes/Games effectively develop players’ skills.md"
+    ],
+    "partial_paths": [
+      "notes/Educational games try to teach through enacted experiences.md",
+      "notes/§Enabling environments, games, and the Primer.md",
+      "notes/Educational game.md"
+    ],
+    "category": "ambiguous-topic",
+    "notes": "Ambiguous cluster query with both positive skill-development and negative educational-game claims."
+  },
+  {
+    "id": "evg069",
+    "query": "note titles",
+    "relevant_paths": [
+      "notes/Evergreen note titles are like APIs.md",
+      "notes/Prefer note titles with complete phrases to sharpen claims.md"
+    ],
+    "partial_paths": [
+      "notes/Prefer positive note titles to promote systematic theory.md",
+      "notes/Evergreen notes.md"
+    ],
+    "category": "ambiguous-topic",
+    "notes": "Broad note-title query; direct notes concern APIs and complete phrases, positive titles are partial."
+  },
+  {
+    "id": "evg070",
+    "query": "what is an enabling environment",
+    "relevant_paths": [
+      "notes/Enabling environment.md"
+    ],
+    "partial_paths": [
+      "notes/Enabling environments focus on doing what’s enabled.md",
+      "notes/Enabling environments’ activities directly serve an intrinsically meaningful purpose.md",
+      "notes/Enabling environments focus on creating opportunities for growth and action, not on skill-building.md"
+    ],
+    "category": "ambiguous-topic",
+    "notes": "Broad exact phrase with many property notes; only the definition hub is full credit."
+  },
+  {
+    "id": "evg071",
+    "query": "tools for thought",
+    "relevant_paths": [
+      "notes/Tools for thought.md"
+    ],
+    "partial_paths": [
+      "notes/Networked note-writing software.md",
+      "notes/Enabling environment.md",
+      "notes/Mnemonic medium.md"
+    ],
+    "category": "ambiguous-topic",
+    "notes": "Very broad field term; direct concept note gets full credit, related tool clusters are partial."
+  },
+  {
+    "id": "evg072",
+    "query": "transclusion",
+    "relevant_paths": [
+      "notes/Transclusion.md"
+    ],
+    "partial_paths": [
+      "notes/Transclusion is limited by the data model’s composability.md"
+    ],
+    "category": "ambiguous-topic",
+    "notes": "Generic concept query; specific limitation note is useful but narrower."
+  },
+  {
+    "id": "evg073",
+    "query": "testing yourself improves learning more than restudying or concept mapping",
+    "relevant_paths": [
+      "notes/Testing effect.md",
+      "notes/Retrieval practice appears to be a more effective learning activity than elaborative encoding.md",
+      "notes/Karpicke, J. D., & Blunt, J. R. (2011). Retrieval Practice Produces More Learning than Elaborative Studying with Concept Mapping. Science, 331(6018), 772–775.md"
+    ],
+    "partial_paths": [
+      "notes/Blunt, J. R., & Karpicke, J. D. (2014). Learning with retrieval-based concept mapping. Journal of Educational Psychology, 106(3), 849–858.md",
+      "notes/Concept mapping.md",
+      "notes/Students think restudying is more effective than retrieval practice.md",
+      "notes/Retrieval practice.md",
+      "notes/Elaborative encoding.md",
+      "notes/Retrieval practice and transfer learning.md"
+    ],
+    "category": "disambiguation",
+    "notes": "Distinguishes testing-effect/retrieval-practice evidence from broader retrieval-practice, transfer, and elaborative-encoding notes; the Karpicke/Blunt paper directly addresses concept mapping."
+  },
+  {
+    "id": "evg074",
+    "query": "spreading practice over time improves memory compared with cramming",
+    "relevant_paths": [
+      "notes/Spacing effect.md"
+    ],
+    "partial_paths": [
+      "notes/Spaced repetition memory system.md",
+      "notes/Testing effect.md"
+    ],
+    "category": "disambiguation",
+    "notes": "Targets spacing effect, not testing effect or the generic SRS hub."
+  },
+  {
+    "id": "evg075",
+    "query": "retrieval practice may not transfer well to new kinds of tasks",
+    "relevant_paths": [
+      "notes/Retrieval practice and transfer learning.md"
+    ],
+    "partial_paths": [
+      "notes/Transfer learning.md",
+      "notes/Testing effect.md"
+    ],
+    "category": "disambiguation",
+    "notes": "Disambiguates transfer-learning concern from generic retrieval practice/testing-effect notes."
+  },
+  {
+    "id": "evg076",
+    "query": "Execute Program lessons unlock only after prerequisite reviews and require solid recall",
+    "relevant_paths": [
+      "notes/Execute Program’s lessons don’t unlock until you’ve successfully reviewed their prerequisites.md",
+      "notes/Execute Program’s lessons assume solid recall of prior material.md"
+    ],
+    "partial_paths": [
+      "notes/Execute Program.md",
+      "notes/Execute Program’s progress mechanics emphasize completing new lessons over increasing recall duration.md"
+    ],
+    "category": "linked-neighborhood",
+    "notes": "Multi-evidence query requiring two sibling Execute Program design notes."
+  },
+  {
+    "id": "evg077",
+    "query": "Quantum Country users forget in essay questions and show sharp forgetting curves",
+    "relevant_paths": [
+      "notes/Quantum Country users who forget in-essay exhibit sharp forgetting curves.md",
+      "notes/Quantum Country in-essay question accuracy measures.md"
+    ],
+    "partial_paths": [
+      "notes/Quantum Country data analyses.md",
+      "notes/Quantum Country.md"
+    ],
+    "category": "linked-neighborhood",
+    "notes": "Multi-evidence query across Quantum Country analysis notes; project hub is partial."
+  },
+  {
+    "id": "evg078",
+    "query": "text could expand and contract to show different levels of detail",
+    "relevant_paths": [
+      "notes/Stretchtext.md"
+    ],
+    "partial_paths": [
+      "notes/Hypertext books.md",
+      "notes/Ted Nelson.md"
+    ],
+    "category": "conceptual",
+    "notes": "Paraphrases Stretchtext; hypertext/Ted Nelson are supporting context."
+  },
+  {
+    "id": "en01",
+    "query": "Why did we close Orion's public signup, and who gets the first invitations?",
+    "relevant_paths": [
+      "Acceptance/Projects/Orion/Orion pilot access decision.md"
+    ],
+    "partial_paths": [
+      "Acceptance/Projects/Orion/Orion planning meeting 2026-02-05.md"
+    ],
+    "category": "english|same_language|decision|entity_ambiguity",
+    "expected_fact": "The first invitations go to six library coordinators; public self-signup is closed because duplicate trial accounts made it impossible to track feedback by library."
+  },
+  {
+    "id": "en02",
+    "query": "What was proposed for public self-signup at the Orion planning meeting on February 5, before the later access decision?",
+    "relevant_paths": [
+      "Acceptance/Projects/Orion/Orion planning meeting 2026-02-05.md"
+    ],
+    "partial_paths": [
+      "Acceptance/Projects/Orion/Orion pilot access decision.md"
+    ],
+    "category": "english|same_language|historical_decision|exact",
+    "expected_fact": "The February 5 proposal allowed public self-signup for a two-week trial, with one reminder email after the first successful import."
+  },
+  {
+    "id": "en03",
+    "query": "How do I find the Orion nebula from the belt during the winter observing session?",
+    "relevant_paths": [
+      "Acceptance/Science/Orion winter observing.md"
+    ],
+    "partial_paths": [],
+    "category": "english|same_language|entity_ambiguity|spatial_relation",
+    "expected_fact": "Find the three stars in Orion's belt, then look for the short line of the sword hanging below it; the middle patch of the sword is the nebula."
+  },
+  {
+    "id": "en04",
+    "query": "How often do we make an offline archive copy, and how many weekly snapshots do we retain?",
+    "relevant_paths": [
+      "Acceptance/Operations/Archive backup schedule.md"
+    ],
+    "partial_paths": [],
+    "category": "english|same_language|backup_vs_restore|schedule",
+    "expected_fact": "We retain fourteen daily snapshots and six weekly snapshots. Every Friday, the closing volunteer makes an offline copy on the blue drive and returns it to the locked cabinet."
+  },
+  {
+    "id": "en05",
+    "query": "How should I check that the archive restore worked before replacing the working folder?",
+    "relevant_paths": [
+      "Acceptance/Operations/Archive restoration rehearsal.md"
+    ],
+    "partial_paths": [],
+    "category": "english|same_language|backup_vs_restore|procedure",
+    "expected_fact": "Restore the snapshot into a new temporary folder, compare its checksum list, and open twelve notes with attachments before replacing the working folder."
+  },
+  {
+    "id": "en06",
+    "query": "What is blocking Harbor's launch, and what evidence and sign-off are needed to go ahead?",
+    "relevant_paths": [
+      "Acceptance/Projects/Harbor/Harbor accessibility audit.md",
+      "Acceptance/Projects/Harbor/Harbor launch meeting.md"
+    ],
+    "partial_paths": [],
+    "category": "english|same_language|multi_evidence|launch_gate",
+    "expected_fact": "Two failures remain: focus gets trapped inside the date picker, and the final confirmation button has no visible keyboard focus indicator."
+  },
+  {
+    "id": "en07",
+    "query": "What problem made offline drafts a higher priority than faster automatic synchronization in the commuter study?",
+    "relevant_paths": [
+      "Acceptance/Research/Interview findings on offline capture.md"
+    ],
+    "partial_paths": [],
+    "category": "english|same_language|rationale|paraphrase",
+    "expected_fact": "Participants lost unfinished text when the connection dropped, so preserving a local draft took priority over making automatic synchronization faster."
+  },
+  {
+    "id": "en08",
+    "query": "When are the keys available for the Station Road flat, and when is the broadband installer coming?",
+    "relevant_paths": [
+      "Acceptance/Household/Station Road move inventory.md",
+      "Acceptance/Household/Station Road broadband appointment.md"
+    ],
+    "partial_paths": [],
+    "category": "english|same_language|multi_evidence|date_disambiguation",
+    "expected_fact": "The keys become available at the agent's desk on Friday, September 4, at 16:00."
+  },
+  {
+    "id": "en09",
+    "query": "Where is the spare key for the shared supply cupboard in the workshop?",
+    "relevant_paths": [
+      "Acceptance/Мастерская/Регламент общего шкафа.md"
+    ],
+    "partial_paths": [],
+    "category": "english|cross_language_en_to_ru|comment_content",
+    "expected_fact": "Запасной ключ от общего шкафа лежит в синем конверте за настенными часами у входа."
+  },
+  {
+    "id": "en10",
+    "query": "Which material should we reserve for the bag handles, and how much is left?",
+    "relevant_paths": [
+      "Acceptance/Мастерская/Учёт ткани для сумок.md"
+    ],
+    "partial_paths": [],
+    "category": "english|cross_language_en_to_ru|inventory",
+    "expected_fact": "Для ручек нужно оставить плотную синюю стропу; на катушке осталось 6,4 метра."
+  },
+  {
+    "id": "en11",
+    "query": "What changed in the final lake trip route after the ferry was ruled out?",
+    "relevant_paths": [
+      "Acceptance/Поездки/Поездка к озеру — окончательный маршрут.md"
+    ],
+    "partial_paths": [
+      "Acceptance/Поездки/Поездка к озеру — ранние варианты.md"
+    ],
+    "category": "english|cross_language_en_to_ru|superseded_plan",
+    "expected_fact": "Вместо парома мы едем автобусом до западной тропы, потому что переправа временно закрыта."
+  },
+  {
+    "id": "en12",
+    "query": "Who handles urgent support questions during quiet hours, and what should they record for the next shift if a request is still unresolved?",
+    "relevant_paths": [
+      "Acceptance/Работа/Тихие часы и дежурства.md",
+      "Acceptance/Работа/Передача смены поддержки.md"
+    ],
+    "partial_paths": [],
+    "category": "english|cross_language_en_to_ru|multi_evidence|handover",
+    "expected_fact": "Срочные обращения в тихие часы принимает дежурный по поддержке в канале #support-duty."
+  },
+  {
+    "id": "en13",
+    "query": "How much coffee was left after the Saturday café workshop, and which bag should we use first?",
+    "relevant_paths": [
+      "Acceptance/Workshop/Café inventory.md"
+    ],
+    "partial_paths": [],
+    "category": "english|same_language|unicode_nfd_path|inventory|exact",
+    "expected_fact": "After Saturday's community coffee workshop, the shelf held 1.8 kg of whole beans: a sealed one-kilogram bag and an opened 800-gram bag. Opened beans should be used first; the 800-gram bag is clipped inside the square metal tin."
+  },
+  {
+    "id": "en14",
+    "query": "When should the follow-up reviews happen in the reading experiment, and does missing one move the whole schedule?",
+    "relevant_paths": [
+      "Acceptance/Reading/Spaced review experiment.md"
+    ],
+    "partial_paths": [
+      "Acceptance/Reading/Flashcards import problem.md"
+    ],
+    "category": "english|same_language|schedule|paraphrase",
+    "expected_fact": "Follow-up reviews are scheduled two days, nine days, and sixteen days after the first reading. The calendar reminders should refer to the original reading date, not to the previous reminder, so a missed session does not silently move the entire schedule."
+  },
+  {
+    "id": "en15",
+    "query": "Where can I leave Riverside seed envelopes when the library room is locked?",
+    "relevant_paths": [
+      "Acceptance/Community/Riverside seed library.md"
+    ],
+    "partial_paths": [],
+    "category": "english|same_language|location|paraphrase",
+    "expected_fact": "If the library room is locked, leave seed envelopes in the labelled wooden box at the reception desk, not in the outside letter slot."
+  },
+  {
+    "id": "en16",
+    "query": "What explains the gaps in Mayak's evening readings, and were the measurements actually lost?",
+    "relevant_paths": [
+      "Acceptance/Проекты/Маяк/Маяк — полевой тест датчиков.md"
+    ],
+    "partial_paths": [
+      "Acceptance/Проекты/Маяк/Маяк — прототип панели.md"
+    ],
+    "category": "english|cross_language_en_to_ru|cause_vs_display|entity_transliteration",
+    "expected_fact": "Пропуски вечерних показаний вызвал таймер розетки, отключавший питание шлюза в 19:00; сами датчики продолжали записывать измерения в память."
+  },
+  {
+    "id": "ru01",
+    "query": "Какие данные разрешили загружать в пилот Orion для библиотек?",
+    "relevant_paths": [
+      "Acceptance/Projects/Orion/Orion pilot access decision.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|cross_language_ru_to_en|policy|entity_ambiguity",
+    "expected_fact": "Pilot uploads are limited to public catalogue exports and invented sample records."
+  },
+  {
+    "id": "ru02",
+    "query": "Как на зимнем наблюдении найти туманность Ориона, если я уже вижу три звезды пояса?",
+    "relevant_paths": [
+      "Acceptance/Science/Orion winter observing.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|cross_language_ru_to_en|entity_ambiguity|spatial_relation",
+    "expected_fact": "Find the three stars in Orion's belt, then look for the short line of the sword hanging below it; the middle patch of the sword is the nebula."
+  },
+  {
+    "id": "ru03",
+    "query": "Сколько заняло февральское пробное восстановление архива и что проверяли перед заменой рабочей папки?",
+    "relevant_paths": [
+      "Acceptance/Operations/Archive restoration rehearsal.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|cross_language_ru_to_en|backup_vs_restore|duration",
+    "expected_fact": "The February rehearsal took thirty-eight minutes from selecting the snapshot to finishing the attachment checks."
+  },
+  {
+    "id": "ru04",
+    "query": "Почему импорт карточек ломал цитаты с запятыми и какой формат решили попробовать вместо него?",
+    "relevant_paths": [
+      "Acceptance/Reading/Flashcards import problem.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|cross_language_ru_to_en|failure_and_workaround",
+    "expected_fact": "Commas inside quoted passages were being treated as field separators by the hand-built export, so we agreed to use tab-separated text for the next import."
+  },
+  {
+    "id": "ru05",
+    "query": "Из-за чего перенесли открытие выставки «Север» и на что оставили печатный резерв?",
+    "relevant_paths": [
+      "Acceptance/Проекты/Север/Север — решение о запуске.md",
+      "Acceptance/Проекты/Север/Север — черновик бюджета.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|same_language|multi_evidence|decision_and_budget",
+    "expected_fact": "Открытие выставки «Север» перенесли с 24 мая на 7 июня из-за задержки рам; объявлять новую дату можно только после подтверждения доставки всей партии."
+  },
+  {
+    "id": "ru06",
+    "query": "На какую дату перенесли открытие «Севера» и что должно произойти до публикации объявления?",
+    "relevant_paths": [
+      "Acceptance/Проекты/Север/Север — решение о запуске.md"
+    ],
+    "partial_paths": [
+      "Acceptance/Проекты/Север/Север — черновик бюджета.md"
+    ],
+    "category": "russian|same_language|conditional_date|entity_ambiguity",
+    "expected_fact": "Открытие выставки «Север» перенесли с 24 мая на 7 июня из-за задержки рам; объявлять новую дату можно только после подтверждения доставки всей партии."
+  },
+  {
+    "id": "ru07",
+    "query": "Куда отправлять срочный вопрос по поддержке в рабочие дни между десятью и двенадцатью?",
+    "relevant_paths": [
+      "Acceptance/Работа/Тихие часы и дежурства.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|same_language|routing|time_disambiguation",
+    "expected_fact": "Срочные обращения в тихие часы принимает дежурный по поддержке в канале #support-duty."
+  },
+  {
+    "id": "ru08",
+    "query": "Какие сведения нужно оставить следующей смене о нерешённом обращении?",
+    "relevant_paths": [
+      "Acceptance/Работа/Передача смены поддержки.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|same_language|handover|procedure",
+    "expected_fact": "Для каждого нерешённого обращения запишите номер запроса, последнюю проверенную гипотезу и время обещанного ответа. Отдельно укажите действие, с которого следующий дежурный должен начать проверку."
+  },
+  {
+    "id": "ru09",
+    "query": "Какого размера фильтр заказывать для приточной вентиляции домашней мастерской?",
+    "relevant_paths": [
+      "Acceptance/Дом/Замена фильтра в вентиляции.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|same_language|dimensions|exact",
+    "expected_fact": "Для приточной установки в небольшой домашней мастерской нужен фильтр размером 287 × 187 × 20 мм."
+  },
+  {
+    "id": "ru10",
+    "query": "Почему высокий шкаф у окна убрали из плана ремонта кухни?",
+    "relevant_paths": [
+      "Acceptance/Дом/План ремонта кухни.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|same_language|rationale|paraphrase",
+    "expected_fact": "Шкаф у окна исключили из плана, потому что его боковая стенка перекрывала доступ к ручке радиатора."
+  },
+  {
+    "id": "ru11",
+    "query": "Где и во сколько встречаемся на поездку к озеру 15 августа и на какой автобус садимся?",
+    "relevant_paths": [
+      "Acceptance/Поездки/Поездка к озеру — окончательный маршрут.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|same_language|exact|superseded_plan|meeting_time",
+    "expected_fact": "Встречаемся у северного автовокзала в 08:20 и садимся на автобус 402 в 08:40."
+  },
+  {
+    "id": "ru12",
+    "query": "Почему ручки пробной сумки решили сделать короче и у какого края оставили дополнительный припуск?",
+    "relevant_paths": [
+      "Acceptance/Мастерская/Настройка выкройки сумки.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|same_language|design_rationale|multiple_facts",
+    "expected_fact": "После пробной прогулки ручки решили укоротить с 68 до 58 сантиметров, чтобы сумка не задевала колесо велосипеда."
+  },
+  {
+    "id": "ru13",
+    "query": "Как в клубном архиве отличаем тематическую ссылку от действия, которое ещё нужно выполнить?",
+    "relevant_paths": [
+      "Acceptance/Знания/Как мы связываем заметки.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|same_language|knowledge_management|concept_distinction",
+    "expected_fact": "Тематическую связь мы помещаем в раздел «Связано», а конкретное действие со ссылкой — в раздел «Следующий шаг»."
+  },
+  {
+    "id": "ru14",
+    "query": "Где искать номер страницы цитаты, когда бумажную книгу уже вернули в библиотеку?",
+    "relevant_paths": [
+      "Acceptance/Знания/Каталог прочитанных книг.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|same_language|knowledge_management|source_location",
+    "expected_fact": "Номер страницы цитаты записывается в поле «Источник» у самой выписки вместе с названием издания и годом."
+  },
+  {
+    "id": "ru15",
+    "query": "Можно ли устроить ночной кинопоказ на крыше и куда переносим его при дожде?",
+    "relevant_paths": [
+      "Acceptance/Клуб/Ночной кинопоказ — площадка.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|same_language|constraint|fallback",
+    "expected_fact": "Крышу исключили: хозяева здания не разрешили проводить там вечерние мероприятия. При дожде переносим показ в зал первого этажа, сохраняя начало в 20:30."
+  },
+  {
+    "id": "ru16",
+    "query": "Какой звук и кабели нужно взять для кинопоказа, если переносим экран внутрь?",
+    "relevant_paths": [
+      "Acceptance/Клуб/Ночной кинопоказ — техника.md"
+    ],
+    "partial_paths": [],
+    "category": "russian|same_language|equipment|conditional_plan",
+    "expected_fact": "Для показа внутри берём две активные колонки и длинный кабель с разъёмами 3,5 мм; компактную батарейную колонку оставляем для объявлений во дворе."
+  }
+]
