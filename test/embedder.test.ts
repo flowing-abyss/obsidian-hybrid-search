@@ -660,7 +660,14 @@ describe('embed() — API error response formats', () => {
 });
 
 describe('embed() — batch sorting by index', () => {
-  afterEach(() => vi.restoreAllMocks());
+  beforeEach(() => {
+    vi.stubEnv('OPENAI_BASE_URL', 'https://api.test/v1');
+    vi.stubEnv('OPENAI_EMBEDDING_MODEL', 'gemini-embedding-2');
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
 
   function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -675,22 +682,119 @@ describe('embed() — batch sorting by index', () => {
     return input;
   }
 
-  it('sorts results by index field from API', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
+  it('maps a wholly indexless response in input order without singleton requests', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => ({ data: [{ embedding: [1, 0] }, { embedding: [0, 1] }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const outcomes = await embedDetailed(['first', 'second'], 'document');
+
+    assert.equal(fetchMock.mock.calls.length, 1);
+    assert.deepEqual(outcomes, [
+      { ok: true, embedding: new Float32Array([1, 0]) },
+      { ok: true, embedding: new Float32Array([0, 1]) },
+    ]);
+  });
+
+  const item = (index: unknown) => ({ embedding: [9, 9], index });
+  const malformedBatches = [
+    { name: 'missing first index', data: [{ embedding: [9, 9] }, item(1)] },
+    { name: 'missing last index', data: [item(0), { embedding: [9, 9] }] },
+    { name: 'null index', data: [item(null), item(1)] },
+    { name: 'string index', data: [item('0'), item(1)] },
+    { name: 'fractional index', data: [item(0.5), item(1)] },
+    { name: 'negative index', data: [item(-1), item(1)] },
+    { name: 'duplicate index', data: [item(0), item(0)] },
+    { name: 'out-of-range index', data: [item(0), item(2)] },
+    { name: 'short indexed response', data: [item(0)] },
+    { name: 'long indexed response', data: [item(0), item(1), item(2)] },
+    { name: 'empty indexless response', data: [] },
+    { name: 'short indexless response', data: [{ embedding: [9, 9] }] },
+    {
+      name: 'long indexless response',
+      data: Array.from({ length: 3 }, () => ({ embedding: [9, 9] })),
+    },
+  ];
+
+  for (const scenario of malformedBatches) {
+    it(`localizes ${scenario.name} without reusing the malformed batch`, async () => {
+      const inputs: string[][] = [];
+      const fetchMock = vi.fn().mockImplementation((_url: string, init: { body?: string }) => {
+        const input = requestInput(init);
+        inputs.push(input);
+        const data =
+          input.length === 2
+            ? scenario.data
+            : [{ embedding: input[0] === 'first' ? [1, 0] : [0, 1] }];
+        return { ok: true, status: 200, json: () => ({ data }) };
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      assert.deepEqual(await embedDetailed(['first', 'second']), [
+        { ok: true, embedding: new Float32Array([1, 0]) },
+        { ok: true, embedding: new Float32Array([0, 1]) },
+      ]);
+      assert.deepEqual(inputs, [['first', 'second'], ['first'], ['second']]);
+    });
+  }
+
+  for (const index of [null, '0', 0.5, -1, 1]) {
+    it(`keeps a malformed singleton ${String(index)} as invalid_response`, async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: () => ({
-          data: [
-            { embedding: [0.2, 0.2], index: 1 },
-            { embedding: [0.1, 0.1], index: 0 },
-          ],
-        }),
+        json: () => ({ data: [{ embedding: [1, 0], index }] }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const [outcome] = await embedDetailed(['first']);
+
+      assert.ok(outcome && !outcome.ok);
+      assert.equal(outcome.kind, 'invalid_response');
+      assert.equal(fetchMock.mock.calls.length, 1);
+    });
+  }
+
+  it('keeps a valid singleton when the other singleton is still malformed', async () => {
+    const inputs: string[][] = [];
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: { body?: string }) => {
+      const input = requestInput(init);
+      inputs.push(input);
+      let data: unknown[];
+      if (input.length === 2) data = [{ embedding: [9, 9] }, item(1)];
+      else if (input[0] === 'first') data = [{ embedding: [1, 0] }];
+      else data = [{ embedding: [0, 1], index: null }];
+      return { ok: true, status: 200, json: () => ({ data }) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const outcomes = await embedDetailed(['first', 'second']);
+
+    assert.deepEqual(outcomes[0], { ok: true, embedding: new Float32Array([1, 0]) });
+    const failed = outcomes[1];
+    assert.ok(failed && !failed.ok);
+    assert.equal(failed.kind, 'invalid_response');
+    assert.deepEqual(inputs, [['first', 'second'], ['first'], ['second']]);
+  });
+
+  it('sorts results by index field from API', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => ({
+        data: [
+          { embedding: [0.2, 0.2], index: 1 },
+          { embedding: [0.1, 0.1], index: 0 },
+        ],
       }),
-    );
+    });
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = await embed(['first', 'second'], 'document');
+    assert.equal(fetchMock.mock.calls.length, 1);
     assert.equal(result.length, 2);
     const first = result[0]!;
     const second = result[1]!;
