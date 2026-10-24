@@ -343,6 +343,45 @@ for (const linked of [false, true]) {
       assert.equal(build.mock.calls.length, 0, 'old common directory is no longer a policy input');
       assert.ok(indexedPaths().includes('duplicate/copy.md'));
     });
+    if (linked) {
+      it('restores the known gitfile after deletion and retires its watch on close', async () => {
+        await startIndex();
+        const before = retainedSnapshot();
+        vi.mocked(embedder.embedDetailed).mockClear();
+        const rule = '/projects/notes/duplicate/\n/projects/notes/rescued/\n';
+        writeExclude(rule);
+        await expectDuplicate(false, before, 0);
+        const gitfile = path.join(fixture.repo, '.git');
+        const pointer = fs.readFileSync(gitfile, 'utf8');
+        unlinkSync(gitfile);
+        await expectDuplicate(true, before, 1);
+
+        const policy = await import('../src/vault/ignore.js');
+        const build = vi.spyOn(policy, 'createIgnorePolicy');
+        writeExclude('# inactive without the gitfile\n' + rule);
+        await wait(1500);
+        assert.equal(build.mock.calls.length, 0, 'only the missing locator stays subscribed');
+        writeFileSync(gitfile, pointer);
+        await expectDuplicate(false, before, 0);
+        writeExclude('# restored repository admits duplicate\n');
+        await expectDuplicate(true, before, 1);
+        writeExclude(rule);
+        await expectDuplicate(false, before, 0);
+
+        unlinkSync(gitfile);
+        await expectDuplicate(true, before, 1);
+        await watcher!.close();
+        watcher = undefined;
+        const signature = storedSignature();
+        build.mockClear();
+        writeFileSync(gitfile, pointer);
+        writeExclude('# after close\n' + rule);
+        await wait(1500);
+        assert.equal(build.mock.calls.length, 0, 'close releases the absent locator subscription');
+        assert.deepEqual(storedSignature(), signature);
+        await expectDuplicate(true, before, 0);
+      });
+    }
     it('uses the latest coalesced rule after waiting for the indexing lock', async () => {
       await startIndex();
       const before = retainedSnapshot();

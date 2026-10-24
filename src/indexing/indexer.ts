@@ -720,7 +720,13 @@ export function startWatcher(contextLength: number): WatcherHandle {
       let controlKeys = new Set<string>();
       let ancestorKeys = new Set<string>();
       const controlKey = (file: string) => path.resolve(file);
-      const updateControlTargets = (nextFiles: readonly string[]) => {
+      const updateControlTargets = (policyFiles: readonly string[]) => {
+        // A deleted gitfile removes the context. Keep only that known locator
+        // so recreating it restores the repository without discovering new roots.
+        const nextFiles =
+          policyFiles.length > 0
+            ? policyFiles
+            : controlFiles.filter((file) => path.basename(file) === '.git');
         const previousKeys = controlKeys;
         controlKeys = new Set(nextFiles.map(controlKey));
         ancestorKeys = new Set();
