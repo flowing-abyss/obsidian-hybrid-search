@@ -25,6 +25,7 @@ let controlWatcher: TestWatcher;
 let watch: ReturnType<typeof vi.fn>;
 let created: Promise<void>;
 let indexer: typeof import('./helpers/owned-indexer.js');
+let storage: typeof import('../src/storage/db.js');
 let handle: ReturnType<typeof indexer.startWatcher> | undefined;
 
 beforeEach(async () => {
@@ -43,11 +44,13 @@ beforeEach(async () => {
   });
   vi.doMock('chokidar', () => ({ watch }));
   indexer = await import('./helpers/owned-indexer.js');
+  storage = await import('../src/storage/db.js');
 });
 
 afterEach(async () => {
   if (handle) await handle.close();
   handle = undefined;
+  storage.closeDb();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.doUnmock('chokidar');
@@ -63,6 +66,8 @@ afterEach(async () => {
 afterAll(() => rmSync(vaultDir, { recursive: true, force: true }));
 
 describe('watcher lifecycle', () => {
+  beforeEach(() => storage.openDb());
+
   it('can close before import completes without creating a watcher', async () => {
     handle = indexer.startWatcher(512);
     await handle.close();
@@ -146,6 +151,7 @@ describe('repository metadata watcher lifecycle', () => {
   beforeEach(() => {
     fixture = createGitFixture({ linked: true, vaultPrefix: 'projects/notes' });
     process.env.OBSIDIAN_VAULT_PATH = fixture.vault;
+    storage.openDb();
   });
 
   it('waits for both initial scans and cancels a burst of refresh events on close', async () => {
