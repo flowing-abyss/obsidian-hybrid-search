@@ -1,5 +1,4 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { Server, type ListToolsResult } from '@modelcontextprotocol/server';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -86,6 +85,36 @@ export async function checkForUpdates(version = packageVersion): Promise<void> {
 }
 
 const runtimeIndexers = new WeakMap<McpRuntime, IndexService>();
+interface RuntimeRequests {
+  active: Set<Promise<McpToolResult>>;
+  closing: boolean;
+  closePromise?: Promise<void>;
+}
+const runtimeRequests = new WeakMap<McpRuntime, RuntimeRequests>();
+function requestsFor(runtime: McpRuntime): RuntimeRequests {
+  let requests = runtimeRequests.get(runtime);
+  if (!requests) {
+    requests = { active: new Set(), closing: false };
+    runtimeRequests.set(runtime, requests);
+  }
+  return requests;
+}
+
+async function runToolRequest(
+  runtime: McpRuntime,
+  execute: () => Promise<McpToolResult>,
+): Promise<McpToolResult> {
+  const requests = requestsFor(runtime);
+  if (requests.closing) return validationErrorResult('MCP server is shutting down');
+  const operation = execute();
+  requests.active.add(operation);
+  try {
+    return await operation;
+  } finally {
+    requests.active.delete(operation);
+  }
+}
+
 function indexerFor(runtime: McpRuntime): IndexService {
   let service = runtimeIndexers.get(runtime);
   if (!service) {
@@ -121,9 +150,23 @@ export function startMcpBackgroundServices(runtime: McpRuntime): void {
   indexerFor(runtime).start();
 }
 
-export async function closeMcpRuntime(runtime: McpRuntime): Promise<void> {
-  await runtimeIndexers.get(runtime)?.close();
-  runtimeIndexers.delete(runtime);
+export function closeMcpRuntime(runtime: McpRuntime): Promise<void> {
+  const requests = requestsFor(runtime);
+  requests.closing = true;
+  requests.closePromise ??= (async () => {
+    // A disconnected transport can finish before its tool's inference does.
+    // Keep the shared database alive until every admitted operation settles.
+    const results = await Promise.allSettled([
+      runtimeIndexers.get(runtime)?.close(),
+      ...requests.active,
+    ]);
+    runtimeIndexers.delete(runtime);
+    const errors = results.flatMap((result): unknown[] =>
+      result.status === 'rejected' ? [result.reason] : [],
+    );
+    if (errors.length) throw new AggregateError(errors, 'MCP runtime shutdown failed');
+  })();
+  return requests.closePromise;
 }
 
 function handleReindex(a: { path?: string; force?: boolean }, runtime: McpRuntime) {
@@ -294,7 +337,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
     actual === toolName(expected) || actual === expected;
 
   // eslint-disable-next-line @typescript-eslint/require-await
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  server.setRequestHandler('tools/list', async (): Promise<ListToolsResult> => ({
     tools: [
       {
         name: toolName('search'),
@@ -495,32 +538,34 @@ export function createMcpServer(runtime: McpRuntime): Server {
     ],
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
-    const a: Record<string, unknown> = args ?? {};
+  server.setRequestHandler('tools/call', (request) =>
+    runToolRequest(runtime, async () => {
+      const { name, arguments: args } = request.params;
+      const a: Record<string, unknown> = args ?? {};
 
-    try {
-      if (isTool(name, 'search')) {
-        return callSearchTool(a);
+      try {
+        if (isTool(name, 'search')) {
+          return await callSearchTool(a);
+        }
+
+        if (isTool(name, 'reindex')) {
+          return await callReindexTool(a, runtime);
+        }
+
+        if (isTool(name, 'status')) {
+          return callStatusTool(a, runtime);
+        }
+
+        if (isTool(name, 'read')) {
+          return callReadTool(a);
+        }
+
+        return validationErrorResult(`Unknown tool: ${name}`);
+      } catch (err) {
+        return validationErrorResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
       }
-
-      if (isTool(name, 'reindex')) {
-        return await callReindexTool(a, runtime);
-      }
-
-      if (isTool(name, 'status')) {
-        return callStatusTool(a, runtime);
-      }
-
-      if (isTool(name, 'read')) {
-        return callReadTool(a);
-      }
-
-      return validationErrorResult(`Unknown tool: ${name}`);
-    } catch (err) {
-      return validationErrorResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  });
+    }),
+  );
 
   return server;
 }
