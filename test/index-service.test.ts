@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -146,3 +147,170 @@ it('opens a search-only MCP runtime without probing embeddings or initializing v
   );
   await closeMcpRuntime(runtime);
 });
+
+it('reports a rolled-back stale-note cleanup without changing the previous index', async () => {
+  write('Keep this indexed body until deletion commits.');
+  await service.reindex();
+  const before = body();
+  db.getDb().exec(
+    "CREATE TRIGGER reject_delete BEFORE DELETE ON notes BEGIN SELECT RAISE(ABORT,'synthetic delete failure');END",
+  );
+  rmSync(path.join(vault, 'note.md'));
+  await assert.rejects(service.reindex(), /synthetic delete failure/);
+  assert.equal(body(), before);
+  assert.equal(db.getStats().failedIndexing, 1);
+  assert.equal(db.getIndexFailures()[0]?.operation, 'cleanup');
+});
+
+it('indexes the latest queued source after both previous attempts changed during inference', async () => {
+  write('Original indexed content.');
+  await service.reindex();
+  const initialCalls = embeddings.mock.calls.length;
+  await service.close();
+  service = createIndexService();
+  let attempts = 0;
+  embeddings.mockImplementation(async (texts) => {
+    attempts++;
+    if (attempts <= 2) {
+      write(attempts === 1 ? 'Second changing source version.' : 'Third stable source version.');
+      watcher.emit('change', path.join(vault, 'note.md'));
+      await new Promise((resolve) => setTimeout(resolve, 8));
+    }
+    return texts.map(() => ({ ok: true as const, embedding: new Float32Array([1, 0, 0, 0]) }));
+  });
+  write('First changing source version.');
+  service.start();
+  await vi.waitFor(() => assert.equal(body(), 'Third stable source version.'));
+  await vi.waitFor(() => assert.equal(getIndexingStatus().isRunning, false));
+  assert.equal(embeddings.mock.calls.length - initialCalls, 3);
+  assert.equal(db.getStats().failedIndexing, 0);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(embeddings.mock.calls.length - initialCalls, 3, 'the stable source must not loop');
+});
+
+it('preserves typed YAML frontmatter and filter lookups through full force publication', async () => {
+  write(
+    '---\nvalue: .inf\nnegative: -.inf\ninvalid: .nan\ndate: 2024-01-02\nlist: [1, true, null]\n---\nTyped frontmatter body.',
+  );
+  await service.reindex();
+  const previous = db.getNoteByPath('note.md')!.frontmatter;
+  const fields = () =>
+    db
+      .getDb()
+      .prepare('SELECT field,value,value_norm FROM note_frontmatter_fields ORDER BY field,value')
+      .all();
+  const before = fields();
+  await service.reindex({ force: true });
+  assert.equal(db.getNoteByPath('note.md')!.frontmatter, previous);
+  assert.deepEqual(fields(), before);
+});
+
+it.each(['background', 'force'])(
+  'drains every admitted %s file even when its sibling observes cancellation first',
+  async (mode) => {
+    write('First file with a native request.');
+    writeFileSync(path.join(vault, 'second.md'), 'Second file with a native request.');
+    type Outcomes = Awaited<ReturnType<typeof embedder.embedDetailed>>;
+    const releases: Array<(outcomes: Outcomes) => void> = [];
+    embeddings.mockImplementation(() => new Promise<Outcomes>((resolve) => releases.push(resolve)));
+    const indexing =
+      mode === 'force' ? service.reindex({ force: true }).catch(() => undefined) : undefined;
+    if (mode === 'background') service.start();
+    await vi.waitFor(() => assert.equal(releases.length, 2));
+    let closed = false;
+    const closing = service.close().then(() => {
+      closed = true;
+    });
+    const outcomes = [{ ok: true as const, embedding: new Float32Array([1, 0, 0, 0]) }];
+    try {
+      releases[0]!(outcomes);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(closed, false, 'the sibling native call is still pending');
+    } finally {
+      releases[1]!(outcomes);
+      await closing;
+      await indexing;
+    }
+  },
+);
+
+it('ignores a stale debounce callback after another process claims ownership', async () => {
+  write('---\ntitle: Empty body\n---\n');
+  service.start();
+  await vi.waitFor(() => assert.ok(db.getNoteByPath('note.md')));
+  const storage = await import('../src/storage/db.js');
+  storage.requestForegroundIndex('preempt');
+  const lease = storage.claimIndexLease('preempt', 'foreground');
+  assert.ok(lease);
+  storage.cancelForegroundIndexRequest('preempt');
+  vi.useFakeTimers();
+  try {
+    watcher.emit('change', path.join(vault, 'note.md'));
+    assert.doesNotThrow(() => vi.advanceTimersByTime(config.debounce));
+  } finally {
+    vi.useRealTimers();
+    storage.releaseIndexLease(lease);
+  }
+});
+
+it('does not let a deferred unlink delete a recreated and freshly indexed note', async () => {
+  write('---\ntitle: Original\n---\n');
+  service.start();
+  await vi.waitFor(() => assert.ok(db.getNoteByPath('note.md')));
+  const storage = await import('../src/storage/db.js');
+  const { indexFile } = await import('../src/indexing/indexer.js');
+  const owner = storage.readIndexOwner();
+  assert.ok(owner.token);
+  const run = {
+    lease: { token: owner.token, mode: 'background' as const },
+    signal: new AbortController().signal,
+  };
+  const blocker = new Database(config.dbPath);
+  blocker.exec('BEGIN IMMEDIATE');
+  const file = path.join(vault, 'note.md');
+  rmSync(file);
+  watcher.emit('unlink', file);
+  const recreated = new Promise<void>((resolve, reject) =>
+    setTimeout(() => {
+      blocker.exec('ROLLBACK');
+      write('---\ntitle: Recreated\n---\n');
+      indexFile(run, file, 512, true).then(() => resolve(), reject);
+    }, 20),
+  );
+  try {
+    await recreated;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(db.getNoteByPath('note.md')?.title, 'Recreated');
+  } finally {
+    if (blocker.inTransaction) blocker.exec('ROLLBACK');
+    blocker.close();
+  }
+});
+
+it.each(['full', 'force', 'files', 'path'])(
+  'reports progress to other readers during %s foreground indexing',
+  async (mode) => {
+    write('A document held during foreground embedding.');
+    let complete!: (value: Awaited<ReturnType<typeof embedder.embedDetailed>>) => void;
+    embeddings.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const indexing =
+      mode === 'files'
+        ? service.reindexFiles(['note.md'])
+        : service.reindex(
+            mode === 'force' ? { force: true } : mode === 'path' ? { path: 'note.md' } : {},
+          );
+    try {
+      await vi.waitFor(() => assert.equal(embeddings.mock.calls.length, 1));
+      assert.deepEqual(getIndexingStatus(), { isRunning: true, queued: 1, processed: 0, total: 1 });
+    } finally {
+      complete([{ ok: true, embedding: new Float32Array([1, 0, 0, 0]) }]);
+      await indexing;
+    }
+    assert.equal(getIndexingStatus().isRunning, false);
+  },
+);

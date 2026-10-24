@@ -475,7 +475,8 @@ function deleteVecChunksForNote(db: DB, noteId: number): void {
   ).run(noteId);
 }
 
-function cleanupNfcPaths(db: DB): void {
+function cleanupNfcPaths(db: DB): boolean {
+  let changed = false;
   const vecExists = !!db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_chunks'")
     .get();
@@ -494,8 +495,10 @@ function cleanupNfcPaths(db: DB): void {
       );
       db.prepare('DELETE FROM note_urls WHERE from_path = ?').run(note.path);
       db.prepare('DELETE FROM notes WHERE id = ?').run(note.id);
+      changed = true;
     }
   }
+  return changed;
 }
 
 function restoreIgnorePatterns(db: DB): void {
@@ -621,7 +624,9 @@ export function reopenDatabaseForRecovery(lease: IndexLease): void {
 }
 
 export function cleanupLegacyPaths(lease: IndexLease): void {
-  withIndexMutation(lease, () => cleanupNfcPaths(getDb()));
+  withIndexMutation(lease, () => {
+    if (cleanupNfcPaths(getDb())) bumpDbVersion();
+  });
 }
 
 export function getDb(): DB {
@@ -1034,45 +1039,77 @@ export function getBacklinksForPaths(paths: string[]): Map<string, string[]> {
   return backlinks;
 }
 
-export function upsertLinks(lease: IndexLease, fromPath: string, toPaths: string[]): void {
+export function upsertLinks(lease: IndexLease, fromPath: string, toPaths: string[]): boolean {
   return withIndexMutation(lease, () => {
     const db = getDb();
+    const desired = [...new Set(toPaths)];
+    const existing = db
+      .prepare('SELECT to_path FROM links WHERE from_path = ? ORDER BY rowid')
+      .pluck()
+      .all(fromPath);
+    if (
+      existing.length === desired.length &&
+      existing.every((value, index) => value === desired[index])
+    )
+      return false;
     db.prepare('DELETE FROM links WHERE from_path = ?').run(fromPath);
     const insert = db.prepare('INSERT OR IGNORE INTO links (from_path, to_path) VALUES (?, ?)');
-    for (const toPath of toPaths) {
+    for (const toPath of desired) {
       insert.run(fromPath, toPath);
     }
+    return true;
   });
 }
 
-export function upsertMarkdownLinks(lease: IndexLease, fromPath: string, toPaths: string[]): void {
+export function upsertMarkdownLinks(
+  lease: IndexLease,
+  fromPath: string,
+  toPaths: string[],
+): boolean {
   return withIndexMutation(lease, () => {
     const db = getDb();
+    const desired = [...new Set(toPaths)];
+    const existing = db
+      .prepare('SELECT to_path FROM markdown_links WHERE from_path = ? ORDER BY rowid')
+      .pluck()
+      .all(fromPath);
+    if (
+      existing.length === desired.length &&
+      existing.every((value, index) => value === desired[index])
+    )
+      return false;
     db.prepare('DELETE FROM markdown_links WHERE from_path = ?').run(fromPath);
     const insert = db.prepare(
       'INSERT OR IGNORE INTO markdown_links (from_path, to_path) VALUES (?, ?)',
     );
-    for (const toPath of toPaths) {
+    for (const toPath of desired) {
       insert.run(fromPath, toPath);
     }
+    return true;
   });
 }
 
-export function upsertNoteUrls(lease: IndexLease, fromPath: string, urls: string[]): void {
+export function upsertNoteUrls(lease: IndexLease, fromPath: string, urls: string[]): boolean {
   return withIndexMutation(lease, () => {
     const db = getDb();
+    const desired = [...new Set(urls)];
+    const existing = db
+      .prepare('SELECT url FROM note_urls WHERE from_path = ? ORDER BY position')
+      .pluck()
+      .all(fromPath);
+    if (
+      existing.length === desired.length &&
+      existing.every((value, index) => value === desired[index])
+    )
+      return false;
     db.prepare('DELETE FROM note_urls WHERE from_path = ?').run(fromPath);
     const insert = db.prepare(
       'INSERT OR IGNORE INTO note_urls (from_path, url, position) VALUES (?, ?, ?)',
     );
-    const seen = new Set<string>();
-    let position = 0;
-    for (const url of urls) {
-      if (seen.has(url)) continue;
-      seen.add(url);
+    for (const [position, url] of desired.entries()) {
       insert.run(fromPath, url, position);
-      position++;
     }
+    return true;
   });
 }
 
@@ -1423,22 +1460,20 @@ export function getFailedChunks(limit = 100): FailedChunk[] {
 }
 
 /**
- * Vault-relative paths of notes holding at least one chunk the provider rejected.
+ * Vault-relative paths of notes with a rolled-back write or rejected embedding.
  * Unlike getFailedChunks this is unbounded, because it drives a repair pass that
  * must cover every affected note rather than a preview.
  */
-export function getNotesWithFailedChunks(): string[] {
-  const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT n.path
-       FROM chunks c
-       JOIN notes n ON n.id = c.note_id
-       WHERE c.embedding_status = 'failed'
-       ORDER BY n.path`,
-    )
-    .all() as Array<{ path: string }>;
-  return rows.map((row) => row.path);
+export function getNotesNeedingRepair(): string[] {
+  return (
+    getDb()
+      .prepare(
+        `SELECT path FROM index_failures WHERE operation='index' AND path<>''
+    UNION SELECT n.path FROM notes n JOIN chunks c ON c.note_id=n.id WHERE c.embedding_status='failed'
+    ORDER BY path`,
+      )
+      .all() as Array<{ path: string }>
+  ).map((row) => row.path);
 }
 
 /**

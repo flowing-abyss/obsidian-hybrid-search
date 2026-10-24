@@ -11,6 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it, vi } from 'vitest';
+import { createGitFixture } from './helpers/git-fixture.js';
 
 vi.mock('node:fs', async (importOriginal) => {
   const fs = await importOriginal<typeof import('node:fs')>();
@@ -22,6 +23,53 @@ vi.mock('node:fs', async (importOriginal) => {
 });
 
 const { createIgnorePolicy, createIgnorePolicyForFiles } = await import('../src/vault/ignore.js');
+
+describe('scoped repository exclude snapshots', () => {
+  it('uses external ancestor rules without walking unrelated or Git administrative trees', () => {
+    const fixture = createGitFixture({ linked: true, vaultPrefix: 'projects/notes' });
+    try {
+      process.env.OBSIDIAN_VAULT_PATH = fixture.vault;
+      fixture.write('projects/notes/a/b/note.md', '# Note');
+      fixture.write('projects/notes/sibling/unrelated/.gitignore', '*.md\n');
+      fixture.write('unrelated/.gitignore', '*.md\n');
+      writeFileSync(fixture.exclude, '/projects/notes/a/b/note.md\n');
+      const full = createIgnorePolicy();
+      vi.mocked(readdirSync).mockClear();
+      vi.mocked(readFileSync).mockClear();
+      const scoped = createIgnorePolicyForFiles(['a/b/note.md', 'a/b/note.md']);
+      assert.equal(scoped.isIgnored('a/b/note.md'), true);
+      assert.equal(scoped.isIgnored('a/b/note.md'), full.isIgnored('a/b/note.md'));
+      const visited = vi.mocked(readdirSync).mock.calls.map(([dir]) => String(dir));
+      assert.ok(!visited.some((dir) => dir.includes('sibling') || dir.includes('unrelated')));
+      assert.ok(visited.every((dir) => dir.startsWith(fixture.vault)));
+      const readCount = vi.mocked(readFileSync).mock.calls.length;
+      for (let i = 0; i < 50; i++) scoped.isIgnored('a/b/note.md');
+      assert.equal(vi.mocked(readFileSync).mock.calls.length, readCount);
+      rmSync(fixture.exclude);
+      assert.equal(createIgnorePolicyForFiles(['a/b/note.md']).isIgnored('a/b/note.md'), false);
+      writeFileSync(fixture.exclude, '*.md\n');
+      assert.equal(createIgnorePolicyForFiles(['a/b/note.md']).isIgnored('a/b/note.md'), true);
+    } finally {
+      fixture.dispose();
+    }
+  });
+  it('does not read even malformed repository metadata when Git respect is disabled', () => {
+    const fixture = createGitFixture({ linked: true });
+    try {
+      process.env.OBSIDIAN_VAULT_PATH = fixture.vault;
+      process.env.OBSIDIAN_RESPECT_GITIGNORE = 'false';
+      process.env.OBSIDIAN_IGNORE_PATTERNS = 'secret.md';
+      writeFileSync(path.join(fixture.repo, '.git'), 'invalid gitfile');
+      vi.mocked(readFileSync).mockClear();
+      const scoped = createIgnorePolicyForFiles(['note.md', 'secret.md']);
+      assert.equal(scoped.isIgnored('note.md'), false);
+      assert.equal(scoped.isIgnored('secret.md'), true);
+      assert.equal(vi.mocked(readFileSync).mock.calls.length, 0);
+    } finally {
+      fixture.dispose();
+    }
+  });
+});
 
 let vaultDir: string;
 

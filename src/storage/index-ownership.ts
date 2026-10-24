@@ -197,9 +197,10 @@ export function createIndexOwnership(
     }
     return db
       .transaction(() => {
+        const admittedAt = now();
         if (outerToken === null) {
           const owner = read();
-          if (owner.token !== lease.token || owner.expiresAt <= now()) {
+          if (owner.token !== lease.token || owner.expiresAt <= admittedAt) {
             throw new IndexLeaseLostError();
           }
         }
@@ -208,6 +209,17 @@ export function createIndexOwnership(
           const result = operation();
           if (result && typeof result === 'object' && 'then' in result) {
             throw new TypeError('Index mutations must be synchronous.');
+          }
+          const completedAt = now();
+          if (outerToken === null && completedAt - admittedAt >= leaseMs / 2) {
+            // The writer lock prevents takeover. Keep a successful long operation
+            // usable afterwards without renewing an expired admission or a rollback.
+            const renewed = db
+              .prepare(
+                'UPDATE index_owner SET expires_at=?, heartbeat_sequence=heartbeat_sequence+1 WHERE id=1 AND token=?',
+              )
+              .run(completedAt + leaseMs, lease.token);
+            if (renewed.changes !== 1) throw new IndexLeaseLostError();
           }
           return result;
         } finally {

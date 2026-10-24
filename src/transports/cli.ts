@@ -18,7 +18,7 @@ import {
   applyDbConfigDefaults,
   closeDb,
   getFailedChunks,
-  getNotesWithFailedChunks,
+  getNotesNeedingRepair,
   getStats,
   getStoredEmbeddingDim,
   getStoredModel,
@@ -165,39 +165,29 @@ interface ReindexOpts {
  */
 async function reindexFailedNotes(): Promise<void> {
   await init();
-  const paths = getNotesWithFailedChunks();
+  const paths = getNotesNeedingRepair();
 
   if (paths.length === 0) {
-    process.stderr.write('Nothing to repair — no chunks are marked as failed.\n');
+    process.stderr.write('Nothing to repair.\n');
     return;
   }
 
   const noun = paths.length === 1 ? 'note' : 'notes';
-  process.stderr.write(`Repairing ${String(paths.length)} ${noun} with failed chunks...\n`);
+  process.stderr.write(`Repairing ${String(paths.length)} ${noun} with indexing errors...\n`);
 
   const isTTY = process.stderr.isTTY === true;
   const startTime = Date.now();
-  const failures: Array<{ path: string; error: string }> = [];
-
-  for (const [index, relPath] of paths.entries()) {
-    const result = await cliIndexer.reindex({ path: relPath, force: true });
-    const status = result.errors[0];
-    if (status) {
-      failures.push({ path: relPath, error: status.error });
-    }
-
-    const processed = index + 1;
-    if (isTTY) {
-      process.stderr.write(`\r\x1b[2K${renderProgressLine(processed, paths.length, '')}`);
-    } else {
-      const pct = Math.round((processed / paths.length) * 100);
-      process.stderr.write(`${String(processed)}/${String(paths.length)} (${String(pct)}%)\n`);
-    }
-  }
+  const result = await cliIndexer.reindexFiles(paths, (processed, total) => {
+    if (isTTY) process.stderr.write(`\r\x1b[2K${renderProgressLine(processed, total, '')}`);
+    else
+      process.stderr.write(`${processed}/${total} (${Math.round((processed / total) * 100)}%)\n`);
+  });
+  const failures = result.errors;
   if (isTTY) process.stderr.write('\n');
 
-  const remaining = getNotesWithFailedChunks();
+  const remaining = getNotesNeedingRepair();
   const repaired = paths.length - remaining.length;
+  if (remaining.length > 0 || failures.length > 0) process.exitCode = 1;
   const elapsed = formatDuration((Date.now() - startTime) / 1000);
   const summary = [`${String(repaired)} repaired`, `${String(remaining.length)} still failing`];
   if (failures.length > 0) {
@@ -598,11 +588,8 @@ program
 program
   .command('reindex [path]')
   .description('Reindex the vault or a specific file')
-  .option(
-    '--force',
-    'Recreate the full database after a fresh embedding probe; with a path, only retry that file',
-  )
-  .option('--errors', 'Reindex only the notes whose chunks failed to embed')
+  .option('--force', 'Rebuild the full index; with a path, only retry that file')
+  .option('--errors', 'Retry notes with indexing errors or rejected embeddings')
   .option(
     '--threads <count>',
     'Save local CPU embedding/reranking threads (0 for native auto); restart services to apply',

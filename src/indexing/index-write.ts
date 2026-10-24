@@ -2,11 +2,14 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { IndexRunContext } from './index-owner.js';
 
 /** Retry only SQLite lock contention. Keep prepared embeddings outside the transaction. */
-export async function retryIndexWrite<T>(run: IndexRunContext, operation: () => T): Promise<T> {
+export async function retryIndexWrite<T>(
+  run: IndexRunContext,
+  operation: () => T | Promise<T>,
+): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     run.signal.throwIfAborted();
     try {
-      return operation();
+      return await operation();
     } catch (error) {
       const busy =
         !!error &&

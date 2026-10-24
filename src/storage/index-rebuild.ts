@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { extractMarkdownNote } from '../content/note-extractor.js';
 import {
   getDb,
   replaceActiveIndex,
@@ -65,7 +66,7 @@ export function stageRebuildNote(
     ).run(
       id,
       note.path,
-      JSON.stringify(metadata),
+      JSON.stringify({ ...metadata, frontmatter: undefined }),
       frontmatterRaw,
       fingerprint.mtimeMs,
       fingerprint.size,
@@ -124,7 +125,7 @@ export function publishRebuild(lease: IndexLease, id: string): void {
     if (!targetRow) throw new Error('Rebuild no longer exists');
     function* rows(): Iterable<{ note: PreparedIndexNote; references: NoteReferences }> {
       const metadata = db.prepare(
-        'SELECT rowid,path,note_json,references_json FROM index_rebuild_notes WHERE run_id=? AND rowid>? ORDER BY rowid LIMIT 100',
+        'SELECT rowid,path,note_json,frontmatter_raw,references_json FROM index_rebuild_notes WHERE run_id=? AND rowid>? ORDER BY rowid LIMIT 100',
       );
       const chunks = db.prepare(
         'SELECT chunk_json,embedding FROM index_rebuild_chunks WHERE run_id=? AND path=? ORDER BY ordinal',
@@ -135,6 +136,7 @@ export function publishRebuild(lease: IndexLease, id: string): void {
           rowid: number;
           path: string;
           note_json: string;
+          frontmatter_raw: string;
           references_json: string | null;
         }>;
         if (batch.length === 0) break;
@@ -142,6 +144,12 @@ export function publishRebuild(lease: IndexLease, id: string): void {
           after = row.rowid;
           if (!row.references_json) throw new Error('Rebuild references are incomplete');
           const note = JSON.parse(row.note_json) as PreparedIndexNote;
+          // JSON cannot preserve YAML dates or non-finite numbers. Use the same
+          // parser as ordinary indexing against the staged source block.
+          note.frontmatter = extractMarkdownNote(
+            `---${row.frontmatter_raw}\n---\n`,
+            note.title,
+          ).frontmatter;
           note.chunks = (
             chunks.all(id, row.path) as Array<{ chunk_json: string; embedding: Buffer }>
           ).map((chunk) => ({

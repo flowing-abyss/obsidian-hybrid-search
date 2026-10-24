@@ -21,7 +21,11 @@ import {
 } from '../storage/db.js';
 import { IndexLeaseLostError } from '../storage/index-ownership.js';
 import { discardRebuilds } from '../storage/index-rebuild.js';
-import { createIndexCoordinator, type IndexRunContext } from './index-owner.js';
+import {
+  createIndexCoordinator,
+  reportIndexProgress,
+  type IndexRunContext,
+} from './index-owner.js';
 import {
   drainIndexingRun,
   indexFileWithRecovery,
@@ -107,6 +111,10 @@ export interface IndexService {
   start(): void;
   close(): Promise<void>;
   reindex(options?: { path?: string; force?: boolean }): Promise<IndexResult>;
+  reindexFiles(
+    paths: string[],
+    onProgress?: (processed: number, total: number) => void,
+  ): Promise<IndexResult>;
 }
 
 export function createIndexService(): IndexService {
@@ -147,6 +155,27 @@ export function createIndexService(): IndexService {
     close() {
       return coordinator.close();
     },
+    reindexFiles(paths, onProgress) {
+      return coordinator.foreground(async (run) => {
+        const contextLength = await prepareOwner(run);
+        const result: IndexResult = { indexed: 0, skipped: 0, errors: [] };
+        reportIndexProgress(run, paths.length, 0);
+        for (const [index, notePath] of paths.entries()) {
+          const status = await indexFileWithRecovery(
+            run,
+            path.join(config.vaultPath, notePath),
+            contextLength,
+            true,
+          );
+          if (status === 'indexed') result.indexed++;
+          else if (status === 'skipped') result.skipped++;
+          else result.errors.push({ path: notePath, error: status.error });
+          reportIndexProgress(run, paths.length, index + 1);
+          onProgress?.(index + 1, paths.length);
+        }
+        return result;
+      });
+    },
     reindex(options = {}) {
       return coordinator.foreground(async (run) => {
         if (options.force && !options.path) {
@@ -160,6 +189,7 @@ export function createIndexService(): IndexService {
         const contextLength = await prepareOwner(run);
         if (!options.path)
           return indexVaultSync(run, false, 'Indexing vault...', { requireClean: true });
+        reportIndexProgress(run, 1, 0);
         const status = await indexFileWithRecovery(
           run,
           path.join(config.vaultPath, options.path),

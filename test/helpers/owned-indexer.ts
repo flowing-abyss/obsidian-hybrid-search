@@ -15,9 +15,12 @@ export const indexVaultSync = owned(indexer.indexVaultSync);
 export const startBackgroundIndexing = owned(indexer.startBackgroundIndexing);
 export const populateMissingLinks = owned(indexer.populateMissingLinks);
 export const populateMissingMarkdownReferences = owned(indexer.populateMissingMarkdownReferences);
-export function cleanupStaleNotes(paths?: Set<string>): void {
+export function cleanupStaleNotes(
+  paths?: Set<string>,
+  policy?: Parameters<typeof indexer.cleanupStaleNotes>[2],
+): void {
   withTestIndexLease((lease) =>
-    indexer.cleanupStaleNotes({ lease, signal: new AbortController().signal }, paths),
+    indexer.cleanupStaleNotes({ lease, signal: new AbortController().signal }, paths, policy),
   );
 }
 let fixtureOpened = false;
@@ -43,10 +46,10 @@ export function startWatcher(contextLength: number, suiteLifetime = false): inde
       try {
         await handle.close();
       } finally {
+        watchers.delete(result);
         release();
         await lifetime;
       }
-      watchers.delete(result);
     },
   };
   if (!suiteLifetime) watchers.add(result);
