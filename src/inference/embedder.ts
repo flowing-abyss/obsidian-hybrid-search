@@ -725,16 +725,20 @@ async function embedApiBatch(
     return { ok: false, failure, localize: failure.kind === 'input_too_long' };
   }
 
+  const items = data.data;
+  const allIndexesMissing = items.every((item) => item.index === undefined);
   const seenIndexes = new Set<number>();
   const indexesMatchRequest =
-    data.data.length === texts.length &&
-    data.data.every((item) => {
-      if (item.index < 0 || item.index >= texts.length || seenIndexes.has(item.index)) {
-        return false;
-      }
-      seenIndexes.add(item.index);
-      return true;
-    });
+    items.length === texts.length &&
+    (allIndexesMissing ||
+      items.every((item) => {
+        const index = item.index;
+        if (index === undefined || index < 0 || index >= texts.length || seenIndexes.has(index)) {
+          return false;
+        }
+        seenIndexes.add(index);
+        return true;
+      }));
   if (!indexesMatchRequest) {
     return {
       ok: false,
@@ -747,12 +751,11 @@ async function embedApiBatch(
     };
   }
 
-  return {
-    ok: true,
-    embeddings: [...data.data]
-      .sort((a, b) => a.index - b.index)
-      .map((item) => new Float32Array(item.embedding)),
-  };
+  const embeddings = new Array<Float32Array>(texts.length);
+  for (const [position, item] of items.entries()) {
+    embeddings[item.index ?? position] = new Float32Array(item.embedding);
+  }
+  return { ok: true, embeddings };
 }
 
 function stripTrailingSlashes(value: string): string {
