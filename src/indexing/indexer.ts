@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, statSync, type Stats } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chunkNote, createChunkBoundaryIndex, refineChunksToFit } from '../content/chunker.js';
@@ -645,36 +645,60 @@ export async function startBackgroundIndexing(contextLength: number): Promise<vo
   }
 }
 
-const fileDelays = new Map<string, ReturnType<typeof setTimeout>>();
-const pendingUnlinks = new Set<string>();
+export interface WatcherHandle {
+  /** Startup has settled, including cancellation or an error reported on stderr. */
+  ready: Promise<void>;
+  /** Stop observation and pending debounce timers; queued indexing has its own lifecycle. */
+  close(): Promise<void>;
+}
 
-export function startWatcher(contextLength: number): void {
-  import('chokidar')
+export function startWatcher(contextLength: number): WatcherHandle {
+  const fileDelays = new Map<string, ReturnType<typeof setTimeout>>();
+  const pendingUnlinks = new Set<string>();
+  let closed = false;
+  let settleReady!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    settleReady = resolve;
+  });
+  let closeWatcher: (() => Promise<void>) | undefined;
+  let closing: Promise<void> | undefined;
+  let lastErrorLog = -Infinity;
+  const initialization = import('chokidar')
     .then(({ watch }) => {
+      if (closed) return;
       let watcherPolicy = createIgnorePolicy();
       const watcher = watch(config.vaultPath, {
-        ignored: (filePath: string) => {
+        backend: 'auto',
+        ignored: (filePath: string, stats?: Stats) => {
           const base = path.basename(filePath);
           if (base === '.gitignore') return false;
+          const rel = toVaultRelativePath(filePath);
+          if (rel === '') return false;
           try {
-            if (statSync(filePath).isDirectory()) {
-              const rel = toVaultRelativePath(filePath);
-              // chokidar v5 consults `ignored` for the watch root itself, where
-              // rel is ''. isIgnored('/') throws → the catch below would fall
-              // through to `return true`, marking the whole tree ignored and
-              // silently disabling all file watching. Never ignore the vault root.
-              if (rel === '') return false;
+            if ((stats ?? statSync(filePath)).isDirectory()) {
               return watcherPolicy.isIgnored(rel + '/');
             }
           } catch {
-            // File doesn't exist — fall through to extension check below
+            // A vanished path can be a directory. Chokidar checks ancestors
+            // when reconciling deletions, so applying the file extension filter
+            // here would hide unlink events for all of its former children.
+            return watcherPolicy.isIgnored(rel);
           }
           if (!base.endsWith('.md')) return true;
-          const rel = toVaultRelativePath(filePath);
           return watcherPolicy.isIgnored(rel);
         },
         persistent: true,
         ignoreInitial: true,
+      });
+      closeWatcher = () => watcher.close();
+      watcher.on('ready', settleReady);
+      watcher.on('error', (err: unknown) => {
+        const now = Date.now();
+        if (!closed && now - lastErrorLog >= 30_000) {
+          lastErrorLog = now;
+          console.warn('[watcher] filesystem watch error; index updates may be incomplete:', err);
+        }
+        settleReady();
       });
 
       const handleFileChange = (filePath: string) => {
@@ -682,6 +706,7 @@ export function startWatcher(contextLength: number): void {
         if (existing) clearTimeout(existing);
         const timer = setTimeout(() => {
           fileDelays.delete(filePath);
+          if (closed) return;
           const normalizedPath = normalizeNotePath(path.normalize(filePath));
           if (!_indexQueue.includes(normalizedPath)) {
             _indexQueue.push(normalizedPath);
@@ -696,6 +721,7 @@ export function startWatcher(contextLength: number): void {
 
       const handleGitignoreChange = () => {
         void withIndexingDbLock(async () => {
+          if (closed) return;
           try {
             watcherPolicy = createIgnorePolicy();
             const files = scanVault();
@@ -705,6 +731,7 @@ export function startWatcher(contextLength: number): void {
               () => cleanupStaleNotes(fsPaths),
               recoverDatabaseSidecarsForIndexing,
             );
+            if (closed) return;
             for (const file of files) {
               const normalizedPath = normalizeNotePath(path.normalize(file));
               if (!_indexQueue.includes(normalizedPath)) {
@@ -724,11 +751,13 @@ export function startWatcher(contextLength: number): void {
       };
 
       const safeHandleFileChange = (filePath: string) => {
+        if (closed) return;
         try {
           if (path.basename(filePath) === '.gitignore') {
             handleGitignoreChange();
             return;
           }
+          if (!filePath.endsWith('.md')) return;
           handleFileChange(filePath);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -737,14 +766,16 @@ export function startWatcher(contextLength: number): void {
       };
 
       const safeHandleUnlink = (filePath: string) => {
-        if (pendingUnlinks.has(filePath)) return;
+        if (closed || pendingUnlinks.has(filePath)) return;
         pendingUnlinks.add(filePath);
         void withIndexingDbLock(async () => {
           try {
+            if (closed) return;
             if (path.basename(filePath) === '.gitignore') {
               handleGitignoreChange();
               return;
             }
+            if (!filePath.endsWith('.md')) return;
             const rel = toVaultRelativePath(filePath);
             const existing = fileDelays.get(filePath);
             if (existing) {
@@ -773,8 +804,20 @@ export function startWatcher(contextLength: number): void {
       watcher.on('unlink', safeHandleUnlink);
     })
     .catch((err) => {
-      console.warn('[watcher] chokidar load error:', err);
+      if (!closed) console.warn('[watcher] chokidar load error:', err);
+      settleReady();
     });
+  return {
+    ready,
+    close() {
+      closed = true;
+      settleReady();
+      for (const timer of fileDelays.values()) clearTimeout(timer);
+      fileDelays.clear();
+      closing ??= initialization.then(() => closeWatcher?.());
+      return closing;
+    },
+  };
 }
 
 interface WikiCatalog {

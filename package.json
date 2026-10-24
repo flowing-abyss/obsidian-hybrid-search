@@ -66,7 +66,7 @@
   },
   "homepage": "https://github.com/flowing-abyss/obsidian-hybrid-search#readme",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.22.0"
   },
   "files": [
     "dist/src",
@@ -78,7 +78,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
     "better-sqlite3": "^12.11.1",
-    "chokidar": "^5.0.0",
+    "chokidar": "^6.0.0",
     "cli-table3": "^0.6.5",
     "commander": "^14.0.3",
     "gray-matter": "^4.0.3",

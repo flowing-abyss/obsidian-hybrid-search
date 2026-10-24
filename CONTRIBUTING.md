@@ -1,7 +1,7 @@
 # Contributing
 
 Use Node **22.23.3** and npm **12.2.0** for development, with Git on PATH.
-The published utility supports Node 20 and newer.
+The published utility requires Node 22.22 or newer. CI checks Node 22, 24, and 26.
 
 ```bash
 npm install --global npm@12.2.0
