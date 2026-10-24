@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, it, vi } from 'vitest';
@@ -17,6 +18,8 @@ import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-live-e2e-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 process.env.OBSIDIAN_INCLUDE_PATTERNS = 'keep/**,issue55/n*es/*.md';
+const osWatch = vi.spyOn(fs, 'watch');
+syncBuiltinESMExports();
 
 const { closeDb, openDb, initVecTable, getDb } = await import('../src/storage/db.js');
 const { config } = await import('../src/runtime/config.js');
@@ -36,6 +39,7 @@ vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
   count: (text) => Math.ceil(Array.from(text).length / 4),
 });
 const { indexVaultSync, startWatcher } = await import('../src/indexing/indexer.js');
+let watcher: ReturnType<typeof startWatcher>;
 
 // Shrink the 5s per-file debounce so the live test finishes quickly.
 config.debounce = 150;
@@ -43,6 +47,11 @@ config.debounce = 150;
 const abs = (rel: string): string => path.join(vaultDir, rel);
 const indexedPaths = (): string[] =>
   (getDb().prepare('SELECT path FROM notes').all() as { path: string }[]).map((r) => r.path);
+const indexedContent = (rel: string): string | undefined =>
+  (
+    getDb().prepare('SELECT content FROM notes WHERE path = ?').get(rel) as
+      { content: string } | undefined
+  )?.content;
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const waitFor = async (pred: () => boolean, ms = 5000): Promise<boolean> => {
   const start = Date.now();
@@ -68,6 +77,7 @@ beforeAll(async () => {
   mkdirSync(abs('issue55/nothing'), { recursive: true });
   writeFileSync(abs('issue55/.gitignore'), '*\n');
   writeFileSync(abs('issue55/nothing/.gitignore'), '!x.md\n');
+  for (let i = 0; i < 1200; i++) mkdirSync(abs(`wide/d${i}`), { recursive: true });
 
   const result = await indexVaultSync();
   assert.deepEqual(result.errors, [], 'initial indexing must not reject any notes');
@@ -79,16 +89,42 @@ beforeAll(async () => {
     vectors.every((vector) => vector.dim === 4),
     'embeddings must use the test dimension',
   );
-  startWatcher(512);
-  await wait(600); // let the real watcher settle
+  watcher = startWatcher(512);
+  await watcher.ready;
 }, 30_000);
 
-afterAll(() => {
+afterAll(async () => {
+  await watcher?.close();
+  osWatch.mockRestore();
+  syncBuiltinESMExports();
   closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
 });
 
 describe('live watcher e2e (real chokidar + real indexer)', () => {
+  it('watches a large tree without a native handle for every directory on macOS and Windows', async () => {
+    if (process.platform === 'darwin' || process.platform === 'win32') {
+      assert.ok(
+        osWatch.mock.calls.length <= 4,
+        `expected bounded OS watchers, got ${osWatch.mock.calls.length}`,
+      );
+      assert.ok(
+        osWatch.mock.calls.some((call) => {
+          const options: unknown = call[1];
+          return (
+            typeof options === 'object' &&
+            options !== null &&
+            'recursive' in options &&
+            options.recursive === true
+          );
+        }),
+        'native recursive observation should be used',
+      );
+    }
+    writeFileSync(abs('wide/d1199/new.md'), '# Native recursive event');
+    assert.ok(await waitFor(() => indexedPaths().includes('wide/d1199/new.md')));
+  });
+
   it('initial index contains only non-ignored notes', () => {
     const p = indexedPaths();
     assert.ok(p.includes('one.md'), 'one.md indexed');
@@ -133,6 +169,61 @@ describe('live watcher e2e (real chokidar + real indexer)', () => {
     assert.ok(await waitFor(() => !indexedPaths().includes('two.md')), 'two.md should be removed');
   });
 
+  it('indexes atomic saves without dropping the note', async () => {
+    writeFileSync(abs('atomic.md'), '# Original content');
+    assert.ok(await waitFor(() => indexedPaths().includes('atomic.md')));
+    writeFileSync(abs('atomic.tmp'), '# Replacement content');
+    renameSync(abs('atomic.tmp'), abs('atomic.md'));
+    assert.ok(
+      await waitFor(() => indexedContent('atomic.md')?.includes('Replacement content') ?? false),
+    );
+  });
+
+  it('reconciles every note in a moved populated subtree', async () => {
+    mkdirSync(abs('moving/deep'), { recursive: true });
+    writeFileSync(abs('moving/a.md'), '# First moved note');
+    writeFileSync(abs('moving/deep/b.md'), '# Second moved note');
+    assert.ok(
+      await waitFor(() =>
+        ['moving/a.md', 'moving/deep/b.md'].every((p) => indexedPaths().includes(p)),
+      ),
+    );
+    renameSync(abs('moving'), abs('moved'));
+    assert.ok(
+      await waitFor(() => {
+        const paths = indexedPaths();
+        return (
+          ['moved/a.md', 'moved/deep/b.md'].every((p) => paths.includes(p)) &&
+          !paths.some((p) => p.startsWith('moving/'))
+        );
+      }),
+    );
+  });
+
+  it.each(['NFC', 'NFD'])(
+    'indexes and removes a %s Unicode subtree using NFD index keys',
+    async (form) => {
+      const directory = 'Caf\u00e9'.normalize(form);
+      const note = `${directory}/R\u00e9sum\u00e9.md`.normalize(form);
+      mkdirSync(abs(directory));
+      writeFileSync(abs(note), '# Unicode path');
+      assert.ok(await waitFor(() => indexedPaths().includes(note.normalize('NFD'))));
+      rmSync(abs(directory), { recursive: true });
+      assert.ok(await waitFor(() => !indexedPaths().includes(note.normalize('NFD'))));
+    },
+  );
+
+  it('indexes a Unicode filename when Git rules make its directory visible', async () => {
+    const note = 'archive/Caf\u00e9/R\u00e9sum\u00e9.md';
+    mkdirSync(abs('archive/Caf\u00e9'));
+    writeFileSync(abs(note), '# Newly visible Unicode file');
+    assert.ok(!indexedPaths().includes(note.normalize('NFD')));
+    writeFileSync(abs('.gitignore'), 'keep/\n');
+    assert.ok(await waitFor(() => indexedPaths().includes(note.normalize('NFD'))));
+    writeFileSync(abs('.gitignore'), 'archive/\nkeep/\n');
+    assert.ok(await waitFor(() => !indexedPaths().includes(note.normalize('NFD'))));
+  });
+
   it('refreshes Git rules while preserving the explicitly included note vector', async () => {
     writeFileSync(abs('issue55/nothing/x.md'), '# Should remain excluded');
     writeFileSync(abs('issue55/notes/x.md'), '# Explicit include control');
@@ -157,4 +248,37 @@ describe('live watcher e2e (real chokidar + real indexer)', () => {
     assert.ok(indexedPaths().includes('issue55/notes/x.md'));
     assert.deepEqual(vector(), before);
   }, 30_000);
+
+  it('removes stale notes and vectors when an include-rescued subtree moves or disappears', async () => {
+    assert.ok(indexedPaths().includes('issue55/notes/x.md'));
+    renameSync(abs('issue55/notes'), abs('issue55/names'));
+    assert.ok(
+      await waitFor(() => {
+        const paths = indexedPaths();
+        return paths.includes('issue55/names/x.md') && !paths.includes('issue55/notes/x.md');
+      }),
+      'move must remove the old included path and index the new one',
+    );
+    rmSync(abs('issue55/names'), { recursive: true });
+    assert.ok(
+      await waitFor(() => !indexedPaths().includes('issue55/names/x.md')),
+      'deleting the included directory must remove its notes',
+    );
+    const orphanVectors = getDb()
+      .prepare(
+        `
+      SELECT COUNT(*) AS count FROM vec_chunks v
+      LEFT JOIN chunks c ON c.id = v.chunk_id WHERE c.id IS NULL
+    `,
+      )
+      .get() as { count: number };
+    assert.equal(orphanVectors.count, 0, 'moved and removed notes must leave no orphan vectors');
+  });
+
+  it('stops observing changes after close', async () => {
+    await watcher.close();
+    writeFileSync(abs('after-close.md'), '# Must not be indexed by the closed watcher');
+    await wait(600);
+    assert.ok(!indexedPaths().includes('after-close.md'));
+  });
 });

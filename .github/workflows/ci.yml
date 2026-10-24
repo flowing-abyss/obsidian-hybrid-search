@@ -12,17 +12,18 @@ permissions:
 
 jobs:
   test:
-    name: CI (${{ matrix.os }})
+    name: CI (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [22, 24, 26]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version-file: .node-version
+          node-version: ${{ matrix.node }}
           package-manager-cache: false
       - run: npm install --global npm@12.2.0
       - name: Cache npm packages
