@@ -277,7 +277,7 @@ class WorkerContentFilter implements ContentFilter {
     process.once('exit', this.onExit);
     child.on('message', (reply: unknown) => this.onMessage(reply));
     child.on('error', (error) =>
-      this.fail(new Error('Content filtering worker failed', { cause: error })),
+      this.fail(new Error('Content filtering worker failed', { cause: error }), 'worker'),
     );
     child.on('exit', (code, signal) => {
       this.fail(new Error(`Content filtering worker exited (${signal ?? code})`));
@@ -310,7 +310,11 @@ class WorkerContentFilter implements ContentFilter {
       );
       this.pending = { request, resolve, reject, timer };
       child.send(request, (error) => {
-        if (error) this.fail(new Error('Content filtering communication failed', { cause: error }));
+        if (error)
+          this.fail(
+            new Error('Content filtering communication failed', { cause: error }),
+            'worker',
+          );
       });
     });
   }
@@ -347,9 +351,9 @@ class WorkerContentFilter implements ContentFilter {
     pending.resolve(projection);
   }
 
-  private fail(error: Error): void {
+  private fail(error: Error, scope: 'job' | 'worker' = this.active ? 'job' : 'worker'): void {
     if (this.failure) return;
-    const failure = new ContentFilterError(error, this.active ? 'job' : 'worker');
+    const failure = new ContentFilterError(error, scope);
     this.failure = failure;
     if (this.pending) {
       clearTimeout(this.pending.timer);
