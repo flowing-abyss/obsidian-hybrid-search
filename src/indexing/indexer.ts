@@ -714,6 +714,7 @@ function queueFor(run: IndexRunContext): IndexQueue {
 function enqueue(run: IndexRunContext, files: readonly string[]): void {
   const queue = queueFor(run);
   for (const file of files) {
+    // Keep the filesystem spelling; only database-relative keys use NFD.
     const normalized = path.normalize(file);
     if (!queue.paths.has(normalized)) {
       queue.paths.add(normalized);
@@ -850,7 +851,7 @@ export function startWatcher(contextLength: number, run: IndexRunContext): Watch
             // A vanished path can be a directory. Chokidar checks ancestors
             // when reconciling deletions, so applying the file extension filter
             // here would hide unlink events for all of its former children.
-            return watcherPolicy.isIgnored(rel);
+            return watcherPolicy.isIgnored(rel) && watcherPolicy.isIgnored(rel + '/');
           }
           if (!base.endsWith('.md')) return true;
           return watcherPolicy.isIgnored(rel);

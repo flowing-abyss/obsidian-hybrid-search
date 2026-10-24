@@ -89,7 +89,7 @@ beforeAll(async () => {
     vectors.every((vector) => vector.dim === 4),
     'embeddings must use the test dimension',
   );
-  watcher = startWatcher(512);
+  watcher = startWatcher(512, true);
   await watcher.ready;
 }, 30_000);
 
@@ -200,13 +200,27 @@ describe('live watcher e2e (real chokidar + real indexer)', () => {
     );
   });
 
-  it('indexes and removes a newly created Unicode subtree using NFD paths', async () => {
-    const directory = 'Caf\u00e9';
-    const note = `${directory}/R\u00e9sum\u00e9.md`;
-    mkdirSync(abs(directory));
-    writeFileSync(abs(note), '# Unicode path');
+  it.each(['NFC', 'NFD'])(
+    'indexes and removes a %s Unicode subtree using NFD index keys',
+    async (form) => {
+      const directory = 'Caf\u00e9'.normalize(form);
+      const note = `${directory}/R\u00e9sum\u00e9.md`.normalize(form);
+      mkdirSync(abs(directory));
+      writeFileSync(abs(note), '# Unicode path');
+      assert.ok(await waitFor(() => indexedPaths().includes(note.normalize('NFD'))));
+      rmSync(abs(directory), { recursive: true });
+      assert.ok(await waitFor(() => !indexedPaths().includes(note.normalize('NFD'))));
+    },
+  );
+
+  it('indexes a Unicode filename when Git rules make its directory visible', async () => {
+    const note = 'archive/Caf\u00e9/R\u00e9sum\u00e9.md';
+    mkdirSync(abs('archive/Caf\u00e9'));
+    writeFileSync(abs(note), '# Newly visible Unicode file');
+    assert.ok(!indexedPaths().includes(note.normalize('NFD')));
+    writeFileSync(abs('.gitignore'), 'keep/\n');
     assert.ok(await waitFor(() => indexedPaths().includes(note.normalize('NFD'))));
-    rmSync(abs(directory), { recursive: true });
+    writeFileSync(abs('.gitignore'), 'archive/\nkeep/\n');
     assert.ok(await waitFor(() => !indexedPaths().includes(note.normalize('NFD'))));
   });
 
@@ -234,6 +248,32 @@ describe('live watcher e2e (real chokidar + real indexer)', () => {
     assert.ok(indexedPaths().includes('issue55/notes/x.md'));
     assert.deepEqual(vector(), before);
   }, 30_000);
+
+  it('removes stale notes and vectors when an include-rescued subtree moves or disappears', async () => {
+    assert.ok(indexedPaths().includes('issue55/notes/x.md'));
+    renameSync(abs('issue55/notes'), abs('issue55/names'));
+    assert.ok(
+      await waitFor(() => {
+        const paths = indexedPaths();
+        return paths.includes('issue55/names/x.md') && !paths.includes('issue55/notes/x.md');
+      }),
+      'move must remove the old included path and index the new one',
+    );
+    rmSync(abs('issue55/names'), { recursive: true });
+    assert.ok(
+      await waitFor(() => !indexedPaths().includes('issue55/names/x.md')),
+      'deleting the included directory must remove its notes',
+    );
+    const orphanVectors = getDb()
+      .prepare(
+        `
+      SELECT COUNT(*) AS count FROM vec_chunks v
+      LEFT JOIN chunks c ON c.id = v.chunk_id WHERE c.id IS NULL
+    `,
+      )
+      .get() as { count: number };
+    assert.equal(orphanVectors.count, 0, 'moved and removed notes must leave no orphan vectors');
+  });
 
   it('stops observing changes after close', async () => {
     await watcher.close();

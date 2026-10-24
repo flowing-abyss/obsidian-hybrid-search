@@ -22,7 +22,7 @@ export function cleanupStaleNotes(paths?: Set<string>): void {
 }
 let fixtureOpened = false;
 const watchers = new Set<indexer.WatcherHandle>();
-export function startWatcher(contextLength: number): indexer.WatcherHandle {
+export function startWatcher(contextLength: number, suiteLifetime = false): indexer.WatcherHandle {
   try {
     getDb();
   } catch {
@@ -49,7 +49,7 @@ export function startWatcher(contextLength: number): indexer.WatcherHandle {
       watchers.delete(result);
     },
   };
-  watchers.add(result);
+  if (!suiteLifetime) watchers.add(result);
   return result;
 }
 afterEach(async () => {
