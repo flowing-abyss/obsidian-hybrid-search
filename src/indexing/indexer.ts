@@ -18,6 +18,7 @@ import {
 import { config } from '../runtime/config.js';
 import {
   cleanupIgnoredNotes,
+  clearIndexFailures,
   commitIndexedNote,
   deleteNote,
   getNoteMeta,
@@ -178,8 +179,9 @@ function* walkDir(dir: string, policy: IgnorePolicy): Generator<string> {
       withFileTypes: true,
       encoding: 'utf-8',
     });
-  } catch {
-    return;
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return;
+    throw error;
   }
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
@@ -194,16 +196,29 @@ function* walkDir(dir: string, policy: IgnorePolicy): Generator<string> {
   }
 }
 
-export function scanVault(): string[] {
+export function scanVault(run?: IndexRunContext): string[] {
   const files: string[] = [];
-  const policy = createIgnorePolicy();
-  for (const fullPath of walkDir(config.vaultPath, policy)) {
-    const rel = toVaultRelativePath(fullPath);
-    if (!policy.isIgnored(rel)) {
-      files.push(fullPath);
+  try {
+    const policy = createIgnorePolicy();
+    for (const fullPath of walkDir(config.vaultPath, policy)) {
+      const rel = toVaultRelativePath(fullPath);
+      if (!policy.isIgnored(rel)) {
+        files.push(fullPath);
+      }
     }
+    if (run) clearIndexFailures(run.lease, '', 'scan');
+    return files;
+  } catch (error) {
+    if (run && !run.signal.aborted && !(error instanceof IndexLeaseLostError)) {
+      try {
+        recordIndexFailure(run.lease, '', 'scan', fileFingerprint(config.vaultPath), error);
+      } catch (failure) {
+        if (!(failure instanceof IndexLeaseLostError))
+          console.error('[indexer] could not record scan failure:', failure);
+      }
+    }
+    throw error;
   }
-  return files;
 }
 
 export type PreparedFile =
@@ -370,8 +385,10 @@ export async function indexFile(
   force = false,
   policy: Pick<IgnorePolicy, 'isIgnored'> = createIgnorePolicy(),
 ): Promise<'indexed' | 'skipped' | { error: string; cause?: unknown }> {
+  let attemptedFingerprint = fileFingerprint(fullPath);
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
+      attemptedFingerprint = fileFingerprint(fullPath);
       const prepared = await prepareIndexFile(
         run,
         fullPath,
@@ -427,22 +444,21 @@ export async function indexFile(
     );
   } catch (error) {
     if (run.signal.aborted || error instanceof IndexLeaseLostError) throw error;
-    recordFileFailure(run, fullPath, error);
+    recordFileFailure(run, fullPath, attemptedFingerprint, error);
     if (process.env.LOG_LEVEL === 'debug')
       console.error('[indexer] error indexing', fullPath, error);
     return { error: error instanceof Error ? error.message : String(error), cause: error };
   }
 }
 
-function recordFileFailure(run: IndexRunContext, fullPath: string, error: unknown): void {
+function recordFileFailure(
+  run: IndexRunContext,
+  fullPath: string,
+  fingerprint: string,
+  error: unknown,
+): void {
   try {
-    recordIndexFailure(
-      run.lease,
-      toVaultRelativePath(fullPath),
-      'index',
-      fileFingerprint(fullPath),
-      error,
-    );
+    recordIndexFailure(run.lease, toVaultRelativePath(fullPath), 'index', fingerprint, error);
   } catch (failure) {
     if (failure instanceof IndexLeaseLostError) throw failure;
     console.error('[indexer] could not record indexing failure:', failure);
@@ -510,19 +526,31 @@ async function resolveAllMarkdownReferences(run: IndexRunContext): Promise<void>
  * Called on server startup and during full reindex.
  */
 export function cleanupStaleNotes(run: IndexRunContext, fsPaths?: Set<string>): void {
-  assertIndexRun(run);
-  const policy = createIgnorePolicy();
-  let deleted = cleanupIgnoredNotes(run.lease, config.ignorePatterns, policy.signature(), (p) =>
-    policy.isIgnored(p),
-  ).length;
-  if (fsPaths)
-    for (const notePath of getExistingNotePathSet()) {
-      if (!fsPaths.has(notePath)) {
-        deleteNote(run.lease, notePath);
-        deleted++;
+  try {
+    assertIndexRun(run);
+    const policy = createIgnorePolicy();
+    let deleted = cleanupIgnoredNotes(run.lease, config.ignorePatterns, policy.signature(), (p) =>
+      policy.isIgnored(p),
+    ).length;
+    if (fsPaths)
+      for (const notePath of getExistingNotePathSet()) {
+        if (!fsPaths.has(notePath)) {
+          deleteNote(run.lease, notePath);
+          deleted++;
+        }
       }
+    if (deleted > 0) bumpIndexVersion();
+    clearIndexFailures(run.lease, '', 'cleanup');
+  } catch (error) {
+    if (run.signal.aborted || error instanceof IndexLeaseLostError) throw error;
+    try {
+      recordIndexFailure(run.lease, '', 'cleanup', JSON.stringify(config.ignorePatterns), error);
+    } catch (failure) {
+      if (failure instanceof IndexLeaseLostError) throw failure;
+      console.error('[indexer] could not record cleanup failure:', failure);
     }
-  if (deleted > 0) bumpIndexVersion();
+    throw error;
+  }
 }
 
 export function formatDuration(seconds: number): string {
@@ -551,7 +579,7 @@ export async function indexVaultSync(
   header = 'Indexing vault...',
   options: { requireClean?: boolean; recoverDatabase?: () => void } = {},
 ): Promise<IndexResult> {
-  const files = scanVault();
+  const files = scanVault(run);
   const fsPaths = new Set(files.map(toVaultRelativePath));
   await runWithDatabaseRecovery(
     run,
@@ -806,7 +834,7 @@ export async function startBackgroundIndexing(
   run: IndexRunContext,
   contextLength: number,
 ): Promise<void> {
-  const files = scanVault();
+  const files = scanVault(run);
   await runWithDatabaseRecovery(run, 'background stale-note cleanup', () =>
     cleanupStaleNotes(run, new Set(files.map(toVaultRelativePath))),
   );
@@ -890,7 +918,7 @@ export function startWatcher(contextLength: number, run: IndexRunContext): Watch
           if (closed || run.signal.aborted) return;
           try {
             watcherPolicy = createIgnorePolicy();
-            const files = scanVault();
+            const files = scanVault(run);
             const fsPaths = new Set(files.map(toVaultRelativePath));
             await runWithDatabaseRecovery(run, 'watcher gitignore cleanup', () =>
               cleanupStaleNotes(run, fsPaths),
@@ -937,6 +965,7 @@ export function startWatcher(contextLength: number, run: IndexRunContext): Watch
             }
             if (!filePath.endsWith('.md')) return;
             const rel = toVaultRelativePath(filePath);
+            if (hasIndexFailure(rel, 'delete', fileFingerprint(filePath))) return;
             const existing = fileDelays.get(filePath);
             if (existing) {
               clearTimeout(existing);
@@ -949,6 +978,18 @@ export function startWatcher(contextLength: number, run: IndexRunContext): Watch
           } catch (err) {
             if (run.signal.aborted || err instanceof IndexLeaseLostError) return;
             const msg = err instanceof Error ? err.message : String(err);
+            try {
+              recordIndexFailure(
+                run.lease,
+                toVaultRelativePath(filePath),
+                'delete',
+                fileFingerprint(filePath),
+                err,
+              );
+            } catch (failure) {
+              if (!(failure instanceof IndexLeaseLostError))
+                console.error('[watcher] could not record delete failure:', failure);
+            }
             console.warn(`[watcher] unlink error for ${filePath}: ${msg}`);
           } finally {
             pendingUnlinks.delete(filePath);

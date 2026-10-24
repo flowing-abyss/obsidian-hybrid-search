@@ -4,6 +4,7 @@ import { normalizeNotePath } from '../content/text-normalization.js';
 import { activeModelName, getEmbeddingDim, primeEmbeddingDim } from '../inference/embedder.js';
 import { config } from '../runtime/config.js';
 import { getStoredEmbeddingDim } from '../storage/db.js';
+import { IndexLeaseLostError } from '../storage/index-ownership.js';
 import {
   beginRebuild,
   discardRebuilds,
@@ -45,7 +46,7 @@ export async function rebuildIndex(
     staged = true;
     for (let pass = 0; pass < 3; pass++) {
       run.signal.throwIfAborted();
-      const files = scanVault();
+      const files = scanVault(run);
       const policy = createIgnorePolicy();
       const prior = new Map(readRebuildNotes(id).map((row) => [row.note.path, row]));
       const present = new Set<string>();
@@ -82,7 +83,7 @@ export async function rebuildIndex(
       for (const relative of prior.keys())
         if (!present.has(relative)) removeRebuildNote(run.lease, id, relative);
       const rows = readRebuildNotes(id);
-      const finalFiles = scanVault();
+      const finalFiles = scanVault(run);
       const byPath = new Map(rows.map((row) => [row.note.path, row]));
       const stable =
         finalFiles.length === rows.length &&
@@ -126,11 +127,14 @@ export async function rebuildIndex(
       // A stale owner's cleanup is fenced just like publication.
       try {
         discardRebuilds(run.lease);
-      } catch {
-        /* The next owner removes abandoned staging. */
+      } catch (error) {
+        if (!(error instanceof IndexLeaseLostError))
+          console.error('[indexer] could not clean abandoned rebuild:', error);
       }
     }
-    const active = getStoredEmbeddingDim() ?? previousDimension;
-    if (active !== null) primeEmbeddingDim(active);
+    if (!run.signal.aborted) {
+      const active = getStoredEmbeddingDim() ?? previousDimension;
+      if (active !== null) primeEmbeddingDim(active);
+    }
   }
 }

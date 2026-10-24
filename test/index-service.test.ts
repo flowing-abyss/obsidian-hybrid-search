@@ -146,3 +146,60 @@ it('opens a search-only MCP runtime without probing embeddings or initializing v
   );
   await closeMcpRuntime(runtime);
 });
+
+it('reports a rolled-back stale-note cleanup without changing the previous index', async () => {
+  write('Keep this indexed body until deletion commits.');
+  await service.reindex();
+  const before = body();
+  db.getDb().exec(
+    "CREATE TRIGGER reject_delete BEFORE DELETE ON notes BEGIN SELECT RAISE(ABORT,'synthetic delete failure');END",
+  );
+  rmSync(path.join(vault, 'note.md'));
+  await assert.rejects(service.reindex(), /synthetic delete failure/);
+  assert.equal(body(), before);
+  assert.equal(db.getStats().failedIndexing, 1);
+  assert.equal(db.getIndexFailures()[0]?.operation, 'cleanup');
+});
+
+it('indexes the latest queued source after both previous attempts changed during inference', async () => {
+  write('Original indexed content.');
+  await service.reindex();
+  const initialCalls = embeddings.mock.calls.length;
+  await service.close();
+  service = createIndexService();
+  let attempts = 0;
+  embeddings.mockImplementation(async (texts) => {
+    attempts++;
+    if (attempts <= 2) {
+      write(attempts === 1 ? 'Second changing source version.' : 'Third stable source version.');
+      watcher.emit('change', path.join(vault, 'note.md'));
+      await new Promise((resolve) => setTimeout(resolve, 8));
+    }
+    return texts.map(() => ({ ok: true as const, embedding: new Float32Array([1, 0, 0, 0]) }));
+  });
+  write('First changing source version.');
+  service.start();
+  await vi.waitFor(() => assert.equal(body(), 'Third stable source version.'));
+  await vi.waitFor(() => assert.equal(getIndexingStatus().isRunning, false));
+  assert.equal(embeddings.mock.calls.length - initialCalls, 3);
+  assert.equal(db.getStats().failedIndexing, 0);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(embeddings.mock.calls.length - initialCalls, 3, 'the stable source must not loop');
+});
+
+it('preserves typed YAML frontmatter and filter lookups through full force publication', async () => {
+  write(
+    '---\nvalue: .inf\nnegative: -.inf\ninvalid: .nan\ndate: 2024-01-02\nlist: [1, true, null]\n---\nTyped frontmatter body.',
+  );
+  await service.reindex();
+  const previous = db.getNoteByPath('note.md')!.frontmatter;
+  const fields = () =>
+    db
+      .getDb()
+      .prepare('SELECT field,value,value_norm FROM note_frontmatter_fields ORDER BY field,value')
+      .all();
+  const before = fields();
+  await service.reindex({ force: true });
+  assert.equal(db.getNoteByPath('note.md')!.frontmatter, previous);
+  assert.deepEqual(fields(), before);
+});

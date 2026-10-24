@@ -107,6 +107,10 @@ export interface IndexService {
   start(): void;
   close(): Promise<void>;
   reindex(options?: { path?: string; force?: boolean }): Promise<IndexResult>;
+  reindexFiles(
+    paths: string[],
+    onProgress?: (processed: number, total: number) => void,
+  ): Promise<IndexResult>;
 }
 
 export function createIndexService(): IndexService {
@@ -146,6 +150,25 @@ export function createIndexService(): IndexService {
     },
     close() {
       return coordinator.close();
+    },
+    reindexFiles(paths, onProgress) {
+      return coordinator.foreground(async (run) => {
+        const contextLength = await prepareOwner(run);
+        const result: IndexResult = { indexed: 0, skipped: 0, errors: [] };
+        for (const [index, notePath] of paths.entries()) {
+          const status = await indexFileWithRecovery(
+            run,
+            path.join(config.vaultPath, notePath),
+            contextLength,
+            true,
+          );
+          if (status === 'indexed') result.indexed++;
+          else if (status === 'skipped') result.skipped++;
+          else result.errors.push({ path: notePath, error: status.error });
+          onProgress?.(index + 1, paths.length);
+        }
+        return result;
+      });
     },
     reindex(options = {}) {
       return coordinator.foreground(async (run) => {

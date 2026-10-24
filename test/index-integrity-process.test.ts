@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import assert from 'node:assert/strict';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -253,6 +253,43 @@ async function seedA(): Promise<void> {
   assert.ok(snapshot().vectors.length > 0);
 }
 
+it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+  'preserves every indexed row after an unreadable subtree and reports both scan failures',
+  async () => {
+    const directory = path.join(vault, 'private');
+    mkdirSync(directory);
+    writeBody(
+      'Original content in a temporarily unreadable directory.',
+      1_700_000_002,
+      'private/note.md',
+    );
+    assert.equal((await runCli(['reindex'], 'model-A')).code, 0);
+    const before = snapshot();
+    chmodSync(directory, 0);
+    try {
+      for (const args of [['reindex', '--force'], ['reindex']]) {
+        const result = await runCli(args, 'model-A');
+        assert.notEqual(result.code, 0, result.stdout + result.stderr);
+        assert.match(result.stderr, /EACCES|permission denied/i);
+        assert.deepEqual(snapshot(), before);
+        const status = await runCli(['status'], 'model-A');
+        const details = JSON.parse(status.stdout) as {
+          failed_indexing: number;
+          indexing_errors: Array<{ operation: string }>;
+        };
+        assert.ok(details.failed_indexing > 0);
+        assert.ok(details.indexing_errors.some((error) => error.operation === 'scan'));
+      }
+    } finally {
+      chmodSync(directory, 0o700);
+    }
+    rmSync(directory, { recursive: true });
+    const deleted = await runCli(['reindex'], 'model-A');
+    assert.equal(deleted.code, 0, deleted.stderr);
+    assert.equal(snapshot().rows.notes!.length, 0, 'genuine deletion still reconciles');
+  },
+);
+
 it.each([4, 8])(
   'ordinary model drift with B dimension %i preserves A and permits ordinary retry',
   async (dimension) => {
@@ -448,5 +485,40 @@ it('late force provider failure preserves the prior snapshot and the open reader
     assert.match(result.stderr, /embedding.*failed|existing index preserved/i);
   } finally {
     reader.close();
+  }
+});
+
+it('--errors retries a note whose SQL write rolled back without failed chunks', async () => {
+  await seedA();
+  writeBody('Retry this rolled-back SQL write.', 1_700_000_004, 'sql-repair.md');
+  const db = new Database(path.join(vault, '.obsidian-hybrid-search.db'));
+  sqliteVec.load(db);
+  try {
+    db.exec(
+      "CREATE TRIGGER reject_sql_repair BEFORE INSERT ON notes WHEN new.path='sql-repair.md' BEGIN SELECT RAISE(ABORT,'synthetic SQL failure'); END",
+    );
+    const failed = await runCli(['reindex', 'sql-repair.md'], 'model-A');
+    assert.notEqual(failed.code, 0);
+    assert.equal(
+      db.prepare("SELECT count(*) FROM index_failures WHERE path='sql-repair.md'").pluck().get(),
+      1,
+    );
+    assert.equal(
+      db.prepare("SELECT count(*) FROM chunks WHERE embedding_status='failed'").pluck().get(),
+      0,
+    );
+    db.exec('DROP TRIGGER reject_sql_repair');
+    const retry = await runCli(['reindex', '--errors'], 'model-A');
+    assert.equal(retry.code, 0, retry.stderr);
+    assert.equal(
+      db.prepare("SELECT count(*) FROM notes WHERE path='sql-repair.md'").pluck().get(),
+      1,
+    );
+    assert.equal(
+      db.prepare("SELECT count(*) FROM index_failures WHERE path='sql-repair.md'").pluck().get(),
+      0,
+    );
+  } finally {
+    db.close();
   }
 });
