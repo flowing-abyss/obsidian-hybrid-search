@@ -21,7 +21,7 @@ process.env.OBSIDIAN_INCLUDE_PATTERNS = 'keep/**,issue55/n*es/*.md';
 const osWatch = vi.spyOn(fs, 'watch');
 syncBuiltinESMExports();
 
-const { closeDb, openDb, initVecTable, getDb } = await import('../src/storage/db.js');
+const { closeDb, openDb, initVecTable, getDb } = await import('./helpers/owned-storage.js');
 const { config } = await import('../src/runtime/config.js');
 const embedder = await import('../src/inference/embedder.js');
 vi.spyOn(embedder, 'embed').mockResolvedValue([new Float32Array([0.1, 0.2, 0.3, 0.4])]);
@@ -38,7 +38,7 @@ vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
   limit: 508,
   count: (text) => Math.ceil(Array.from(text).length / 4),
 });
-const { indexVaultSync, startWatcher } = await import('../src/indexing/indexer.js');
+const { indexVaultSync, startWatcher } = await import('./helpers/owned-indexer.js');
 let watcher: ReturnType<typeof startWatcher>;
 
 // Shrink the 5s per-file debounce so the live test finishes quickly.
@@ -89,7 +89,7 @@ beforeAll(async () => {
     vectors.every((vector) => vector.dim === 4),
     'embeddings must use the test dimension',
   );
-  watcher = startWatcher(512);
+  watcher = startWatcher(512, true);
   await watcher.ready;
 }, 30_000);
 

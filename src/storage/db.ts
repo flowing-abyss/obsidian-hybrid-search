@@ -1,14 +1,27 @@
 import Database from 'better-sqlite3';
-import { statSync, unlinkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { statSync } from 'node:fs';
 import * as sqliteVec from 'sqlite-vec';
 import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
 import { normalizeNotePath, normalizeTag } from '../content/text-normalization.js';
 import { config } from '../runtime/config.js';
 import { getIgnoreSignature, isIgnored } from '../vault/ignore.js';
 
+import {
+  createIndexOwnership,
+  IndexLeaseLostError,
+  type IndexLease,
+  type IndexOwnerMode,
+  type IndexOwnershipStore,
+  type IndexOwnerSnapshot,
+  type IndexProgress,
+  type StalledOwner,
+} from './index-ownership.js';
+
 type DB = InstanceType<typeof Database>;
 
 let _db: DB | null = null;
+let _ownership: IndexOwnershipStore | null = null;
 
 const CORRUPTION_CODES = new Set(['SQLITE_CORRUPT', 'SQLITE_CORRUPT_VTAB', 'SQLITE_NOTADB']);
 const NON_CORRUPTION_CODES = new Set(['SQLITE_BUSY', 'SQLITE_LOCKED']);
@@ -203,18 +216,18 @@ function rebuildFrontmatterLookup(db: DB): void {
   }>;
 
   for (const note of notes) {
+    let data: Record<string, unknown>;
     try {
       const parsed = note.frontmatter
         .split('\n')
         .filter((line) => line.trim() && !line.startsWith('---'))
         .join('\n');
-      const data = parsed ? (yamlParse(parsed) as Record<string, unknown>) : {};
-      if (data && typeof data === 'object') {
-        replaceNoteFrontmatterFields(db, note.id, data);
-      }
-    } catch (e) {
-      console.error('Error parsing frontmatter for note', note.id, e);
+      data = parsed ? (yamlParse(parsed) as Record<string, unknown>) : {};
+    } catch (error) {
+      console.error('Error parsing frontmatter for note', note.id, error);
+      continue;
     }
+    if (data && typeof data === 'object') replaceNoteFrontmatterFields(db, note.id, data);
   }
 }
 
@@ -280,11 +293,6 @@ function runMigrations(db: DB): void {
     CREATE INDEX IF NOT EXISTS idx_chunks_note_chunk_index ON chunks(note_id, chunk_index);
   `);
 
-  // Partial index for fast --errors lookups (only indexes failed rows)
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_chunks_failed ON chunks(embedding_status) WHERE embedding_status = 'failed'
-  `);
-
   // Ensure db_version counter exists (cross-process cache invalidation)
   db.prepare("INSERT OR IGNORE INTO settings(key, value) VALUES('db_version', '0')").run();
 
@@ -307,6 +315,11 @@ function runMigrations(db: DB): void {
   if (!chunkCols.some((c) => c.name === 'char_end')) {
     db.exec('ALTER TABLE chunks ADD COLUMN char_end INTEGER');
   }
+
+  // Partial index for fast --errors lookups (only indexes failed rows)
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_chunks_failed ON chunks(embedding_status) WHERE embedding_status = 'failed'
+  `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS note_aliases (
@@ -376,17 +389,10 @@ function runMigrations(db: DB): void {
   )?.value;
 
   if (fmLookupVersion !== '1') {
-    try {
-      const tx = db.transaction(() => {
-        rebuildFrontmatterLookup(db);
-        db.prepare(
-          "INSERT OR REPLACE INTO settings(key, value) VALUES('frontmatter_lookup_version', '1')",
-        ).run();
-      });
-      tx();
-    } catch (e) {
-      console.error('Error in rebuildFrontmatterLookup:', e);
-    }
+    rebuildFrontmatterLookup(db);
+    db.prepare(
+      "INSERT OR REPLACE INTO settings(key,value) VALUES('frontmatter_lookup_version','1')",
+    ).run();
   }
 
   // FTS schema v3: unicode61 tokenchars '+#' so C++/C# are full tokens.
@@ -469,7 +475,8 @@ function deleteVecChunksForNote(db: DB, noteId: number): void {
   ).run(noteId);
 }
 
-function cleanupNfcPaths(db: DB): void {
+function cleanupNfcPaths(db: DB): boolean {
+  let changed = false;
   const vecExists = !!db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_chunks'")
     .get();
@@ -488,8 +495,10 @@ function cleanupNfcPaths(db: DB): void {
       );
       db.prepare('DELETE FROM note_urls WHERE from_path = ?').run(note.path);
       db.prepare('DELETE FROM notes WHERE id = ?').run(note.id);
+      changed = true;
     }
   }
+  return changed;
 }
 
 function restoreIgnorePatterns(db: DB): void {
@@ -507,32 +516,117 @@ function restoreIgnorePatterns(db: DB): void {
   }
 }
 
-export function openDb(): DB {
-  closeDb();
-  try {
-    return openDbOnce();
-  } catch (err) {
-    if (!isLikelyDatabaseCorruption(err)) throw err;
-    wipeDatabaseSidecars();
-    return openDbOnce();
+export class IndexInitializationBusyError extends Error {
+  constructor() {
+    super('Another process is initializing this index. Waiting for it to finish.');
+    this.name = 'IndexInitializationBusyError';
   }
 }
 
-function openDbOnce(): DB {
-  const db = new Database(config.dbPath);
+export class IndexStorageError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = 'IndexStorageError';
+  }
+}
+
+export function openDb(): DB {
+  closeDb();
+  const db = new Database(config.dbPath, { timeout: 250 });
   try {
     sqliteVec.load(db);
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
-    runMigrations(db);
-    cleanupNfcPaths(db);
-    restoreIgnorePatterns(db);
     _db = db;
+    _ownership = createIndexOwnership(db);
+    const settingsExist = db.prepare("SELECT 1 FROM sqlite_master WHERE name='settings'").get();
+    const revision = settingsExist
+      ? (db.prepare("SELECT value FROM settings WHERE key='index_ownership_schema'").get() as
+          { value: string } | undefined)
+      : undefined;
+    if (revision?.value !== '1') {
+      const lease = _ownership.claim(randomUUID(), 'bootstrap');
+      if (!lease) throw new IndexInitializationBusyError();
+      try {
+        _ownership.write(lease, () => {
+          runMigrations(db);
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS index_repair_notes(path TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS index_failures (
+              path TEXT NOT NULL, operation TEXT NOT NULL, fingerprint TEXT NOT NULL,
+              code TEXT, message TEXT NOT NULL, attempts INTEGER NOT NULL,
+              last_failed_at TEXT NOT NULL, PRIMARY KEY(path, operation)
+            );
+          `);
+          db.prepare(
+            "INSERT OR REPLACE INTO settings(key,value) VALUES('index_ownership_schema','1')",
+          ).run();
+        });
+      } finally {
+        _ownership.release(lease);
+      }
+    }
+    restoreIgnorePatterns(db);
     return db;
   } catch (err) {
+    _ownership = null;
+    _db = null;
     db.close();
     throw err;
   }
+}
+
+function ownership(): IndexOwnershipStore {
+  getDb();
+  if (!_ownership) throw new Error('Index ownership is not initialized.');
+  return _ownership;
+}
+
+export function readIndexOwner(): IndexOwnerSnapshot {
+  return ownership().read();
+}
+export function requestForegroundIndex(token: string): void {
+  ownership().requestForeground(token);
+}
+export function renewForegroundIndexRequest(token: string): boolean {
+  return ownership().renewForegroundRequest(token);
+}
+export function cancelForegroundIndexRequest(token: string): void {
+  ownership().cancelForegroundRequest(token);
+}
+export function claimIndexLease(
+  token: string,
+  mode: IndexOwnerMode,
+  stalled?: StalledOwner,
+): IndexLease | null {
+  return ownership().claim(token, mode, stalled);
+}
+export function renewIndexLease(lease: IndexLease, progress?: IndexProgress): boolean {
+  return ownership().renew(lease, progress);
+}
+export function releaseIndexLease(lease: IndexLease): boolean {
+  return ownership().release(lease);
+}
+export function withIndexMutation<T>(lease: IndexLease, operation: () => T): T {
+  try {
+    return ownership().write(lease, operation);
+  } catch (error) {
+    if (!(error instanceof IndexLeaseLostError) && isLikelyDatabaseCorruption(error)) {
+      throw new IndexStorageError(error);
+    }
+    throw error;
+  }
+}
+
+export function reopenDatabaseForRecovery(lease: IndexLease): void {
+  openDb();
+  withIndexMutation(lease, () => undefined);
+}
+
+export function cleanupLegacyPaths(lease: IndexLease): void {
+  withIndexMutation(lease, () => {
+    if (cleanupNfcPaths(getDb())) bumpDbVersion();
+  });
 }
 
 export function getDb(): DB {
@@ -544,55 +638,28 @@ export function closeDb(): void {
   if (!_db) return;
   _db.close();
   _db = null;
+  _ownership = null;
 }
 
-/**
- * Close the current DB connection (if open) and delete all DB files
- * (.db, .db-shm, .db-wal). Safe to call when no connection is open.
- * After this call _db is null — caller must openDb() before using the DB again.
- */
-export function wipeDatabaseFiles(): void {
-  closeDb();
-  const dbPath = config.dbPath;
-  for (const ext of ['', '-shm', '-wal']) {
-    unlinkIfExists(dbPath + ext);
-  }
-}
-
-export function wipeDatabaseSidecars(): void {
-  closeDb();
-  const dbPath = config.dbPath;
-  for (const ext of ['-shm', '-wal']) {
-    unlinkIfExists(dbPath + ext);
-  }
-}
-
-function unlinkIfExists(filePath: string): void {
-  try {
-    unlinkSync(filePath);
-  } catch (err) {
-    if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return;
-    throw err;
-  }
-}
-
-export function initVecTable(dim: number): void {
-  const db = getDb();
-  if (hasVecTable()) return;
-  if (!Number.isSafeInteger(dim) || dim <= 0) {
-    throw new Error(`Embedding dimension must be a positive safe integer: ${dim}`);
-  }
-  const initialize = db.transaction(() => {
+export function initVecTable(lease: IndexLease, dim: number): void {
+  return withIndexMutation(lease, () => {
+    const db = getDb();
     if (hasVecTable()) return;
-    db.exec(`CREATE VIRTUAL TABLE vec_chunks USING vec0(
+    if (!Number.isSafeInteger(dim) || dim <= 0) {
+      throw new Error(`Embedding dimension must be a positive safe integer: ${dim}`);
+    }
+    const initialize = db.transaction(() => {
+      if (hasVecTable()) return;
+      db.exec(`CREATE VIRTUAL TABLE vec_chunks USING vec0(
       chunk_id INTEGER PRIMARY KEY,
       embedding float[${dim}]
     )`);
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_dim', ?)").run(
-      String(dim),
-    );
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('embedding_dim', ?)").run(
+        String(dim),
+      );
+    });
+    initialize.immediate();
   });
-  initialize.immediate();
 }
 
 /**
@@ -671,8 +738,11 @@ export type NotePathResolution =
 
 export function getNoteMeta(path: string): NoteMeta | undefined {
   const db = getDb();
-  return db.prepare('SELECT mtime, hash FROM notes WHERE path = ?').get(path) as
-    NoteMeta | undefined;
+  return db
+    .prepare(
+      'SELECT mtime, hash FROM notes WHERE path = ? AND NOT EXISTS (SELECT 1 FROM index_repair_notes WHERE path=notes.path)',
+    )
+    .get(path) as NoteMeta | undefined;
 }
 
 export function getNoteByPath(path: string): NoteRow | undefined {
@@ -705,111 +775,86 @@ export function resolveNotePath(input: string): NotePathResolution | undefined {
   return { type: 'ambiguous', candidates: rows.map((row) => row.path) };
 }
 
+export interface PreparedIndexNote {
+  path: string;
+  title: string;
+  tags: string[];
+  aliases?: string[];
+  content: string;
+  frontmatter?: Record<string, unknown>;
+  mtime: number;
+  hash: string;
+  chunks: {
+    text: string;
+    headingPath?: string | null;
+    embedding: Float32Array | null;
+    charStart?: number | null;
+    charEnd?: number | null;
+  }[];
+}
+
 export function upsertNote(
-  note: {
-    path: string;
-    title: string;
-    tags: string[];
-    aliases?: string[];
-    content: string;
-    frontmatter?: Record<string, unknown>;
-    mtime: number;
-    hash: string;
-    chunks: {
-      text: string;
-      headingPath?: string | null;
-      embedding: Float32Array | null;
-      charStart?: number | null;
-      charEnd?: number | null;
-    }[];
-  },
+  lease: IndexLease,
+  note: PreparedIndexNote,
   context?: { modelName: string },
 ): void {
-  const db = getDb();
-  const write = db.transaction(() => {
-    const storedModel = getStoredModel();
-    if (storedModel && context && storedModel !== context.modelName) {
-      throw new Error(
-        `Embedding model mismatch: index uses "${storedModel}", writer uses "${context.modelName}". Update not committed; existing index preserved. Restore the indexed model configuration, or use full reindex --force for an intentional rebuild.`,
-      );
-    }
-    const actual = hasVecTable()
-      ? (db.prepare('SELECT vec_length(embedding) AS dim FROM vec_chunks LIMIT 1').get() as
-          { dim: number } | undefined)
-      : undefined;
-    const storedDim = getStoredEmbeddingDim();
-    if (actual && storedDim !== null && actual.dim !== storedDim) {
-      throw new Error(
-        `Embedding dimension metadata mismatch: stored ${storedDim}, vectors ${actual.dim}. Update not committed; existing index preserved.`,
-      );
-    }
-    const expectedDim = actual?.dim ?? storedDim;
-    for (const chunk of note.chunks) {
-      if (
-        chunk.embedding !== null &&
-        expectedDim !== null &&
-        chunk.embedding.length !== expectedDim
-      ) {
+  return withIndexMutation(lease, () => {
+    const db = getDb();
+    const write = db.transaction(() => {
+      const storedModel = getStoredModel();
+      if (storedModel && context && storedModel !== context.modelName) {
         throw new Error(
-          `Embedding dimension mismatch: expected ${expectedDim}, received ${chunk.embedding.length}. Update not committed; existing index preserved.`,
+          `Embedding model mismatch: index uses "${storedModel}", writer uses "${context.modelName}". Update not committed; existing index preserved. Restore the indexed model configuration, or use full reindex --force for an intentional rebuild.`,
         );
       }
-    }
-    const fresh =
-      !storedModel &&
-      context !== undefined &&
-      !actual &&
-      !db.prepare('SELECT 1 FROM notes LIMIT 1').get() &&
-      !db.prepare('SELECT 1 FROM chunks LIMIT 1').get();
+      const actual = hasVecTable()
+        ? (db.prepare('SELECT vec_length(embedding) AS dim FROM vec_chunks LIMIT 1').get() as
+            { dim: number } | undefined)
+        : undefined;
+      const storedDim = getStoredEmbeddingDim();
+      if (actual && storedDim !== null && actual.dim !== storedDim) {
+        throw new Error(
+          `Embedding dimension metadata mismatch: stored ${storedDim}, vectors ${actual.dim}. Update not committed; existing index preserved.`,
+        );
+      }
+      const expectedDim = actual?.dim ?? storedDim;
+      for (const chunk of note.chunks) {
+        if (
+          chunk.embedding !== null &&
+          expectedDim !== null &&
+          chunk.embedding.length !== expectedDim
+        ) {
+          throw new Error(
+            `Embedding dimension mismatch: expected ${expectedDim}, received ${chunk.embedding.length}. Update not committed; existing index preserved.`,
+          );
+        }
+      }
+      const fresh =
+        !storedModel &&
+        context !== undefined &&
+        !actual &&
+        !db.prepare('SELECT 1 FROM notes LIMIT 1').get() &&
+        !db.prepare('SELECT 1 FROM chunks LIMIT 1').get();
 
-    const aliases =
-      note.aliases?.filter((alias): alias is string => typeof alias === 'string') ?? [];
-    const aliasesJson = aliases.length > 0 ? JSON.stringify(aliases) : null;
+      const aliases =
+        note.aliases?.filter((alias): alias is string => typeof alias === 'string') ?? [];
+      const aliasesJson = aliases.length > 0 ? JSON.stringify(aliases) : null;
 
-    const existing = db.prepare('SELECT id FROM notes WHERE path = ?').get(note.path) as
-      { id: number } | undefined;
+      const existing = db.prepare('SELECT id FROM notes WHERE path = ?').get(note.path) as
+        { id: number } | undefined;
 
-    const fmString = note.frontmatter ? yamlStringify(note.frontmatter) : '';
+      const fmString = note.frontmatter ? yamlStringify(note.frontmatter) : '';
 
-    if (existing) {
-      // Delete existing chunk vectors before cascade-deleting chunks
-      deleteVecChunksForNote(db, existing.id);
+      if (existing) {
+        // Delete existing chunk vectors before cascade-deleting chunks
+        deleteVecChunksForNote(db, existing.id);
 
-      db.prepare(
-        `
+        db.prepare(
+          `
       UPDATE notes SET title = ?, tags = ?, aliases = ?, content = ?, frontmatter = ?, mtime = ?, hash = ?
       WHERE path = ?
     `,
-      ).run(
-        note.title,
-        JSON.stringify(note.tags),
-        aliasesJson,
-        note.content,
-        fmString,
-        note.mtime,
-        note.hash,
-        note.path,
-      );
-
-      db.prepare('DELETE FROM chunks WHERE note_id = ?').run(existing.id);
-
-      const noteId = existing.id;
-      replaceNoteAliases(db, noteId, aliases);
-      replaceNoteTags(db, noteId, note.tags);
-      replaceNoteFrontmatterFields(db, noteId, note.frontmatter);
-      insertChunks(db, noteId, note.chunks);
-      logEvent('updated', note.path);
-      bumpDbVersion();
-    } else {
-      const result = db
-        .prepare(
-          `
-      INSERT INTO notes (path, title, tags, aliases, content, frontmatter, mtime, hash)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-        )
-        .run(
-          note.path,
+        ).run(
           note.title,
           JSON.stringify(note.tags),
           aliasesJson,
@@ -817,23 +862,53 @@ export function upsertNote(
           fmString,
           note.mtime,
           note.hash,
+          note.path,
         );
 
-      const noteId = result.lastInsertRowid as number;
-      replaceNoteAliases(db, noteId, aliases);
-      replaceNoteTags(db, noteId, note.tags);
-      replaceNoteFrontmatterFields(db, noteId, note.frontmatter);
-      insertChunks(db, noteId, note.chunks);
-      logEvent('added', note.path);
-      bumpDbVersion();
-    }
-    if (fresh && note.chunks.some((chunk) => chunk.embedding !== null)) {
-      db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('embedding_model', ?)").run(
-        context.modelName,
-      );
-    }
+        db.prepare('DELETE FROM chunks WHERE note_id = ?').run(existing.id);
+
+        const noteId = existing.id;
+        replaceNoteAliases(db, noteId, aliases);
+        replaceNoteTags(db, noteId, note.tags);
+        replaceNoteFrontmatterFields(db, noteId, note.frontmatter);
+        insertChunks(db, noteId, note.chunks);
+        logEvent('updated', note.path);
+        bumpDbVersion();
+      } else {
+        const result = db
+          .prepare(
+            `
+      INSERT INTO notes (path, title, tags, aliases, content, frontmatter, mtime, hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+          )
+          .run(
+            note.path,
+            note.title,
+            JSON.stringify(note.tags),
+            aliasesJson,
+            note.content,
+            fmString,
+            note.mtime,
+            note.hash,
+          );
+
+        const noteId = result.lastInsertRowid as number;
+        replaceNoteAliases(db, noteId, aliases);
+        replaceNoteTags(db, noteId, note.tags);
+        replaceNoteFrontmatterFields(db, noteId, note.frontmatter);
+        insertChunks(db, noteId, note.chunks);
+        logEvent('added', note.path);
+        bumpDbVersion();
+      }
+      if (fresh && note.chunks.some((chunk) => chunk.embedding !== null)) {
+        db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('embedding_model', ?)").run(
+          context.modelName,
+        );
+      }
+    });
+    write.immediate();
   });
-  write.immediate();
 }
 
 function insertChunks(
@@ -885,27 +960,30 @@ function deleteChildRows(db: DB, noteId: number): void {
   db.prepare('DELETE FROM note_frontmatter_fields WHERE note_id = ?').run(noteId);
 }
 
-export function deleteNote(notePath: string, keepLinks = false): void {
-  const db = getDb();
-  const note = db.prepare('SELECT id FROM notes WHERE path = ?').get(notePath) as
-    { id: number } | undefined;
-  if (!note) return;
+export function deleteNote(lease: IndexLease, notePath: string, keepLinks = false): void {
+  return withIndexMutation(lease, () => {
+    const db = getDb();
+    const note = db.prepare('SELECT id FROM notes WHERE path = ?').get(notePath) as
+      { id: number } | undefined;
+    clearIndexFailures(lease, notePath);
+    if (!note) return;
 
-  deleteChildRows(db, note.id);
-  deleteVecChunksForNote(db, note.id);
-  db.prepare('DELETE FROM chunks WHERE note_id = ?').run(note.id);
+    deleteChildRows(db, note.id);
+    deleteVecChunksForNote(db, note.id);
+    db.prepare('DELETE FROM chunks WHERE note_id = ?').run(note.id);
 
-  if (!keepLinks) {
-    db.prepare('DELETE FROM links WHERE from_path = ? OR to_path = ?').run(notePath, notePath);
-    db.prepare('DELETE FROM markdown_links WHERE from_path = ? OR to_path = ?').run(
-      notePath,
-      notePath,
-    );
-  }
-  db.prepare('DELETE FROM note_urls WHERE from_path = ?').run(notePath);
-  db.prepare('DELETE FROM notes WHERE id = ?').run(note.id);
-  logEvent('deleted', notePath);
-  bumpDbVersion();
+    if (!keepLinks) {
+      db.prepare('DELETE FROM links WHERE from_path = ? OR to_path = ?').run(notePath, notePath);
+      db.prepare('DELETE FROM markdown_links WHERE from_path = ? OR to_path = ?').run(
+        notePath,
+        notePath,
+      );
+    }
+    db.prepare('DELETE FROM note_urls WHERE from_path = ?').run(notePath);
+    db.prepare('DELETE FROM notes WHERE id = ?').run(note.id);
+    logEvent('deleted', notePath);
+    bumpDbVersion();
+  });
 }
 
 /**
@@ -961,40 +1039,78 @@ export function getBacklinksForPaths(paths: string[]): Map<string, string[]> {
   return backlinks;
 }
 
-export function upsertLinks(fromPath: string, toPaths: string[]): void {
-  const db = getDb();
-  db.prepare('DELETE FROM links WHERE from_path = ?').run(fromPath);
-  const insert = db.prepare('INSERT OR IGNORE INTO links (from_path, to_path) VALUES (?, ?)');
-  for (const toPath of toPaths) {
-    insert.run(fromPath, toPath);
-  }
+export function upsertLinks(lease: IndexLease, fromPath: string, toPaths: string[]): boolean {
+  return withIndexMutation(lease, () => {
+    const db = getDb();
+    const desired = [...new Set(toPaths)];
+    const existing = db
+      .prepare('SELECT to_path FROM links WHERE from_path = ? ORDER BY rowid')
+      .pluck()
+      .all(fromPath);
+    if (
+      existing.length === desired.length &&
+      existing.every((value, index) => value === desired[index])
+    )
+      return false;
+    db.prepare('DELETE FROM links WHERE from_path = ?').run(fromPath);
+    const insert = db.prepare('INSERT OR IGNORE INTO links (from_path, to_path) VALUES (?, ?)');
+    for (const toPath of desired) {
+      insert.run(fromPath, toPath);
+    }
+    return true;
+  });
 }
 
-export function upsertMarkdownLinks(fromPath: string, toPaths: string[]): void {
-  const db = getDb();
-  db.prepare('DELETE FROM markdown_links WHERE from_path = ?').run(fromPath);
-  const insert = db.prepare(
-    'INSERT OR IGNORE INTO markdown_links (from_path, to_path) VALUES (?, ?)',
-  );
-  for (const toPath of toPaths) {
-    insert.run(fromPath, toPath);
-  }
+export function upsertMarkdownLinks(
+  lease: IndexLease,
+  fromPath: string,
+  toPaths: string[],
+): boolean {
+  return withIndexMutation(lease, () => {
+    const db = getDb();
+    const desired = [...new Set(toPaths)];
+    const existing = db
+      .prepare('SELECT to_path FROM markdown_links WHERE from_path = ? ORDER BY rowid')
+      .pluck()
+      .all(fromPath);
+    if (
+      existing.length === desired.length &&
+      existing.every((value, index) => value === desired[index])
+    )
+      return false;
+    db.prepare('DELETE FROM markdown_links WHERE from_path = ?').run(fromPath);
+    const insert = db.prepare(
+      'INSERT OR IGNORE INTO markdown_links (from_path, to_path) VALUES (?, ?)',
+    );
+    for (const toPath of desired) {
+      insert.run(fromPath, toPath);
+    }
+    return true;
+  });
 }
 
-export function upsertNoteUrls(fromPath: string, urls: string[]): void {
-  const db = getDb();
-  db.prepare('DELETE FROM note_urls WHERE from_path = ?').run(fromPath);
-  const insert = db.prepare(
-    'INSERT OR IGNORE INTO note_urls (from_path, url, position) VALUES (?, ?, ?)',
-  );
-  const seen = new Set<string>();
-  let position = 0;
-  for (const url of urls) {
-    if (seen.has(url)) continue;
-    seen.add(url);
-    insert.run(fromPath, url, position);
-    position++;
-  }
+export function upsertNoteUrls(lease: IndexLease, fromPath: string, urls: string[]): boolean {
+  return withIndexMutation(lease, () => {
+    const db = getDb();
+    const desired = [...new Set(urls)];
+    const existing = db
+      .prepare('SELECT url FROM note_urls WHERE from_path = ? ORDER BY position')
+      .pluck()
+      .all(fromPath);
+    if (
+      existing.length === desired.length &&
+      existing.every((value, index) => value === desired[index])
+    )
+      return false;
+    db.prepare('DELETE FROM note_urls WHERE from_path = ?').run(fromPath);
+    const insert = db.prepare(
+      'INSERT OR IGNORE INTO note_urls (from_path, url, position) VALUES (?, ?, ?)',
+    );
+    for (const [position, url] of desired.entries()) {
+      insert.run(fromPath, url, position);
+    }
+    return true;
+  });
 }
 
 export function getMarkdownLinksForPaths(paths: string[]): {
@@ -1259,6 +1375,7 @@ export function getStats(): {
   withoutChunks: number;
   chunks: number;
   failedChunks: number;
+  failedIndexing: number;
   links: number;
   lastIndexed: string | null;
   embeddingModel: string | null;
@@ -1310,6 +1427,7 @@ export function getStats(): {
     withoutChunks: total - indexed,
     chunks,
     failedChunks,
+    failedIndexing: Number(db.prepare('SELECT count(*) FROM index_failures').pluck().get()),
     links,
     lastIndexed,
     embeddingModel,
@@ -1342,29 +1460,40 @@ export function getFailedChunks(limit = 100): FailedChunk[] {
 }
 
 /**
- * Vault-relative paths of notes holding at least one chunk the provider rejected.
+ * Vault-relative paths of notes with a rolled-back write or rejected embedding.
  * Unlike getFailedChunks this is unbounded, because it drives a repair pass that
  * must cover every affected note rather than a preview.
  */
-export function getNotesWithFailedChunks(): string[] {
-  const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT n.path
-       FROM chunks c
-       JOIN notes n ON n.id = c.note_id
-       WHERE c.embedding_status = 'failed'
-       ORDER BY n.path`,
-    )
-    .all() as Array<{ path: string }>;
-  return rows.map((row) => row.path);
+export function getNotesNeedingRepair(): string[] {
+  return (
+    getDb()
+      .prepare(
+        `SELECT path FROM index_failures WHERE operation='index' AND path<>''
+    UNION SELECT n.path FROM notes n JOIN chunks c ON c.note_id=n.id WHERE c.embedding_status='failed'
+    ORDER BY path`,
+      )
+      .all() as Array<{ path: string }>
+  ).map((row) => row.path);
 }
 
 /**
  * Returns paths of notes that should be removed because they now match ignore patterns.
  * Stores new patterns in settings. Returns empty array if patterns unchanged.
  */
-export function getPathsToRemoveForIgnoreChange(
+export function cleanupIgnoredNotes(
+  lease: IndexLease,
+  patterns: string[],
+  signature = getIgnoreSignature(),
+  isIgnoredPath: (path: string) => boolean = isIgnored,
+): string[] {
+  return withIndexMutation(lease, () => {
+    const paths = pathsForIgnoreChange(patterns, signature, isIgnoredPath);
+    for (const notePath of paths) deleteNote(lease, notePath, true);
+    return paths;
+  });
+}
+
+function pathsForIgnoreChange(
   patterns: string[],
   signature = getIgnoreSignature(),
   isIgnoredPath: (path: string) => boolean = isIgnored,
@@ -1404,16 +1533,21 @@ export function getPathsToRemoveForIgnoreChange(
   return allPaths;
 }
 
-export function saveConfigMeta(meta: {
-  vaultPath: string;
-  apiBaseUrl: string;
-  apiModel: string;
-}): void {
-  const db = getDb();
-  const set = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
-  set.run('vault_path', meta.vaultPath);
-  set.run('api_base_url', meta.apiBaseUrl);
-  set.run('api_model', meta.apiModel);
+export function saveConfigMeta(
+  lease: IndexLease,
+  meta: {
+    vaultPath: string;
+    apiBaseUrl: string;
+    apiModel: string;
+  },
+): void {
+  return withIndexMutation(lease, () => {
+    const db = getDb();
+    const set = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+    set.run('vault_path', meta.vaultPath);
+    set.run('api_base_url', meta.apiBaseUrl);
+    set.run('api_model', meta.apiModel);
+  });
 }
 
 const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
@@ -1451,11 +1585,13 @@ export function applyDbConfigDefaults(): void {
   }
 }
 
-export function updateLastIndexed(): void {
-  const db = getDb();
-  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_indexed', ?)").run(
-    new Date().toISOString(),
-  );
+export function updateLastIndexed(lease: IndexLease): void {
+  return withIndexMutation(lease, () => {
+    const db = getDb();
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_indexed', ?)").run(
+      new Date().toISOString(),
+    );
+  });
 }
 
 /** Return recorded index provenance without adopting the current configuration. */
@@ -1464,4 +1600,196 @@ export function getStoredModel(): string | null {
   const row = db.prepare("SELECT value FROM settings WHERE key = 'embedding_model'").get() as
     { value: string } | undefined;
   return row?.value ?? null;
+}
+
+export interface NoteReferences {
+  links: string[];
+  markdownLinks: string[];
+  urls: string[];
+}
+
+export function clearIndexFailures(lease: IndexLease, notePath: string, operation?: string): void {
+  withIndexMutation(lease, () => {
+    if (operation)
+      getDb()
+        .prepare('DELETE FROM index_failures WHERE path=? AND operation=?')
+        .run(notePath, operation);
+    else getDb().prepare('DELETE FROM index_failures WHERE path=?').run(notePath);
+    getDb().prepare('DELETE FROM index_repair_notes WHERE path=?').run(notePath);
+  });
+}
+
+export function commitIndexedNote(
+  lease: IndexLease,
+  note: PreparedIndexNote,
+  context: { modelName: string },
+  references: NoteReferences,
+): void {
+  withIndexMutation(lease, () => {
+    upsertNote(lease, note, context);
+    upsertLinks(lease, note.path, references.links);
+    upsertMarkdownLinks(lease, note.path, references.markdownLinks);
+    upsertNoteUrls(lease, note.path, references.urls);
+    clearIndexFailures(lease, note.path);
+  });
+}
+
+export function repairIndexIntegrity(lease: IndexLease): {
+  removedVectors: number;
+  repairPaths: string[];
+} {
+  // Validate even an empty/no-vector database before deciding there is no work.
+  withIndexMutation(lease, () => undefined);
+  if (!hasVecTable()) return { removedVectors: 0, repairPaths: [] };
+  let removedVectors = 0;
+  for (;;) {
+    const removed = withIndexMutation(lease, () => {
+      const db = getDb();
+      const orphans = db
+        .prepare(
+          `SELECT v.chunk_id FROM vec_chunks v
+        LEFT JOIN chunks c ON c.id=v.chunk_id WHERE c.id IS NULL LIMIT 500`,
+        )
+        .safeIntegers()
+        .all() as Array<{ chunk_id: bigint }>;
+      const remove = db.prepare('DELETE FROM vec_chunks WHERE chunk_id=?');
+      for (const orphan of orphans) remove.run(orphan.chunk_id);
+      if (orphans.length > 0) bumpDbVersion();
+      return orphans.length;
+    });
+    removedVectors += removed;
+    if (removed < 500) break;
+  }
+  const repairPaths = withIndexMutation(lease, () => {
+    const db = getDb();
+    db.prepare(
+      `INSERT OR IGNORE INTO index_repair_notes(path)
+      SELECT DISTINCT n.path FROM chunks c JOIN notes n ON n.id=c.note_id
+      LEFT JOIN vec_chunks v ON v.chunk_id=c.id
+      WHERE c.embedding_status='ok' AND v.chunk_id IS NULL`,
+    ).run();
+    return (
+      db.prepare('SELECT path FROM index_repair_notes ORDER BY path').all() as Array<{
+        path: string;
+      }>
+    ).map(({ path }) => path);
+  });
+  return { removedVectors, repairPaths };
+}
+
+export interface RebuildTarget {
+  modelName: string;
+  embeddingDim: number;
+  metadata: { vaultPath: string; apiBaseUrl: string; apiModel: string };
+}
+
+/** Publish prepared rows under one writer lock. Active FTS remains trigger-owned. */
+export function replaceActiveIndex(
+  lease: IndexLease,
+  target: RebuildTarget,
+  rows: Iterable<{ note: PreparedIndexNote; references: NoteReferences }>,
+): void {
+  withIndexMutation(lease, () => {
+    const db = getDb();
+    const version = getDbVersion();
+    db.exec(
+      'DELETE FROM links; DELETE FROM markdown_links; DELETE FROM note_urls; DELETE FROM note_aliases; DELETE FROM note_tags; DELETE FROM note_frontmatter_fields;',
+    );
+    if (hasVecTable()) db.exec('DROP TABLE vec_chunks');
+    db.exec(
+      'DELETE FROM chunks; DELETE FROM notes; DELETE FROM index_failures; DELETE FROM index_repair_notes;',
+    );
+    db.prepare("DELETE FROM settings WHERE key IN ('embedding_model','embedding_dim')").run();
+    initVecTable(lease, target.embeddingDim);
+    const insert = db.prepare(
+      'INSERT INTO notes(path,title,tags,aliases,content,frontmatter,mtime,hash) VALUES(?,?,?,?,?,?,?,?)',
+    );
+    const link = db.prepare('INSERT OR IGNORE INTO links(from_path,to_path) VALUES(?,?)');
+    const markdown = db.prepare(
+      'INSERT OR IGNORE INTO markdown_links(from_path,to_path) VALUES(?,?)',
+    );
+    const url = db.prepare('INSERT OR IGNORE INTO note_urls(from_path,url,position) VALUES(?,?,?)');
+    for (const { note, references } of rows) {
+      const aliases = note.aliases ?? [];
+      const id = Number(
+        insert.run(
+          note.path,
+          note.title,
+          JSON.stringify(note.tags),
+          aliases.length ? JSON.stringify(aliases) : null,
+          note.content,
+          note.frontmatter ? yamlStringify(note.frontmatter) : '',
+          note.mtime,
+          note.hash,
+        ).lastInsertRowid,
+      );
+      replaceNoteAliases(db, id, aliases);
+      replaceNoteTags(db, id, note.tags);
+      replaceNoteFrontmatterFields(db, id, note.frontmatter);
+      insertChunks(db, id, note.chunks);
+      for (const to of references.links) link.run(note.path, to);
+      for (const to of references.markdownLinks) markdown.run(note.path, to);
+      for (const [position, value] of [...new Set(references.urls)].entries())
+        url.run(note.path, value, position);
+    }
+    const setting = db.prepare('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)');
+    setting.run('embedding_model', target.modelName);
+    setting.run('db_version', String(version + 1));
+    saveConfigMeta(lease, target.metadata);
+    updateLastIndexed(lease);
+  });
+}
+
+export interface IndexFailure {
+  path: string;
+  operation: string;
+  code: string;
+  message: string;
+  attempts: number;
+  last_failed_at: string;
+}
+
+export function recordIndexFailure(
+  lease: IndexLease,
+  notePath: string,
+  operation: string,
+  fingerprint: string,
+  error: unknown,
+): void {
+  withIndexMutation(lease, () => {
+    let message = error instanceof Error ? error.message : String(error);
+    if (config.apiKey) message = message.split(config.apiKey).join('[redacted]');
+    const code =
+      error && typeof error === 'object' && 'code' in error
+        ? String(error.code)
+        : 'INDEXING_FAILED';
+    getDb()
+      .prepare(
+        `INSERT INTO index_failures(path,operation,fingerprint,code,message,attempts,last_failed_at)
+      VALUES(?,?,?,?,?,1,?) ON CONFLICT(path,operation) DO UPDATE SET fingerprint=excluded.fingerprint,
+      code=excluded.code,message=excluded.message,attempts=index_failures.attempts+1,last_failed_at=excluded.last_failed_at`,
+      )
+      .run(
+        notePath,
+        operation,
+        fingerprint,
+        code.slice(0, 80),
+        message.slice(0, 1000),
+        new Date().toISOString(),
+      );
+  });
+}
+
+export function hasIndexFailure(notePath: string, operation: string, fingerprint: string): boolean {
+  return !!getDb()
+    .prepare('SELECT 1 FROM index_failures WHERE path=? AND operation=? AND fingerprint=?')
+    .get(notePath, operation, fingerprint);
+}
+
+export function getIndexFailures(): IndexFailure[] {
+  return getDb()
+    .prepare(
+      'SELECT path,operation,code,message,attempts,last_failed_at FROM index_failures ORDER BY last_failed_at DESC,path LIMIT 20',
+    )
+    .all() as IndexFailure[];
 }

@@ -25,7 +25,8 @@ vi.mock('../src/inference/embedder.js', () => ({
   embed: vi.fn((texts: string[]) => Promise.resolve(texts.map(() => null))),
 }));
 
-const { closeDb, openDb, initVecTable, upsertNote, getDb } = await import('../src/storage/db.js');
+const { closeDb, openDb, initVecTable, upsertNote, getDb } =
+  await import('./helpers/owned-storage.js');
 const { search } = await import('../src/search/searcher.js');
 
 const DIM = 4;

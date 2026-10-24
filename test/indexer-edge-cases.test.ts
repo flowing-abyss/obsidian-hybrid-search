@@ -23,9 +23,9 @@ const {
 
   formatDuration,
   renderProgressLine,
-} = await import('../src/indexing/indexer.js');
+} = await import('./helpers/owned-indexer.js');
 const { closeDb, openDb, initVecTable, upsertNote, getDb, isLikelyDatabaseCorruption } =
-  await import('../src/storage/db.js');
+  await import('./helpers/owned-storage.js');
 
 // Spy on embedder (matching test/indexer-file.test.ts strategy) so both files
 // cooperate on the same real module instance under vitest's isolate:false.

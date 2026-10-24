@@ -333,6 +333,37 @@ describe('local document token policy', () => {
     assert.equal(second[0]?.ok, true);
   });
 
+  it('waits for every admitted native call before reporting a sibling inference failure', async () => {
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_BASE_URL;
+    clearOllamaSemaphore();
+    let finishNative!: () => void;
+    const native = new Promise<{ data: Float32Array }>((resolve) => {
+      finishNative = () => resolve({ data: new Float32Array([0.1, 0.2]) });
+    });
+    const pipeline = Object.assign(
+      vi
+        .fn()
+        .mockRejectedValueOnce(new Error('native inference failed'))
+        .mockReturnValueOnce(native),
+      { tokenizer: { encode: vi.fn(() => [101, 11, 102]) } },
+    );
+    huggingFaceMocks.pipeline.mockResolvedValue(pipeline);
+    let settled = false;
+    const operation = embedDetailed(['first', 'second'], 'document');
+    const checked = assert.rejects(operation, /native inference failed/).then(() => {
+      settled = true;
+    });
+    try {
+      await vi.waitFor(() => assert.equal(pipeline.mock.calls.length, 2));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(settled, false);
+    } finally {
+      finishNative();
+      await checked;
+    }
+  });
+
   it('exact-counts each prepared leaf once and infers only fitting leaves', async () => {
     delete process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_BASE_URL;

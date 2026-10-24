@@ -25,7 +25,7 @@ vi.mock('../src/inference/embedder.js', () => ({
 // module graph so db.js, searcher.js and embedder.js are all instantiated fresh here.
 vi.resetModules();
 
-const { closeDb } = await import('../src/storage/db.js');
+const { closeDb } = await import('./helpers/owned-storage.js');
 const { search, searchFuzzyTitle } = await import('../src/search/searcher.js');
 const { buildFilterPredicate } = await import('../src/contracts/filter-predicate.js');
 // Imported from the SAME post-reset module graph searcher.js was, so the rerank guard

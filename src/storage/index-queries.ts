@@ -1,113 +1,149 @@
-import { getDb, upsertLinks, upsertMarkdownLinks, upsertNoteUrls } from './db.js';
+import {
+  getDb,
+  upsertLinks,
+  upsertMarkdownLinks,
+  upsertNoteUrls,
+  withIndexMutation,
+} from './db.js';
+import type { IndexLease } from './index-ownership.js';
+
+function bumpGraphVersion(): void {
+  getDb()
+    .prepare(
+      "INSERT OR REPLACE INTO settings(key, value) VALUES('db_version', CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'db_version'), 0) + 1 AS TEXT))",
+    )
+    .run();
+}
 
 export function getExistingNotePathSet(): Set<string> {
   const rows = getDb().prepare('SELECT path FROM notes').all() as { path: string }[];
   return new Set(rows.map((row) => row.path));
 }
 
-export function updateNoteMtime(mtime: number, relPath: string): void {
-  getDb().prepare('UPDATE notes SET mtime = ? WHERE path = ?').run(mtime, relPath);
+export function updateNoteMtime(lease: IndexLease, mtime: number, relPath: string): void {
+  return withIndexMutation(lease, () => {
+    getDb().prepare('UPDATE notes SET mtime = ? WHERE path = ?').run(mtime, relPath);
+  });
 }
 
 export function storePopulateMissingLinks(
+  lease: IndexLease,
   resolveWikilinks: (content: string, fromPath: string) => string[],
 ): void {
-  const db = getDb();
-  const done = (
-    db.prepare("SELECT value FROM settings WHERE key = 'links_v1'").get() as
-      { value: string } | undefined
-  )?.value;
-  if (done) return;
+  return withIndexMutation(lease, () => {
+    const db = getDb();
+    const done = (
+      db.prepare("SELECT value FROM settings WHERE key = 'links_v1'").get() as
+        { value: string } | undefined
+    )?.value;
+    if (done) return;
 
-  const notes = db
-    .prepare('SELECT path, content, frontmatter FROM notes WHERE content IS NOT NULL')
-    .all() as {
-    path: string;
-    content: string;
-    frontmatter: string;
-  }[];
-  for (const note of notes) {
-    const links = resolveWikilinks((note.frontmatter || '') + '\n' + note.content, note.path);
-    upsertLinks(note.path, links);
-  }
+    const notes = db
+      .prepare('SELECT path, content, frontmatter FROM notes WHERE content IS NOT NULL')
+      .all() as {
+      path: string;
+      content: string;
+      frontmatter: string;
+    }[];
+    let changed = false;
+    for (const note of notes) {
+      const links = resolveWikilinks((note.frontmatter || '') + '\n' + note.content, note.path);
+      changed = upsertLinks(lease, note.path, links) || changed;
+    }
 
-  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('links_v1', '1')").run();
+    if (changed) bumpGraphVersion();
+    db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('links_v1', '1')").run();
+  });
 }
 
 export function storePopulateMissingMarkdownReferences(
+  lease: IndexLease,
   resolveMarkdownReferencesForNote: (
     fromPath: string,
     content: string,
     existingPaths: Set<string>,
   ) => { links: string[]; urls: string[] },
 ): void {
-  const db = getDb();
-  const done = (
-    db.prepare("SELECT value FROM settings WHERE key = 'markdown_links_v1'").get() as
-      { value: string } | undefined
-  )?.value;
-  if (done) return;
+  return withIndexMutation(lease, () => {
+    const db = getDb();
+    const done = (
+      db.prepare("SELECT value FROM settings WHERE key = 'markdown_links_v1'").get() as
+        { value: string } | undefined
+    )?.value;
+    if (done) return;
 
-  const notes = db.prepare('SELECT path, content FROM notes WHERE content IS NOT NULL').all() as {
-    path: string;
-    content: string;
-  }[];
-  const existingPaths = new Set(notes.map((note) => note.path));
-  const tx = db.transaction(() => {
-    for (const note of notes) {
-      const references = resolveMarkdownReferencesForNote(note.path, note.content, existingPaths);
-      upsertMarkdownLinks(note.path, references.links);
-      upsertNoteUrls(note.path, references.urls);
-    }
-    db.prepare(
-      "INSERT OR REPLACE INTO settings(key, value) VALUES('markdown_links_v1', '1')",
-    ).run();
-    db.prepare(
-      "INSERT OR REPLACE INTO settings(key, value) VALUES('db_version', CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'db_version'), 0) + 1 AS TEXT))",
-    ).run();
+    const notes = db.prepare('SELECT path, content FROM notes WHERE content IS NOT NULL').all() as {
+      path: string;
+      content: string;
+    }[];
+    const existingPaths = new Set(notes.map((note) => note.path));
+    const tx = db.transaction(() => {
+      let changed = false;
+      for (const note of notes) {
+        const references = resolveMarkdownReferencesForNote(note.path, note.content, existingPaths);
+        changed = upsertMarkdownLinks(lease, note.path, references.links) || changed;
+        changed = upsertNoteUrls(lease, note.path, references.urls) || changed;
+      }
+      db.prepare(
+        "INSERT OR REPLACE INTO settings(key, value) VALUES('markdown_links_v1', '1')",
+      ).run();
+      if (changed) bumpGraphVersion();
+    });
+    tx();
   });
-  tx();
 }
 
 export function storeResolveAllLinks(
+  lease: IndexLease,
   createWikilinkResolver: () => (content: string, fromPath: string) => string[],
 ): void {
-  const db = getDb();
-  const notes = db
-    .prepare('SELECT path, content, frontmatter FROM notes WHERE content IS NOT NULL')
-    .all() as {
-    path: string;
-    content: string;
-    frontmatter: string;
-  }[];
-  const resolve = createWikilinkResolver();
-  for (const note of notes) {
-    const links = resolve((note.frontmatter || '') + '\n' + note.content, note.path);
-    upsertLinks(note.path, links);
-  }
-  // Startup migrations must not repeat a completed full-vault repair.
-  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('links_v1', '1')").run();
+  return withIndexMutation(lease, () => {
+    const db = getDb();
+    const notes = db
+      .prepare('SELECT path, content, frontmatter FROM notes WHERE content IS NOT NULL')
+      .all() as {
+      path: string;
+      content: string;
+      frontmatter: string;
+    }[];
+    const resolve = createWikilinkResolver();
+    let changed = false;
+    for (const note of notes) {
+      const links = resolve((note.frontmatter || '') + '\n' + note.content, note.path);
+      changed = upsertLinks(lease, note.path, links) || changed;
+    }
+    // Startup migrations must not repeat a completed full-vault repair.
+    if (changed) bumpGraphVersion();
+    db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('links_v1', '1')").run();
+  });
 }
 
 export function storeResolveAllMarkdownReferences(
+  lease: IndexLease,
   resolveMarkdownReferencesForNote: (
     fromPath: string,
     content: string,
     existingPaths: Set<string>,
   ) => { links: string[]; urls: string[] },
 ): void {
-  const db = getDb();
-  const notes = db.prepare('SELECT path, content FROM notes WHERE content IS NOT NULL').all() as {
-    path: string;
-    content: string;
-  }[];
-  const existingPaths = new Set(notes.map((note) => note.path));
-  for (const note of notes) {
-    const references = resolveMarkdownReferencesForNote(note.path, note.content, existingPaths);
-    upsertMarkdownLinks(note.path, references.links);
-    upsertNoteUrls(note.path, references.urls);
-  }
-  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('markdown_links_v1', '1')").run();
+  return withIndexMutation(lease, () => {
+    const db = getDb();
+    const notes = db.prepare('SELECT path, content FROM notes WHERE content IS NOT NULL').all() as {
+      path: string;
+      content: string;
+    }[];
+    const existingPaths = new Set(notes.map((note) => note.path));
+    let changed = false;
+    for (const note of notes) {
+      const references = resolveMarkdownReferencesForNote(note.path, note.content, existingPaths);
+      changed = upsertMarkdownLinks(lease, note.path, references.links) || changed;
+      changed = upsertNoteUrls(lease, note.path, references.urls) || changed;
+    }
+    if (changed) bumpGraphVersion();
+    db.prepare(
+      "INSERT OR REPLACE INTO settings(key, value) VALUES('markdown_links_v1', '1')",
+    ).run();
+  });
 }
 
 export function readWikiCatalogRows() {

@@ -7,7 +7,12 @@ import http, {
 import { config } from '../runtime/config.js';
 import { registerProcessHandlers } from '../runtime/process-resilience.js';
 import { closeDb } from '../storage/db.js';
-import { createMcpRuntime, createMcpServer, startMcpBackgroundServices } from './mcp-runtime.js';
+import {
+  closeMcpRuntime,
+  createMcpRuntime,
+  createMcpServer,
+  startMcpBackgroundServices,
+} from './mcp-runtime.js';
 
 export interface HttpMcpServerOptions {
   host: string;
@@ -99,6 +104,7 @@ export async function runHttpMcpServer(
     url,
     healthUrl: `http://${options.host}:${actualPort}/health`,
     close: async () => {
+      await closeMcpRuntime(runtime);
       await closeNodeServer(nodeServer);
       closeDb();
     },

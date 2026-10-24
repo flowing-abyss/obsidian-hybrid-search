@@ -33,6 +33,7 @@ import { afterAll, beforeAll, beforeEach, describe, it, vi } from 'vitest';
 
 vi.mock('chokidar', () => ({
   watch: vi.fn().mockReturnValue({
+    close: vi.fn().mockResolvedValue(undefined),
     add: vi.fn().mockReturnThis(),
     on: vi.fn().mockReturnThis(),
   }),
@@ -51,11 +52,11 @@ const {
   openDb,
   initVecTable,
   getDb,
-  getPathsToRemoveForIgnoreChange,
+  cleanupIgnoredNotes,
   upsertNote,
   upsertLinks,
   upsertMarkdownLinks,
-} = await import('../src/storage/db.js');
+} = await import('./helpers/owned-storage.js');
 
 const embedder = await import('../src/inference/embedder.js');
 const EMBEDDING = new Float32Array([0.1, 0.2, 0.3, 0.4]);
@@ -77,8 +78,8 @@ const {
   indexFile,
   startBackgroundIndexing,
   startWatcher,
-  withIndexingDbLock,
-} = await import('../src/indexing/indexer.js');
+  getIndexingStatus,
+} = await import('./helpers/owned-indexer.js');
 const { search } = await import('../src/search/searcher.js');
 
 function policyFor(ignorePatterns: string[]) {
@@ -367,11 +368,7 @@ describe('C3/C4 – real vault, real index', () => {
       process.env.OBSIDIAN_IGNORE_PATTERNS = USER_PATTERNS;
       const legacy = JSON.parse(createIgnorePolicy().signature()) as Record<string, unknown>;
       delete legacy.matcherVersion;
-      getPathsToRemoveForIgnoreChange(
-        USER_PATTERNS.split(','),
-        JSON.stringify(legacy),
-        () => false,
-      );
+      cleanupIgnoredNotes(USER_PATTERNS.split(','), JSON.stringify(legacy), () => false);
     });
 
     it('sweeps them as newly ignored, keeping their links', () => {
@@ -938,7 +935,7 @@ describe('issue #55 – index entry points and saved-version migration', () => {
     const source = readFileSync(path.join(vaultDir, removed), 'utf8');
     const oldSignature = JSON.parse(createIgnorePolicy().signature()) as Record<string, unknown>;
     oldSignature.matcherVersion = 3;
-    getPathsToRemoveForIgnoreChange([], JSON.stringify(oldSignature), () => false);
+    cleanupIgnoredNotes([], JSON.stringify(oldSignature), () => false);
     vi.mocked(embedder.embedDetailed).mockClear();
     cleanupStaleNotes();
     assert.equal(getDb().prepare('SELECT id FROM notes WHERE path = ?').get(removed), undefined);
@@ -1020,7 +1017,7 @@ describe('issue #55 – index entry points and saved-version migration', () => {
     assert.equal(removedChunks.length, 2);
     const version2 = JSON.parse(createIgnorePolicy().signature()) as Record<string, unknown>;
     version2.matcherVersion = 2;
-    getPathsToRemoveForIgnoreChange([], JSON.stringify(version2), () => false);
+    cleanupIgnoredNotes([], JSON.stringify(version2), () => false);
     vi.mocked(embedder.embed).mockClear();
     vi.mocked(embedder.embedDetailed).mockClear();
     cleanupStaleNotes();
@@ -1092,7 +1089,7 @@ describe('issue #55 – index entry points and saved-version migration', () => {
     );
   });
 
-  it('rechecks a queued watcher change against fresh Git rules under the DB lock', async () => {
+  it('rechecks Git rules before committing embeddings already in flight', async () => {
     config.debounce = 20;
     write('a/.gitignore', '!keep.md\n');
     write('a/cache/keep.md', '# Initially allowed\n\nNonempty body');
@@ -1105,35 +1102,28 @@ describe('issue #55 – index entry points and saved-version migration', () => {
     const change = watcher.on.mock.calls.find(([event]) => event === 'change')?.[1] as (
       file: string,
     ) => void;
-    assert.equal(typeof change, 'function');
-    let release: () => void = () => {
-      throw new Error('lock not acquired');
-    };
-    let entered: () => void = () => {};
-    const ready = new Promise<void>((resolve) => {
-      entered = resolve;
+    let release!: () => void;
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
     });
-    const held = withIndexingDbLock(async () => {
+    const detailed = vi.mocked(embedder.embedDetailed);
+    detailed.mockImplementationOnce(async (texts) => {
+      started();
       await new Promise<void>((resolve) => {
         release = resolve;
-        entered();
       });
+      return texts.map(() => ({ ok: true as const, embedding: new Float32Array([1, 0, 0, 0]) }));
     });
-    await ready;
-    try {
-      change(path.join(vaultDir, 'a/cache/keep.md'));
-      await new Promise((resolve) => setTimeout(resolve, config.debounce + 50));
-      write('.gitignore', 'cache\n');
-    } finally {
-      release();
-    }
-    await held;
-    await withIndexingDbLock(() => {});
+    change(path.join(vaultDir, 'a/cache/keep.md'));
+    await entered;
+    write('.gitignore', 'cache\n');
+    release();
+    await vi.waitFor(() => assert.equal(getIndexingStatus().isRunning, false));
     assert.equal(
       getDb().prepare('SELECT id FROM notes WHERE path = ?').get('a/cache/keep.md'),
       undefined,
     );
-    assert.equal(vi.mocked(embedder.embed).mock.calls.length, 0);
-    assert.equal(vi.mocked(embedder.embedDetailed).mock.calls.length, 0);
+    assert.equal(detailed.mock.calls.length, 1);
   });
 });

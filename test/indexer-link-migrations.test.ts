@@ -7,10 +7,10 @@ import { afterAll, afterEach, beforeEach, describe, it, vi } from 'vitest';
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-link-migrations-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-const { closeDb, getDb, initVecTable, openDb } = await import('../src/storage/db.js');
+const { closeDb, getDb, initVecTable, openDb } = await import('./helpers/owned-storage.js');
 const embedder = await import('../src/inference/embedder.js');
 const { indexFile, indexVaultSync, resetIndexingState } =
-  await import('../src/indexing/indexer.js');
+  await import('./helpers/owned-indexer.js');
 const { runHttpMcpServer } = await import('../src/transports/mcp-http-server.js');
 
 beforeEach(() => {
@@ -141,6 +141,11 @@ describe('link migration completion after full vault reindex', () => {
     }
     assert.equal(await indexFile(path.join(vaultDir, 'a-source.md'), 512, true), 'indexed');
     assertReferences();
+    // A no-op repair no longer rewrites references. Corrupt an actual edge so
+    // this guard exercises rollback of a required repair rather than a no-op.
+    getDb()
+      .prepare(`UPDATE ${table} SET to_path = 'obsolete.md' WHERE from_path = 'a-source.md'`)
+      .run();
     getDb().exec(`
       CREATE TRIGGER fail_repair BEFORE DELETE ON ${table}
       BEGIN SELECT RAISE(ABORT, 'link repair failed'); END;

@@ -8,7 +8,7 @@ const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-searcher-similar-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 vi.resetModules();
 
-const dbModule = await import('../src/storage/db.js');
+const dbModule = await import('./helpers/owned-storage.js');
 const { closeDb, openDb, initVecTable, upsertNote, upsertLinks } = dbModule;
 
 // Mock embedder before importing searcher so live bindings pick up the mock

@@ -8,25 +8,35 @@ import { afterAll, describe, it, vi } from 'vitest';
 // without spawning a real filesystem watcher.
 vi.mock('chokidar', () => ({
   watch: vi.fn().mockReturnValue({
+    close: vi.fn().mockResolvedValue(undefined),
     on: vi.fn().mockReturnThis(),
     add: vi.fn().mockReturnThis(),
   }),
 }));
 
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-watcher-root-'));
+const previousVault = process.env.OBSIDIAN_VAULT_PATH;
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
+let storage: typeof import('../src/storage/db.js');
+let watcher: import('../src/indexing/indexer.js').WatcherHandle | undefined;
 
 describe('watcher ignored() contract', () => {
-  afterAll(() => {
+  afterAll(async () => {
+    await watcher?.close();
+    storage?.closeDb();
     rmSync(vaultDir, { recursive: true, force: true });
+    if (previousVault === undefined) delete process.env.OBSIDIAN_VAULT_PATH;
+    else process.env.OBSIDIAN_VAULT_PATH = previousVault;
   });
 
   it('never ignores the vault watch root (chokidar v5 consults ignored for the root)', async () => {
     writeFileSync(path.join(vaultDir, 'one.md'), '# One');
 
     vi.resetModules();
-    const { startWatcher } = await import('../src/indexing/indexer');
-    startWatcher(512);
+    storage = await import('../src/storage/db.js');
+    storage.openDb();
+    const { startWatcher } = await import('./helpers/owned-indexer');
+    watcher = startWatcher(512, true);
     await new Promise((r) => setTimeout(r, 50));
 
     const chokidar = await import('chokidar');

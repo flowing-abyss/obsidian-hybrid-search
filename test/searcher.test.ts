@@ -25,7 +25,7 @@ const {
   upsertMarkdownLinks,
   upsertNoteUrls,
   getDb,
-} = await import('../src/storage/db.js');
+} = await import('./helpers/owned-storage.js');
 const { search, readNotes } = await import('../src/search/searcher.js');
 const { reranker } = await import('../src/inference/reranker.js');
 

@@ -19,7 +19,7 @@ const {
   upsertNote,
   upsertNoteUrls,
   wipeDatabaseFiles,
-} = await import('../src/storage/db.js');
+} = await import('./helpers/owned-storage.js');
 
 const vector = new Float32Array([0.1, 0.2, 0.3, 0.4]);
 

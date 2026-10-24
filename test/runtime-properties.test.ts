@@ -8,7 +8,7 @@ import { afterAll, expect, it, vi } from 'vitest';
 
 const vault = mkdtempSync(path.join(tmpdir(), 'ohs-properties-'));
 process.env.OBSIDIAN_VAULT_PATH = vault;
-const db = await import('../src/storage/db.js');
+const db = await import('./helpers/owned-storage.js');
 const embedder = await import('../src/inference/embedder.js');
 function vector(text: string): Float32Array {
   const sum = Array.from(text).reduce((n, c) => n + c.codePointAt(0)!, 0);
@@ -25,7 +25,7 @@ vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
 });
 const { chunkNote, refineChunksToFit } = await import('../src/content/chunker.js');
 const { buildFilterPredicate } = await import('../src/contracts/filter-predicate.js');
-const { indexFile, indexVaultSync, cleanupStaleNotes } = await import('../src/indexing/indexer.js');
+const { indexFile, indexVaultSync, cleanupStaleNotes } = await import('./helpers/owned-indexer.js');
 const { search } = await import('../src/search/searcher.js');
 const { bumpIndexVersion } = await import('../src/storage/index-state.js');
 
@@ -223,24 +223,27 @@ it('incremental edits, renames and deletes equal a fresh index of final files', 
         resetDb();
         const body = (value: string) =>
           `---\ntitle: alpha ${value}\ntags: [alpha, café]\naliases: [identity]\nstate: open\n---\n# alpha\n${value}\n[[anchor]] [anchor](anchor.md) https://example.com/alpha\n`;
-        writeFileSync(path.join(vault, 'anchor.md'), '# anchor\nalpha anchor');
-        await indexFile(path.join(vault, 'anchor.md'), 64, true);
-        for (const operation of operations) {
-          const file = path.join(vault, `note-${operation.slot}.md`);
-          if (operation.kind === 'write') {
-            writeFileSync(file, body(operation.text));
-            expect(await indexFile(file, 64, true)).toBe('indexed');
-          } else if (operation.kind === 'delete') rmSync(file, { force: true });
-          else if (readdirSync(vault).includes(path.basename(file)))
-            renameSync(file, path.join(vault, `renamed-${operation.slot}.md`));
-          const paths = new Set(
-            readdirSync(vault)
-              .filter((name) => name.endsWith('.md'))
-              .map((name) => name.normalize('NFD')),
-          );
-          cleanupStaleNotes(paths);
-        }
-        expect((await indexVaultSync(false)).errors).toEqual([]);
+        // A running watcher keeps one owner across an incremental sequence.
+        await db.withTestIndexRun(async () => {
+          writeFileSync(path.join(vault, 'anchor.md'), '# anchor\nalpha anchor');
+          await indexFile(path.join(vault, 'anchor.md'), 64, true);
+          for (const operation of operations) {
+            const file = path.join(vault, `note-${operation.slot}.md`);
+            if (operation.kind === 'write') {
+              writeFileSync(file, body(operation.text));
+              expect(await indexFile(file, 64, true)).toBe('indexed');
+            } else if (operation.kind === 'delete') rmSync(file, { force: true });
+            else if (readdirSync(vault).includes(path.basename(file)))
+              renameSync(file, path.join(vault, `renamed-${operation.slot}.md`));
+            const paths = new Set(
+              readdirSync(vault)
+                .filter((name) => name.endsWith('.md'))
+                .map((name) => name.normalize('NFD')),
+            );
+            cleanupStaleNotes(paths);
+          }
+          expect((await indexVaultSync(false)).errors).toEqual([]);
+        });
         const incremental = snapshot();
         const incrementalSearch = await searchSnapshot();
         resetDb();

@@ -24,8 +24,8 @@ const {
   getDb,
   upsertNote,
   getNoteByPath,
-} = await import('../src/storage/db.js');
-const { indexVaultSync } = await import('../src/indexing/indexer.js');
+} = await import('./helpers/owned-storage.js');
+const { indexVaultSync } = await import('./helpers/owned-indexer.js');
 const { createMcpRuntime } = await import('../src/transports/mcp-runtime.js');
 
 beforeAll(() => {

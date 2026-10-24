@@ -1,7 +1,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   formatValidationError,
@@ -13,19 +13,14 @@ import {
   type StringArrayParam,
 } from '../contracts/boundary-validation.js';
 import {
-  getIndexingStatus,
-  indexFileWithRecovery,
-  indexVaultSync,
-  populateMissingLinks,
-  populateMissingMarkdownReferences,
-  startBackgroundIndexing,
-  startWatcher,
-  withIndexingDbLock,
-} from '../indexing/indexer.js';
+  createIndexService,
+  openIndexDatabase,
+  type IndexService,
+} from '../indexing/index-service.js';
+import { getIndexingStatus } from '../indexing/indexer.js';
 import {
   activeModelName,
   getContextLength,
-  getEmbeddingDim,
   primeEmbeddingDim,
   useRemoteEmbeddings,
 } from '../inference/embedder.js';
@@ -33,15 +28,10 @@ import { config } from '../runtime/config.js';
 import { isAmbiguousNotePathError, readNotes, search } from '../search/searcher.js';
 import {
   applyDbConfigDefaults,
+  getIndexFailures,
   getStats,
   getStoredEmbeddingDim,
   getStoredModel,
-  hasVecTable,
-  initVecTable,
-  openDb,
-  saveConfigMeta,
-  wipeDatabaseFiles,
-  wipeDatabaseSidecars,
 } from '../storage/db.js';
 import { validateVaultPath } from '../vault/vault-config.js';
 
@@ -95,69 +85,31 @@ export async function checkForUpdates(version = packageVersion): Promise<void> {
   }
 }
 
+const runtimeIndexers = new WeakMap<McpRuntime, IndexService>();
+function indexerFor(runtime: McpRuntime): IndexService {
+  let service = runtimeIndexers.get(runtime);
+  if (!service) {
+    service = createIndexService();
+    runtimeIndexers.set(runtime, service);
+  }
+  return service;
+}
+
 export async function createMcpRuntime(): Promise<McpRuntime> {
-  // Phase 1: validate the selected vault and restore its actual database defaults
   validateVaultPath(process.env.OBSIDIAN_VAULT_PATH);
-  openDb();
+  await openIndexDatabase();
   applyDbConfigDefaults();
-
-  // Persist config metadata so the DB is self-describing
-  saveConfigMeta({
-    vaultPath: config.vaultPath,
-    apiBaseUrl: config.apiBaseUrl,
-    apiModel: config.apiModel,
-  });
-
-  // Warn if model differs but do NOT wipe — the MCP server is read-oriented.
-  // Wiping here would destroy the index whenever env vars are missing at startup.
-  // Only explicit full-vault force reindex permits replacing the index.
   const modelName = activeModelName();
   const storedModel = getStoredModel();
-  if (storedModel && storedModel !== modelName) {
+  if (storedModel && storedModel !== modelName)
     console.error(
-      `[server] embedding model mismatch: DB has "${storedModel}", current env has "${modelName}". Semantic search may be degraded. Restore the recorded model/configuration, or intentionally rebuild with full reindex --force.`,
+      `[server] embedding model mismatch: DB has "${storedModel}", current env has "${modelName}". Restore the recorded model or use full reindex --force.`,
     );
-  }
-
-  // Phase 2: determine embedding dimension and context length.
-  // Read stored dim from DB first — avoids an API round-trip when the vault was
-  // already indexed.  This is the common case and ensures that fulltext / title
-  // searches (which never need the embedding API) keep working when offline.
-  // Only fall back to getEmbeddingDim() on a fresh install where the DB has no
-  // stored value yet.
-  const storedDim = getStoredEmbeddingDim();
-  const [contextLength, apiDim] = await Promise.all([
-    getContextLength(),
-    storedDim === null && !hasVecTable()
-      ? getEmbeddingDim().catch((err: unknown) => {
-          console.error(
-            '[server] embedding API unavailable — semantic search and indexing disabled,' +
-              ' fulltext/title search still works:',
-            err instanceof Error ? err.message : String(err),
-          );
-          return null;
-        })
-      : Promise.resolve(null),
-  ]);
-  const embeddingDim = storedDim ?? apiDim;
-
-  if (embeddingDim !== null) {
-    // Seed in-memory dim cache so the zero-vector fallback in the indexer works
-    // even if getEmbeddingDim() was never called this session.
-    primeEmbeddingDim(embeddingDim);
-    initVecTable(embeddingDim);
-  } else if (!hasVecTable()) {
-    console.error('[server] embedding dimension unknown — vector table not initialized');
-  }
-
-  await withIndexingDbLock(async () => {
-    await populateMissingLinks();
-    await populateMissingMarkdownReferences();
-  });
-
+  const embeddingDim = getStoredEmbeddingDim();
+  if (embeddingDim !== null) primeEmbeddingDim(embeddingDim);
   return {
     version: packageVersion,
-    contextLength,
+    contextLength: await getContextLength(),
     modelName,
     embeddingDim,
     getUpdateStatus: () => updateStatus,
@@ -166,72 +118,16 @@ export async function createMcpRuntime(): Promise<McpRuntime> {
 
 export function startMcpBackgroundServices(runtime: McpRuntime): void {
   checkForUpdates(runtime.version).catch(() => {});
-
-  // Phase 4 & 5: background indexing + watcher (after server is up)
-  startBackgroundIndexing(runtime.contextLength).catch((err) => {
-    console.warn('[server] background indexing error:', err);
-  });
-  startWatcher(runtime.contextLength);
+  indexerFor(runtime).start();
 }
 
-async function handleReindex(
-  a: { path?: string; force?: boolean },
-  contextLength: number,
-): Promise<{ indexed: number; skipped: number; errors: unknown[] }> {
-  if (a.path) {
-    const fullPath = join(config.vaultPath, a.path);
-    const status = await withIndexingDbLock(() =>
-      indexFileWithRecovery(fullPath, contextLength, Boolean(a.force), resetDbAfterSidecarRecovery),
-    );
-    if (status === 'indexed') return { indexed: 1, skipped: 0, errors: [] };
-    if (status === 'skipped') return { indexed: 0, skipped: 1, errors: [] };
-    return {
-      indexed: 0,
-      skipped: 0,
-      errors: [
-        {
-          path: a.path,
-          error: typeof status === 'object' ? status.error : 'indexing failed',
-        },
-      ],
-    };
-  }
-
-  return withIndexingDbLock(async () => {
-    if (a.force) {
-      const freshDim = await getEmbeddingDim({ refresh: true });
-      resetDbForForceReindex(freshDim);
-    }
-    const header = a.force ? 'Recreating database and indexing vault...' : 'Indexing vault...';
-    return indexVaultSync(Boolean(a.force), header, {
-      recoverDatabase: resetDbAfterSidecarRecovery,
-    });
-  });
+export async function closeMcpRuntime(runtime: McpRuntime): Promise<void> {
+  await runtimeIndexers.get(runtime)?.close();
+  runtimeIndexers.delete(runtime);
 }
 
-function resetDbForForceReindex(embeddingDim: number): void {
-  wipeDatabaseFiles();
-  openDb();
-  saveConfigMeta({
-    vaultPath: config.vaultPath,
-    apiBaseUrl: config.apiBaseUrl,
-    apiModel: config.apiModel,
-  });
-  initVecTable(embeddingDim);
-}
-
-function resetDbAfterSidecarRecovery(): void {
-  wipeDatabaseSidecars();
-  openDb();
-  saveConfigMeta({
-    vaultPath: config.vaultPath,
-    apiBaseUrl: config.apiBaseUrl,
-    apiModel: config.apiModel,
-  });
-  const embeddingDim = getStoredEmbeddingDim();
-  if (embeddingDim !== null) {
-    initVecTable(embeddingDim);
-  }
+function handleReindex(a: { path?: string; force?: boolean }, runtime: McpRuntime) {
+  return indexerFor(runtime).reindex(a);
 }
 
 function textResult(text: string): McpToolResult {
@@ -308,8 +204,10 @@ async function callReindexTool(
   if (!parsed.success) {
     return validationErrorResult(formatValidationError('reindex arguments', parsed.error));
   }
-  const result = await handleReindex(parsed.data, runtime.contextLength);
-  return textResult(JSON.stringify(result, null, 2));
+  const result = await handleReindex(parsed.data, runtime);
+  const response = textResult(JSON.stringify(result, null, 2));
+  if (result.errors.length > 0) response.isError = true;
+  return response;
 }
 
 function callStatusTool(a: Record<string, unknown>, runtime: McpRuntime): McpToolResult {
@@ -328,6 +226,8 @@ function callStatusTool(a: Record<string, unknown>, runtime: McpRuntime): McpToo
     pending: indexingStatus.queued,
     chunks: stats.chunks,
     failed_chunks: stats.failedChunks,
+    failed_indexing: stats.failedIndexing,
+    indexing_errors: getIndexFailures(),
     links: stats.links,
     last_indexed: stats.lastIndexed,
     db_size_mb:
@@ -527,7 +427,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
       {
         name: toolName('reindex'),
         description:
-          'Reindex a specific file or the vault. Use only when the index is stale/missing or the user asks. Incremental by default. For accidental model mismatch restore the recorded configuration. Only intentional full-vault force:true with no path recreates the database after a successful fresh embedding probe.',
+          'Reindex a specific file or the vault. Use only when the index is stale/missing or the user asks. Incremental by default. For accidental model mismatch restore the recorded configuration. Use force:true without a path for an intentional full rebuild. The previous index stays available until the rebuild succeeds.',
         inputSchema: {
           type: 'object',
           properties: {

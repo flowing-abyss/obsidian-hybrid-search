@@ -14,14 +14,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it, vi } from 'vitest';
 import { config } from '../src/runtime/config.js';
+import { discoverConfig, validateVaultPath } from '../src/vault/vault-config.js';
 import {
   applyDbConfigDefaults,
   closeDb,
   getDb,
   openDb,
   saveConfigMeta,
-} from '../src/storage/db.js';
-import { discoverConfig, validateVaultPath } from '../src/vault/vault-config.js';
+} from './helpers/owned-storage.js';
 
 const dbName = '.obsidian-hybrid-search.db';
 let root: string;

@@ -8,8 +8,8 @@ import { createGitFixture } from './helpers/git-fixture.js';
 
 const previousEnv = { ...process.env };
 let fixture: ReturnType<typeof createGitFixture>;
-let db: typeof import('../src/storage/db.js');
-let indexer: typeof import('../src/indexing/indexer.js');
+let db: typeof import('./helpers/owned-storage.js');
+let indexer: typeof import('./helpers/owned-indexer.js');
 let embedder: typeof import('../src/inference/embedder.js');
 let watcher: ReturnType<typeof indexer.startWatcher> | undefined;
 
@@ -97,7 +97,7 @@ for (const linked of [false, true]) {
       fixture.write('projects/notes/rescued/Café.md', '# Rescued\nExplicitly selected note');
       fixture.write('projects/notes/hard/excluded.md', '# Hard exclusion');
       vi.resetModules();
-      db = await import('../src/storage/db.js');
+      db = await import('./helpers/owned-storage.js');
       const { config } = await import('../src/runtime/config.js');
       config.debounce = 100;
       embedder = await import('../src/inference/embedder.js');
@@ -114,7 +114,7 @@ for (const linked of [false, true]) {
         limit: 508,
         count: (text) => Math.ceil(Array.from(text).length / 4),
       });
-      indexer = await import('../src/indexing/indexer.js');
+      indexer = await import('./helpers/owned-indexer.js');
       db.openDb();
       db.initVecTable(4);
     });

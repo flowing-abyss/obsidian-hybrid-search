@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, it, vi } from 'vitest';
@@ -11,8 +11,8 @@ const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-indexer-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
 // Dynamic imports so config reads the env var we just set
-const { resolveWikilinks, getIndexingStatus } = await import('../src/indexing/indexer.js');
-const { closeDb, openDb, initVecTable, upsertNote } = await import('../src/storage/db.js');
+const { resolveWikilinks, getIndexingStatus } = await import('./helpers/owned-indexer.js');
+const { closeDb, openDb, initVecTable, upsertNote } = await import('./helpers/owned-storage.js');
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -41,6 +41,9 @@ function insertNote(opts: {
 
 describe('getIndexingStatus', () => {
   it('returns correct shape with idle defaults when no indexing is running', () => {
+    process.env.OBSIDIAN_VAULT_PATH = vaultDir;
+    mkdirSync(vaultDir, { recursive: true });
+    openDb();
     const status = getIndexingStatus();
     assert.equal(typeof status.queued, 'number');
     assert.equal(typeof status.total, 'number');
@@ -147,8 +150,8 @@ describe('background failure diagnostics', () => {
   it('commits a good note and reports each rejected path and error count', async () => {
     const embedder = await import('../src/inference/embedder.js');
     const { startBackgroundIndexing, resetIndexingState } =
-      await import('../src/indexing/indexer.js');
-    const { getNoteByPath, wipeDatabaseFiles } = await import('../src/storage/db.js');
+      await import('./helpers/owned-indexer.js');
+    const { getNoteByPath, wipeDatabaseFiles } = await import('./helpers/owned-storage.js');
     wipeDatabaseFiles();
     openDb();
     initVecTable(4);
@@ -413,6 +416,9 @@ describe('parseAliasField', () => {
 
 describe('queue shape after background indexing start', () => {
   it('reports zero queued files when no vault files exist', () => {
+    process.env.OBSIDIAN_VAULT_PATH = vaultDir;
+    mkdirSync(vaultDir, { recursive: true });
+    openDb();
     const status = getIndexingStatus();
     assert.equal(status.queued, 0);
     assert.equal(status.isRunning, false);

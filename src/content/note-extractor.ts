@@ -1,9 +1,10 @@
 import matter from 'gray-matter';
 
 export function extractMarkdownNote(raw: string, fallbackTitle: string) {
-  const parsed = matter(raw);
+  // Its content cache drops the non-enumerable `matter` property on repeated reads.
+  const parsed = matter(raw, {});
   const { data: frontmatter, content } = parsed;
-  const frontmatterRaw: string = parsed.matter;
+  const frontmatterRaw: string = parsed.matter ?? '';
   const title = frontmatter.title == null ? fallbackTitle : String(frontmatter.title);
   const frontmatterTags: string[] = Array.isArray(frontmatter.tags)
     ? frontmatter.tags.map(String)

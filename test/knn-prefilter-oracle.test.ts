@@ -25,7 +25,7 @@ vi.mock('../src/inference/embedder.js', () => ({
 // here — without this the whole file passes vacuously or dies on a dim mismatch.
 vi.resetModules();
 
-const { closeDb, getChunkEmbeddingsByPath } = await import('../src/storage/db.js');
+const { closeDb, getChunkEmbeddingsByPath } = await import('./helpers/owned-storage.js');
 const { search } = await import('../src/search/searcher.js');
 const { seedPushdownVault, NEEDLE_PATHS, SRC_PATH } = await import('./fixtures/pushdown-vault.js');
 

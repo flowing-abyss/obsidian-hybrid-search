@@ -64,8 +64,8 @@ vi.stubEnv('OPENAI_EMBEDDING_MODEL', 'gemini-embedding-2');
 const { embedDetailed, getEmbeddingDim, primeEmbeddingDim, clearOllamaSemaphore } =
   await import('../src/inference/embedder.js');
 const { openDb, closeDb, initVecTable, getStoredEmbeddingDim, getStats } =
-  await import('../src/storage/db.js');
-const { indexVaultSync } = await import('../src/indexing/indexer.js');
+  await import('./helpers/owned-storage.js');
+const { indexVaultSync } = await import('./helpers/owned-indexer.js');
 const { search } = await import('../src/search/searcher.js');
 
 afterAll(async () => {

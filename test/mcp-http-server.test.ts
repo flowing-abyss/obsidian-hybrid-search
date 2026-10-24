@@ -7,7 +7,7 @@ import { afterEach, describe, it } from 'vitest';
 import type { HttpMcpServerHandle } from '../src/transports/mcp-http-server.js';
 
 const { closeDb, initVecTable, openDb, upsertMarkdownLinks, upsertNote } =
-  await import('../src/storage/db.js');
+  await import('./helpers/owned-storage.js');
 const { runHttpMcpServer } = await import('../src/transports/mcp-http-server.js');
 
 let server: HttpMcpServerHandle | undefined;

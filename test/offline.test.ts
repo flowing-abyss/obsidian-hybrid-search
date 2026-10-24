@@ -25,7 +25,7 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 // ─── Module imports (after env is set) ───────────────────────────────────────
 
 const { closeDb, openDb, initVecTable, upsertNote, getStoredEmbeddingDim } =
-  await import('../src/storage/db.js');
+  await import('./helpers/owned-storage.js');
 const { search } = await import('../src/search/searcher.js');
 
 const EMBED_DIM = 4;

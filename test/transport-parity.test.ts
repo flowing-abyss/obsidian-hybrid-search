@@ -20,10 +20,10 @@ const {
   upsertLinks,
   upsertMarkdownLinks,
   upsertNoteUrls,
-} = await import('../src/storage/db.js');
+} = await import('./helpers/owned-storage.js');
 const { search } = await import('../src/search/searcher.js');
 const { populateMissingLinks, populateMissingMarkdownReferences } =
-  await import('../src/indexing/indexer.js');
+  await import('./helpers/owned-indexer.js');
 afterAll(() => {
   closeDb();
   rmSync(vault, { recursive: true, force: true });

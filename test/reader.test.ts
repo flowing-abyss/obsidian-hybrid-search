@@ -8,7 +8,7 @@ const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-reader-test-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
 const { closeDb, openDb, initVecTable, upsertNote, upsertLinks } =
-  await import('../src/storage/db.js');
+  await import('./helpers/owned-storage.js');
 const { readNotes } = await import('../src/search/searcher.js');
 
 const fakeEmb = new Float32Array([0.1, 0.2, 0.3, 0.4]);
