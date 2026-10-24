@@ -206,6 +206,27 @@ export function createIndexCoordinator(options: {
     }
   }
 
+  async function waitForOwnership(): Promise<void> {
+    if (!backgroundWork && !backgroundCleanup && !foregroundWork) {
+      await delay(foregroundPollMs, undefined, { signal: lifetime.signal });
+      return;
+    }
+    const poll = new AbortController();
+    try {
+      // Local work can finish before the next database poll. Its completion only
+      // wakes the claim loop; the drain barrier and global waiter order still apply.
+      await abortable(
+        Promise.race([
+          Promise.allSettled([backgroundWork, backgroundCleanup, foregroundWork]),
+          delay(foregroundPollMs, undefined, { signal: poll.signal }),
+        ]),
+        lifetime.signal,
+      );
+    } finally {
+      poll.abort();
+    }
+  }
+
   async function runForeground<T>(
     work: (run: IndexRunContext) => Promise<T>,
     deadline: number,
@@ -255,7 +276,7 @@ export function createIndexCoordinator(options: {
           await delay([50, 150, 450][failures++], undefined, { signal: lifetime.signal });
           continue;
         }
-        await delay(foregroundPollMs, undefined, { signal: lifetime.signal });
+        await waitForOwnership();
       }
       const run = current.run;
       const operation = Promise.resolve().then(() => {

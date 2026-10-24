@@ -153,6 +153,67 @@ it('repairs only confirmed orphan vectors and persists missing-vector work', () 
   assert.deepEqual(dbModule.getNoteMeta(note.path), { mtime: 1, hash: 'original' });
 });
 
+it('keeps complete repair work across mixed notes without changing surviving index data', () => {
+  const a = {
+    ...note,
+    path: 'a-missing.md',
+    chunks: [
+      { text: 'first missing', embedding: new Float32Array([1, 0, 0, 0]) },
+      { text: 'second missing', embedding: new Float32Array([0, 1, 0, 0]) },
+      { text: 'surviving', embedding: new Float32Array([0, 0, 1, 0]) },
+    ],
+  };
+  for (const item of [
+    a,
+    { ...note, path: 'b-missing.md' },
+    { ...note, path: 'failed.md', chunks: [{ text: 'failed', embedding: null }] },
+    { ...note, path: 'empty.md', chunks: [] },
+  ])
+    upsertNote(lease, item, { modelName: 'model-A' });
+  const db = getDb();
+  db.prepare(
+    `DELETE FROM vec_chunks WHERE chunk_id IN (
+      SELECT c.id FROM chunks c JOIN notes n ON n.id=c.note_id
+      WHERE (n.path='a-missing.md' AND c.chunk_index<2) OR n.path='b-missing.md'
+    )`,
+  ).run();
+  const preserved = () => ({
+    notes: db.prepare('SELECT * FROM notes ORDER BY id').all(),
+    chunks: db.prepare('SELECT * FROM chunks ORDER BY id').all(),
+    vectors: db.prepare('SELECT chunk_id, hex(embedding) FROM vec_chunks ORDER BY chunk_id').all(),
+  });
+  const before = preserved();
+  db.prepare('INSERT INTO vec_chunks(chunk_id,embedding) VALUES(?,?)').run(
+    999n,
+    new Float32Array([0, 0, 0, 1]),
+  );
+  assert.deepEqual(dbModule.repairIndexIntegrity(lease), {
+    removedVectors: 1,
+    repairPaths: ['a-missing.md', 'b-missing.md'],
+  });
+  assert.deepEqual(preserved(), before);
+  assert.deepEqual(dbModule.repairIndexIntegrity(lease), {
+    removedVectors: 0,
+    repairPaths: ['a-missing.md', 'b-missing.md'],
+  });
+  dbModule.reopenDatabaseForRecovery(lease);
+  dbModule.commitIndexedNote(
+    lease,
+    a,
+    { modelName: 'model-A' },
+    { links: [], markdownLinks: [], urls: [] },
+  );
+  assert.deepEqual(dbModule.repairIndexIntegrity(lease), {
+    removedVectors: 0,
+    repairPaths: ['b-missing.md'],
+  });
+  getDb().exec('DELETE FROM vec_chunks');
+  assert.deepEqual(dbModule.repairIndexIntegrity(lease), {
+    removedVectors: 0,
+    repairPaths: ['a-missing.md', 'b-missing.md', note.path],
+  });
+});
+
 it('every exported index mutation refuses an expired writer', async () => {
   const queries = await import('../src/storage/index-queries.js');
   getDb().exec('UPDATE index_owner SET expires_at=0');

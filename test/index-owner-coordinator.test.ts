@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { setImmediate as nextTurn } from 'node:timers/promises';
 import { afterAll, afterEach, beforeEach, it } from 'vitest';
 import type { IndexRunContext } from '../src/indexing/index-owner.js';
 
@@ -179,6 +180,133 @@ it('waits for cancelled native background work before starting local foreground 
   } finally {
     native.resolve();
     await foreground;
+  }
+});
+
+it.each(['native', 'cleanup'] as const)(
+  'wakes local foreground work after %s settles first and both finish',
+  async (first) => {
+    const entered = deferred<IndexRunContext>();
+    const native = deferred<void>();
+    const cleanup = deferred<void>();
+    let foregroundEntered = false;
+    const owner = createIndexCoordinator({
+      acquireBackground: async (run) => {
+        entered.resolve(run);
+        await native.promise;
+      },
+      releaseBackground: () => cleanup.promise,
+      onError: (error) => errors.push(error),
+      // The local handoff must not depend on the remote-owner polling interval.
+      timing: { heartbeatMs: 10, pollMs: 60_000, waitMs: 120_000 },
+    });
+    coordinators.push(owner);
+    owner.start();
+    const run = await entered.promise;
+    const foreground = owner.foreground(() => {
+      foregroundEntered = true;
+      return Promise.resolve();
+    });
+    void foreground.catch(() => undefined);
+    try {
+      await nextTurn();
+      assert.equal(run.signal.aborted, true);
+      assert.equal(foregroundEntered, false);
+      (first === 'native' ? native : cleanup).resolve();
+      await nextTurn();
+      assert.equal(
+        foregroundEntered,
+        false,
+        'the remaining work still owns the local drain barrier',
+      );
+      (first === 'native' ? cleanup : native).resolve();
+      await nextTurn();
+      assert.equal(foregroundEntered, true, 'completed local work must wake the queued operation');
+      await foreground;
+      assert.deepEqual(db.getDb().prepare('SELECT * FROM index_waiters').all(), []);
+      assert.deepEqual(errors, []);
+    } finally {
+      native.resolve();
+      cleanup.resolve();
+      await owner.close();
+      await foreground.catch(() => undefined);
+    }
+  },
+);
+
+it('cancels the local foreground wait immediately while close drains native work and cleanup', async () => {
+  const entered = deferred<void>();
+  const native = deferred<void>();
+  const cleanup = deferred<void>();
+  const owner = createIndexCoordinator({
+    acquireBackground: async () => {
+      entered.resolve();
+      await native.promise;
+    },
+    releaseBackground: () => cleanup.promise,
+    onError: (error) => errors.push(error),
+    timing: { heartbeatMs: 10, pollMs: 60_000, waitMs: 120_000 },
+  });
+  coordinators.push(owner);
+  owner.start();
+  await entered.promise;
+  const foreground = owner.foreground(() => Promise.reject(new Error('must not start')));
+  let rejected = false;
+  const rejection = assert.rejects(foreground, /closed|abort/i).then(() => {
+    rejected = true;
+  });
+  void rejection.catch(() => undefined);
+  let closed = false;
+  const closing = owner.close().then(() => {
+    closed = true;
+  });
+  try {
+    await nextTurn();
+    assert.equal(rejected, true);
+    assert.equal(closed, false);
+    assert.deepEqual(db.getDb().prepare('SELECT * FROM index_waiters').all(), []);
+  } finally {
+    native.resolve();
+    cleanup.resolve();
+    await Promise.all([closing, rejection]);
+  }
+  assert.deepEqual(errors, []);
+});
+
+it('wakes the next local foreground caller when the current operation finishes', async () => {
+  const entered = deferred<void>();
+  const native = deferred<void>();
+  let secondEntered = false;
+  const owner = createIndexCoordinator({
+    acquireBackground: async () => {},
+    releaseBackground: async () => {},
+    onError: (error) => errors.push(error),
+    timing: { heartbeatMs: 10, pollMs: 60_000, waitMs: 120_000 },
+  });
+  coordinators.push(owner);
+  const first = owner.foreground(async () => {
+    entered.resolve();
+    await native.promise;
+  });
+  await entered.promise;
+  const second = owner.foreground(() => {
+    secondEntered = true;
+    return Promise.resolve();
+  });
+  void second.catch(() => undefined);
+  try {
+    await nextTurn();
+    assert.equal(secondEntered, false);
+    native.resolve();
+    await nextTurn();
+    assert.equal(secondEntered, true, 'the next local caller must not wait for a polling tick');
+    await Promise.all([first, second]);
+    assert.deepEqual(db.getDb().prepare('SELECT * FROM index_waiters').all(), []);
+    assert.deepEqual(errors, []);
+  } finally {
+    native.resolve();
+    await owner.close();
+    await Promise.allSettled([first, second]);
   }
 });
 

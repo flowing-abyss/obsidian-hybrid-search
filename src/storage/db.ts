@@ -1766,11 +1766,12 @@ export function repairIndexIntegrity(lease: IndexLease): {
   }
   const repairPaths = withIndexMutation(lease, () => {
     const db = getDb();
+    // Read vector IDs once instead of repeating a virtual-table lookup for every chunk.
     db.prepare(
       `INSERT OR IGNORE INTO index_repair_notes(path)
       SELECT DISTINCT n.path FROM chunks c JOIN notes n ON n.id=c.note_id
-      LEFT JOIN vec_chunks v ON v.chunk_id=c.id
-      WHERE c.embedding_status='ok' AND v.chunk_id IS NULL`,
+      WHERE c.embedding_status='ok'
+        AND c.id NOT IN (SELECT chunk_id FROM vec_chunks WHERE chunk_id IS NOT NULL)`,
     ).run();
     return (
       db.prepare('SELECT path FROM index_repair_notes ORDER BY path').all() as Array<{
