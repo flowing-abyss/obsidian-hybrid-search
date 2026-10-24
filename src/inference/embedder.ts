@@ -65,10 +65,19 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   'mistralai/mistral-embed-2312': 8192,
   'mistralai/codestral-embed-2505': 8192,
   'mistral-embed': 8192,
+  'mistral-embed-2312': 8192,
+  'codestral-embed': 8192,
+  'codestral-embed-2505': 8192,
 
   // ── Google ────────────────────────────────────────────────
-  'google/gemini-embedding-001': 20000,
-  'gemini-embedding-001': 20000,
+  // Google's per-input limit is 2048, despite larger OpenRouter catalog values.
+  // https://ai.google.dev/gemini-api/docs/embeddings#model-versions
+  'google/gemini-embedding-001': 2048,
+  'gemini-embedding-001': 2048,
+  'google/gemini-embedding-2': 8192,
+  'google/gemini-embedding-2-preview': 8192,
+  'gemini-embedding-2': 8192,
+  'gemini-embedding-2-preview': 8192,
   'text-embedding-004': 2048, // Google AI direct
   'text-multilingual-embedding-002': 2048,
 
@@ -87,8 +96,17 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   'embed-multilingual-v3.0': 512,
   'embed-english-light-v3.0': 512,
   'embed-multilingual-light-v3.0': 512,
+  // Conservatively interpret the documented 128k window for the compatibility API.
+  'embed-v4.0': 128000,
+  'embed-v5.0-pro': 128000,
+  'embed-v5.0-fast': 128000,
 
   // ── Voyage AI ─────────────────────────────────────────────
+  'voyageai/voyage-code-4': 32000,
+  'voyageai/voyage-multimodal-3.5': 32000,
+  'voyageai/voyage-4-lite': 32000,
+  'voyageai/voyage-4': 32000,
+  'voyageai/voyage-4-large': 32000,
   'voyage-4-large': 32000,
   'voyage-4': 32000,
   'voyage-4-lite': 32000,
@@ -98,6 +116,7 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   'voyage-3.5-lite': 32000,
   'voyage-3': 32000,
   'voyage-3-lite': 32000,
+  'voyage-code-4': 32000,
   'voyage-code-3': 32000,
   'voyage-finance-2': 32000,
   'voyage-multilingual-2': 32000,
@@ -133,6 +152,17 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
 
   // ── NVIDIA ────────────────────────────────────────────────
   'nvidia/llama-nemotron-embed-vl-1b-v2': 131072,
+  'nvidia/llama-nemotron-embed-vl-1b-v2:free': 131072,
+  'nvidia/nemotron-3-embed-1b:free': 32768,
+  'nvidia/nemotron-3.5-embed-1b:free': 32768,
+  'nvidia/nemotron-3.5-embed-8b:free': 32768,
+
+  // ── Liquid ────────────────────────────────────────────────
+  'liquid/lfm-2.5-embedding-350m:free': 512,
+
+  // ── Perplexity ────────────────────────────────────────────
+  'perplexity/pplx-embed-v1-4b': 32000,
+  'perplexity/pplx-embed-v1-0.6b': 32000,
 
   // ── Ollama local models (short names) ────────────────────
   'nomic-embed-text': 8192,
@@ -144,6 +174,9 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   'snowflake-arctic-embed2': 8192,
   'paraphrase-multilingual': 512,
   embeddinggemma: 2048,
+  // Use Google's embedding input limit, not Ollama's larger architecture window.
+  // https://huggingface.co/google/embeddinggemma-2
+  'embeddinggemma-2': 8192,
   'granite-embedding': 512,
 
   // ── Xenova-prefix models (compatible with @huggingface/transformers v3) ────────────────────
@@ -312,7 +345,7 @@ function useApiMode(): boolean {
 }
 
 // E5 model family (intfloat/Xenova e5-*) uses asymmetric prefixes ("query:"/"passage:").
-// BGE, GTE, Nomic, Gemma, and most other models do NOT — adding prefixes corrupts their embeddings.
+// Other families must not inherit E5's query/passage format.
 function needsE5Prefix(model: string): boolean {
   return /\/e5|e5[-_]/i.test(model);
 }
@@ -342,8 +375,11 @@ function getLocalValidationContextLength(pipeline: any): number {
 
 export function prepareEmbeddingInput(text: string, type: 'query' | 'document'): string {
   const model = useApiMode() ? config.apiModel : config.localModel;
-  if (!needsE5Prefix(model)) return text;
-  return `${type === 'query' ? 'query: ' : 'passage: '}${text}`;
+  if (needsE5Prefix(model)) return `${type === 'query' ? 'query: ' : 'passage: '}${text}`;
+  if (type === 'query' && /(?:^|\/|text-embedding-)qwen3-embedding(?:$|[-:])/i.test(model)) {
+    return `Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:${text}`;
+  }
+  return text;
 }
 
 export async function getDocumentTokenPolicy(): Promise<{
@@ -753,16 +789,20 @@ async function embedApiBatch(
     return { ok: false, failure, localize: failure.kind === 'input_too_long' };
   }
 
+  const items = data.data;
+  const allIndexesMissing = items.every((item) => item.index === undefined);
   const seenIndexes = new Set<number>();
   const indexesMatchRequest =
-    data.data.length === texts.length &&
-    data.data.every((item) => {
-      if (item.index < 0 || item.index >= texts.length || seenIndexes.has(item.index)) {
-        return false;
-      }
-      seenIndexes.add(item.index);
-      return true;
-    });
+    items.length === texts.length &&
+    (allIndexesMissing ||
+      items.every((item) => {
+        const index = item.index;
+        if (index === undefined || index < 0 || index >= texts.length || seenIndexes.has(index)) {
+          return false;
+        }
+        seenIndexes.add(index);
+        return true;
+      }));
   if (!indexesMatchRequest) {
     return {
       ok: false,
@@ -775,12 +815,11 @@ async function embedApiBatch(
     };
   }
 
-  return {
-    ok: true,
-    embeddings: [...data.data]
-      .sort((a, b) => a.index - b.index)
-      .map((item) => new Float32Array(item.embedding)),
-  };
+  const embeddings = new Array<Float32Array>(texts.length);
+  for (const [position, item] of items.entries()) {
+    embeddings[item.index ?? position] = new Float32Array(item.embedding);
+  }
+  return { ok: true, embeddings };
 }
 
 function stripTrailingSlashes(value: string): string {

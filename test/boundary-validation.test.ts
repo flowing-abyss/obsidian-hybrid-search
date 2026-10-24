@@ -159,6 +159,26 @@ describe('SearchToolArgumentsSchema', () => {
 });
 
 describe('EmbeddingApiResponseSchema', () => {
+  it('accepts embedding responses with omitted indexes', () => {
+    const parsed = EmbeddingApiResponseSchema.safeParse({
+      object: 'list',
+      data: [{ object: 'embedding', embedding: [1, 0] }],
+    });
+    assert.equal(parsed.success, true);
+    if (parsed.success && 'data' in parsed.data) {
+      assert.equal(parsed.data.data[0]?.index, undefined);
+    }
+  });
+
+  for (const index of [null, '0', 0.5, NaN, Infinity]) {
+    it(`rejects a supplied non-integer index ${String(index)}`, () => {
+      assert.equal(
+        EmbeddingApiResponseSchema.safeParse({ data: [{ embedding: [1, 0], index }] }).success,
+        false,
+      );
+    });
+  }
+
   it('rejects an empty object', () => {
     assert.equal(EmbeddingApiResponseSchema.safeParse({}).success, false);
   });
