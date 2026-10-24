@@ -331,7 +331,9 @@ for (const linked of [false, true]) {
       );
       await expectDuplicate(false, before, 0);
       assert.equal(
-        fs.realpathSync(fixture.git(['rev-parse', '--path-format=absolute', '--git-common-dir'])),
+        fs.realpathSync.native(
+          fixture.git(['rev-parse', '--path-format=absolute', '--git-common-dir']),
+        ),
         alternate,
       );
       writeFileSync(nextExclude, '# new target admits duplicate\n');

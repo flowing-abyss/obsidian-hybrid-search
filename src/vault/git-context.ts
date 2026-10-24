@@ -43,7 +43,7 @@ function readPointer(file: string, stats: Stats): string {
 
 function resolveDirectory(base: string, target: string, source: string): string {
   try {
-    const resolved = realpathSync(path.resolve(base, target));
+    const resolved = realpathSync.native(path.resolve(base, target));
     if (!statSync(resolved).isDirectory()) throw new Error('Target is not a directory');
     return resolved;
   } catch (cause) {
@@ -54,7 +54,8 @@ function resolveDirectory(base: string, target: string, source: string): string 
 /** Discover the configured vault's containing working tree without a Git subprocess. */
 export function resolveGitContext(vaultPath: string): GitContext | undefined {
   if (!optionalStat(vaultPath)) return undefined;
-  const physicalVault = realpathSync(vaultPath);
+  // Native resolution also unifies Windows 8.3 aliases without normalizing Unicode.
+  const physicalVault = realpathSync.native(vaultPath);
   for (let directory = physicalVault; ; directory = path.dirname(directory)) {
     const marker = path.join(directory, '.git');
     const stats = optionalStat(marker);
@@ -62,7 +63,7 @@ export function resolveGitContext(vaultPath: string): GitContext | undefined {
       const indirectionFiles: string[] = [];
       let gitDirPath: string;
       if (stats.isDirectory()) {
-        gitDirPath = realpathSync(marker);
+        gitDirPath = realpathSync.native(marker);
       } else {
         const pointer = readPointer(marker, stats);
         if (!pointer.startsWith('gitdir: ') || pointer.length === 8)
