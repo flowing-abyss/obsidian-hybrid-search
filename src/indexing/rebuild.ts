@@ -16,13 +16,14 @@ import {
 } from '../storage/index-rebuild.js';
 import { bumpIndexVersion } from '../storage/index-state.js';
 import { createIgnorePolicy } from '../vault/ignore.js';
-import { reportIndexProgress, type IndexRunContext } from './index-owner.js';
+import { reportIndexProgress } from './index-owner.js';
 import { retryIndexWrite } from './index-write.js';
 import {
   createPreparedReferenceResolver,
   prepareIndexFile,
   scanVault,
   type IndexResult,
+  type IndexRunContext,
 } from './indexer.js';
 
 /** Build away from active rows, then publish the complete compatible snapshot. */

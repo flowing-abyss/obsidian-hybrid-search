@@ -3,6 +3,7 @@ import { extractMarkdownNote } from '../content/note-extractor.js';
 import {
   getDb,
   replaceActiveIndex,
+  validateChunkSourceSpans,
   withIndexMutation,
   type NoteReferences,
   type PreparedIndexNote,
@@ -49,6 +50,7 @@ export function stageRebuildNote(
     if (!row) throw new Error('Rebuild no longer exists');
     const target = JSON.parse(row.target_json) as RebuildTarget;
     for (const chunk of note.chunks) {
+      validateChunkSourceSpans(chunk);
       if (
         !chunk.embedding ||
         chunk.embedding.length !== target.embeddingDim ||

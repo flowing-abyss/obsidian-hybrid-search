@@ -4,11 +4,12 @@ import { readdirSync, statSync, type Stats } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chunkNote, createChunkBoundaryIndex, refineChunksToFit } from '../content/chunker.js';
+import { mapContentRange } from '../content/content-ignore.js';
 import {
   extractMarkdownReferences,
   resolveMarkdownNoteLinks,
 } from '../content/markdown-references.js';
-import { extractMarkdownNote, parseWikilinks } from '../content/note-extractor.js';
+import { extractMarkdownNote, extractNoteTags, parseWikilinks } from '../content/note-extractor.js';
 import { normalizeNotePath } from '../content/text-normalization.js';
 import {
   activeModelName,
@@ -55,8 +56,13 @@ import {
   embedChunksWithRecovery,
   type EmbeddedChunk,
 } from './chunk-embedding.js';
-import { reportIndexProgress, type IndexRunContext } from './index-owner.js';
+import type { ContentFilter } from './content-filter.js';
+import { reportIndexProgress, type IndexRunContext as OwnerRunContext } from './index-owner.js';
 import { retryIndexWrite } from './index-write.js';
+
+export interface IndexRunContext extends OwnerRunContext {
+  readonly contentFilter?: ContentFilter;
+}
 
 export interface IndexResult {
   indexed: number;
@@ -271,10 +277,13 @@ export async function prepareIndexFile(
     throw error;
   }
   const hash = createHash('md5').update(raw).digest('hex');
-  const { frontmatter, content, frontmatterRaw, title, tags, aliases } = extractMarkdownNote(
-    raw,
-    path.basename(fullPath, '.md'),
-  );
+  const extracted = extractMarkdownNote(raw, path.basename(fullPath, '.md'));
+  const { frontmatter, frontmatterRaw, title, aliases } = extracted;
+  const projection = run.contentFilter
+    ? await run.contentFilter.project(extracted.content, { signal: run.signal })
+    : null;
+  const content = projection?.text ?? extracted.content;
+  const tags = projection?.segments ? extractNoteTags(content, frontmatter) : extracted.tags;
   const semanticChunks = chunkNote(content, contextLength).filter(
     (chunk) => chunk.text.trim().length > 0,
   );
@@ -322,8 +331,9 @@ export async function prepareIndexFile(
         text: chunk.text,
         headingPath: chunk.headingChain.length > 0 ? chunk.headingChain.join(' > ') : null,
         embedding,
-        charStart: chunk.charStart,
-        charEnd: chunk.charEnd,
+        ...(projection?.segments
+          ? mapContentRange(projection, chunk.charStart, chunk.charEnd)
+          : { charStart: chunk.charStart, charEnd: chunk.charEnd }),
       })),
     },
   };

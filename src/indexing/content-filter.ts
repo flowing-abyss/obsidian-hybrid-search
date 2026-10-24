@@ -4,7 +4,7 @@ import type { ContentIgnorePattern, ContentProjection } from '../content/content
 import { config } from '../runtime/config.js';
 import { isContentProjection, type ContentFilterRequest } from './content-filter-protocol.js';
 
-interface ContentFilter {
+export interface ContentFilter {
   readonly signature: string;
   project(body: string, options: { signal: AbortSignal }): Promise<ContentProjection>;
   close(): Promise<void>;

@@ -3,7 +3,7 @@ export interface ContentIgnorePattern {
   readonly flags: string;
 }
 
-type SourcePart = readonly [start: number, end: number] | ' ' | '\n';
+export type SourcePart = readonly [start: number, end: number] | ' ' | '\n';
 
 interface ProjectionSegment {
   textStart: number;

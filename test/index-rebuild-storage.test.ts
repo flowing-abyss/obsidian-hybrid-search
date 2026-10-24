@@ -105,3 +105,43 @@ it('rejects missing embeddings and publication by a stale owner', () => {
   assert.throws(() => stage.publishRebuild(lease, rebuild), /ownership/i);
   assert.ok(db.getNoteByPath('old.md'));
 });
+
+it('preserves discontiguous source spans through staging and atomic publication', () => {
+  const projected = note('filtered.md');
+  projected.content = 'one two';
+  projected.chunks = [
+    {
+      text: 'one two',
+      embedding: new Float32Array(3).fill(0.5),
+      charStart: 0,
+      charEnd: 13,
+      sourceSpans: [[0, 3], ' ', [10, 13]],
+    },
+  ];
+  const rebuild = stage.beginRebuild(lease, {
+    modelName: 'new',
+    embeddingDim: 3,
+    metadata: { vaultPath: vault, apiBaseUrl: '', apiModel: '' },
+  });
+  stage.stageRebuildNote(lease, rebuild, projected, '', { mtimeMs: 1, size: 13 });
+  stage.setRebuildReferences(lease, rebuild, projected.path, references);
+  stage.publishRebuild(lease, rebuild);
+  assert.deepEqual(
+    JSON.parse(db.getDb().prepare('SELECT source_spans FROM chunks').pluck().get() as string),
+    [[0, 3], ' ', [10, 13]],
+  );
+  assert.equal(db.getNoteByPath('filtered.md')?.content, 'one two');
+});
+
+it('rejects malformed spans before replacing valid active chunks', () => {
+  const invalid = note('old.md');
+  invalid.chunks[0]!.sourceSpans = [[4, 2]];
+  const before = db.getDbVersion();
+  assert.throws(
+    () => db.commitIndexedNote(lease, invalid, { modelName: 'old' }, references),
+    /source spans/i,
+  );
+  assert.equal(db.getDbVersion(), before);
+  assert.equal(db.getNoteByPath('old.md')?.content, 'old.md');
+  assert.equal(db.getDb().prepare('SELECT text FROM chunks').pluck().get(), 'old.md');
+});

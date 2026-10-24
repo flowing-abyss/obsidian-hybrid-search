@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
 import * as sqliteVec from 'sqlite-vec';
 import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
+import type { SourcePart } from '../content/content-ignore.js';
 import { normalizeNotePath, normalizeTag } from '../content/text-normalization.js';
 import { config } from '../runtime/config.js';
 import { getIgnoreSignature, isIgnored } from '../vault/ignore.js';
@@ -314,6 +315,9 @@ function runMigrations(db: DB): void {
   }
   if (!chunkCols.some((c) => c.name === 'char_end')) {
     db.exec('ALTER TABLE chunks ADD COLUMN char_end INTEGER');
+  }
+  if (!chunkCols.some((c) => c.name === 'source_spans')) {
+    db.exec('ALTER TABLE chunks ADD COLUMN source_spans TEXT');
   }
 
   // Partial index for fast --errors lookups (only indexes failed rows)
@@ -790,6 +794,7 @@ export interface PreparedIndexNote {
     embedding: Float32Array | null;
     charStart?: number | null;
     charEnd?: number | null;
+    sourceSpans?: readonly SourcePart[] | null;
   }[];
 }
 
@@ -911,24 +916,15 @@ export function upsertNote(
   });
 }
 
-function insertChunks(
-  db: DB,
-  noteId: number,
-  chunks: {
-    text: string;
-    headingPath?: string | null;
-    embedding: Float32Array | null;
-    charStart?: number | null;
-    charEnd?: number | null;
-  }[],
-): void {
+function insertChunks(db: DB, noteId: number, chunks: PreparedIndexNote['chunks']): void {
   const insertChunk = db.prepare(
-    'INSERT INTO chunks (note_id, chunk_index, text, heading_path, embedding_status, char_start, char_end) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO chunks (note_id, chunk_index, text, heading_path, embedding_status, char_start, char_end, source_spans) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   );
   const insertVec = db.prepare('INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)');
 
   for (let i = 0; i < chunks.length; i++) {
-    const { text, headingPath, embedding, charStart, charEnd } = chunks[i]!;
+    const { text, headingPath, embedding, charStart, charEnd, sourceSpans } = chunks[i]!;
+    validateChunkSourceSpans(chunks[i]!);
     const status = embedding !== null ? 'ok' : 'failed';
     const result = insertChunk.run(
       noteId,
@@ -938,6 +934,7 @@ function insertChunks(
       status,
       charStart ?? null,
       charEnd ?? null,
+      sourceSpans ? JSON.stringify(sourceSpans) : null,
     );
     if (embedding !== null) {
       // sqlite-vec vec0 requires INTEGER (BigInt), not REAL (JS number)
@@ -945,6 +942,48 @@ function insertChunks(
       insertVec.run(chunkId, embedding);
     }
   }
+}
+
+/** Validate persisted discontiguous anchors without retaining a second source body. */
+export function validateChunkSourceSpans(chunk: PreparedIndexNote['chunks'][number]): void {
+  const spans = chunk.sourceSpans;
+  if (spans == null) return;
+  const { charStart, charEnd, text } = chunk;
+  const invalid = () => new Error('Invalid chunk source spans; existing index preserved.');
+  if (
+    !Array.isArray(spans) ||
+    !Number.isInteger(charStart) ||
+    !Number.isInteger(charEnd) ||
+    charStart == null ||
+    charEnd == null ||
+    charStart < 0 ||
+    charEnd <= charStart
+  )
+    throw invalid();
+  let previous = charStart;
+  let length = 0;
+  let retained = false;
+  for (const span of spans) {
+    if (span === ' ' || span === '\n') {
+      if (text[length] !== span) throw invalid();
+      length++;
+    } else {
+      if (
+        !Array.isArray(span) ||
+        span.length !== 2 ||
+        !Number.isInteger(span[0]) ||
+        !Number.isInteger(span[1]) ||
+        span[0]! < previous ||
+        span[1]! <= span[0]! ||
+        span[1]! > charEnd
+      )
+        throw invalid();
+      length += span[1]! - span[0]!;
+      previous = Number(span[1]);
+      retained = true;
+    }
+  }
+  if (!retained || length !== text.length) throw invalid();
 }
 
 /**
