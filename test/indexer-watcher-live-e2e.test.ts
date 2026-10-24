@@ -235,6 +235,32 @@ describe('live watcher e2e (real chokidar + real indexer)', () => {
     assert.deepEqual(vector(), before);
   }, 30_000);
 
+  it('removes stale notes and vectors when an include-rescued subtree moves or disappears', async () => {
+    assert.ok(indexedPaths().includes('issue55/notes/x.md'));
+    renameSync(abs('issue55/notes'), abs('issue55/names'));
+    assert.ok(
+      await waitFor(() => {
+        const paths = indexedPaths();
+        return paths.includes('issue55/names/x.md') && !paths.includes('issue55/notes/x.md');
+      }),
+      'move must remove the old included path and index the new one',
+    );
+    rmSync(abs('issue55/names'), { recursive: true });
+    assert.ok(
+      await waitFor(() => !indexedPaths().includes('issue55/names/x.md')),
+      'deleting the included directory must remove its notes',
+    );
+    const orphanVectors = getDb()
+      .prepare(
+        `
+      SELECT COUNT(*) AS count FROM vec_chunks v
+      LEFT JOIN chunks c ON c.id = v.chunk_id WHERE c.id IS NULL
+    `,
+      )
+      .get() as { count: number };
+    assert.equal(orphanVectors.count, 0, 'moved and removed notes must leave no orphan vectors');
+  });
+
   it('stops observing changes after close', async () => {
     await watcher.close();
     writeFileSync(abs('after-close.md'), '# Must not be indexed by the closed watcher');

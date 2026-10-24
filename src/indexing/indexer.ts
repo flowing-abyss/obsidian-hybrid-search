@@ -682,7 +682,7 @@ export function startWatcher(contextLength: number): WatcherHandle {
             // A vanished path can be a directory. Chokidar checks ancestors
             // when reconciling deletions, so applying the file extension filter
             // here would hide unlink events for all of its former children.
-            return watcherPolicy.isIgnored(rel);
+            return watcherPolicy.isIgnored(rel) && watcherPolicy.isIgnored(rel + '/');
           }
           if (!base.endsWith('.md')) return true;
           return watcherPolicy.isIgnored(rel);
