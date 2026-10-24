@@ -292,6 +292,32 @@ describe('repository metadata watcher lifecycle', () => {
     assert.equal(vi.getTimerCount(), 0);
   });
 
+  it('retargets distinct filesystem spellings of Unicode metadata paths', async () => {
+    const rules = await import('../src/vault/ignore.js');
+    const original = rules.createIgnorePolicy();
+    const nfc = path.join(fixture!.root, 'Caf\u00e9', 'info', 'exclude');
+    const nfd = path.join(fixture!.root, 'Cafe\u0301', 'info', 'exclude');
+    let current = { ...original, controlWatchFiles: [nfc] };
+    vi.spyOn(rules, 'createIgnorePolicy').mockImplementation(() => current);
+    const storage = await import('../src/storage/db.js');
+    const queries = await import('../src/storage/index-queries.js');
+    vi.spyOn(storage, 'getPathsToRemoveForIgnoreChange').mockReturnValue([]);
+    vi.spyOn(queries, 'getExistingNotePathSet').mockReturnValue(new Set());
+    vi.spyOn(storage, 'updateLastIndexed').mockImplementation(() => {});
+    handle = indexer.startWatcher(512);
+    await created;
+    watcher.emit('ready');
+    controlWatcher.emit('ready');
+    await handle.ready;
+    current = { ...original, controlWatchFiles: [nfd] };
+    vi.useFakeTimers();
+    controlWatcher.emit('change', nfc);
+    await vi.advanceTimersByTimeAsync(5000);
+    await indexer.withIndexingDbLock(() => {});
+    assert.deepEqual(controlWatcher.add.mock.calls, [[[nfd]]]);
+    assert.deepEqual(controlWatcher.unwatch.mock.calls, [[[nfc]]]);
+  });
+
   it('does not create a metadata watcher or refresh either Git source when disabled', async () => {
     process.env.OBSIDIAN_RESPECT_GITIGNORE = 'false';
     handle = indexer.startWatcher(512);

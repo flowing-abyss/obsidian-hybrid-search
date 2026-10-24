@@ -719,7 +719,7 @@ export function startWatcher(contextLength: number): WatcherHandle {
       let controlFiles: readonly string[] = [];
       let controlKeys = new Set<string>();
       let ancestorKeys = new Set<string>();
-      const controlKey = (file: string) => normalizeNotePath(path.resolve(file));
+      const controlKey = (file: string) => path.resolve(file);
       const updateControlTargets = (nextFiles: readonly string[]) => {
         const previousKeys = controlKeys;
         controlKeys = new Set(nextFiles.map(controlKey));
