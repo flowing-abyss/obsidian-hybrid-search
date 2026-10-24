@@ -123,8 +123,13 @@ describe('containing Git repository context', () => {
           includePatterns: [],
           respectGitignore: true,
         });
-      const before = policy();
       const context = resolveGitContext(fixture.vault)!;
+      if (pointerKind === 'gitdir') {
+        // Git treats Windows junctions as directories when resolving ../..;
+        // keep this relocated alias valid before comparing its metadata identity.
+        writeFileSync(path.join(context.gitDirPath, 'commondir'), fixture.commonDir + '\n');
+      }
+      const before = policy();
       const alias = path.join(fixture.root, 'Café metadata alias');
       const target = pointerKind === 'gitdir' ? context.gitDirPath : context.commonDirPath;
       symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir');
