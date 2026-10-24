@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, describe, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, it, vi } from 'vitest';
 
 // Mock chokidar before importing indexer
 vi.mock('chokidar', () => ({
@@ -13,11 +13,23 @@ vi.mock('chokidar', () => ({
 }));
 
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-watcher-test-'));
+const previousVault = process.env.OBSIDIAN_VAULT_PATH;
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
+let storage: typeof import('../src/storage/db.js');
+let watcher: import('../src/indexing/indexer.js').WatcherHandle | undefined;
 
 describe('watcher error resilience', () => {
+  afterEach(async () => {
+    await watcher?.close();
+    storage?.closeDb();
+    vi.restoreAllMocks();
+    vi.doUnmock('../src/storage/db.js');
+    vi.resetModules();
+  });
   afterAll(() => {
     rmSync(vaultDir, { recursive: true, force: true });
+    if (previousVault === undefined) delete process.env.OBSIDIAN_VAULT_PATH;
+    else process.env.OBSIDIAN_VAULT_PATH = previousVault;
   });
 
   it('watcher unlink swallows deleteNote errors without crashing', async () => {
@@ -36,10 +48,11 @@ describe('watcher error resilience', () => {
       };
     });
     vi.resetModules();
-
+    storage = await import('../src/storage/db.js');
+    storage.openDb();
     const { startWatcher } = await import('./helpers/owned-indexer');
 
-    startWatcher(512);
+    watcher = startWatcher(512);
     await new Promise((r) => setTimeout(r, 50));
 
     const chokidar = await import('chokidar');
@@ -67,9 +80,5 @@ describe('watcher error resilience', () => {
       warnSpy.mock.calls.some((c) => String(c[0]).includes('[watcher] unlink error')),
       'error should be logged to console.warn',
     );
-
-    warnSpy.mockRestore();
-    vi.doUnmock('../src/storage/db.js');
-    vi.resetModules();
   });
 });

@@ -1,7 +1,6 @@
 import { afterEach } from 'vitest';
 import type { IndexRunContext } from '../../src/indexing/index-owner.js';
 import * as indexer from '../../src/indexing/indexer.js';
-import { closeDb, getDb, openDb } from '../../src/storage/db.js';
 import { withTestIndexLease, withTestIndexRun } from './owned-storage.js';
 export * from '../../src/indexing/indexer.js';
 function owned<Args extends unknown[], Result>(
@@ -23,15 +22,8 @@ export function cleanupStaleNotes(
     indexer.cleanupStaleNotes({ lease, signal: new AbortController().signal }, paths, policy),
   );
 }
-let fixtureOpened = false;
 const watchers = new Set<indexer.WatcherHandle>();
 export function startWatcher(contextLength: number, suiteLifetime = false): indexer.WatcherHandle {
-  try {
-    getDb();
-  } catch {
-    openDb();
-    fixtureOpened = true;
-  }
   let handle!: indexer.WatcherHandle;
   let release!: () => void;
   const lifetime = withTestIndexRun(async (run) => {
@@ -57,8 +49,4 @@ export function startWatcher(contextLength: number, suiteLifetime = false): inde
 }
 afterEach(async () => {
   for (const watcher of watchers) await watcher.close();
-  if (fixtureOpened) {
-    closeDb();
-    fixtureOpened = false;
-  }
 });

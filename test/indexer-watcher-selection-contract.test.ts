@@ -16,6 +16,7 @@ vi.mock('chokidar', () => ({
 }));
 
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-selection-contract-'));
+const previousVault = process.env.OBSIDIAN_VAULT_PATH;
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 // Include-pattern rescue is the only override that can pull a note back out of
 // .gitignore. Keep it explicit so the matrix below is self-describing.
@@ -66,6 +67,8 @@ const toRel = (full: string): string => path.relative(vaultDir, full).split(path
 
 let ignored: (p: string) => boolean;
 let scanSet: Set<string>;
+let storage: typeof import('../src/storage/db.js');
+let watcher: import('../src/indexing/indexer.js').WatcherHandle | undefined;
 
 beforeAll(async () => {
   // .gitignore: hide archive/ and keep/ (keep/ is rescued via include pattern).
@@ -81,8 +84,10 @@ beforeAll(async () => {
   for (const rel of NON_MD) writeFileSync(abs(rel), 'x');
 
   vi.resetModules();
+  storage = await import('../src/storage/db.js');
+  storage.openDb();
   const { startWatcher, scanVault } = await import('./helpers/owned-indexer');
-  startWatcher(512);
+  watcher = startWatcher(512, true);
   await new Promise((r) => setTimeout(r, 50));
 
   const chokidar = await import('chokidar');
@@ -93,8 +98,12 @@ beforeAll(async () => {
   scanSet = new Set(scanVault().map(toRel));
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await watcher?.close();
+  storage?.closeDb();
   rmSync(vaultDir, { recursive: true, force: true });
+  if (previousVault === undefined) delete process.env.OBSIDIAN_VAULT_PATH;
+  else process.env.OBSIDIAN_VAULT_PATH = previousVault;
   if (prevInclude === undefined) delete process.env.OBSIDIAN_INCLUDE_PATTERNS;
   else process.env.OBSIDIAN_INCLUDE_PATTERNS = prevInclude;
 });

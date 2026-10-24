@@ -15,19 +15,28 @@ vi.mock('chokidar', () => ({
 }));
 
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-watcher-root-'));
+const previousVault = process.env.OBSIDIAN_VAULT_PATH;
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
+let storage: typeof import('../src/storage/db.js');
+let watcher: import('../src/indexing/indexer.js').WatcherHandle | undefined;
 
 describe('watcher ignored() contract', () => {
-  afterAll(() => {
+  afterAll(async () => {
+    await watcher?.close();
+    storage?.closeDb();
     rmSync(vaultDir, { recursive: true, force: true });
+    if (previousVault === undefined) delete process.env.OBSIDIAN_VAULT_PATH;
+    else process.env.OBSIDIAN_VAULT_PATH = previousVault;
   });
 
   it('never ignores the vault watch root (chokidar v5 consults ignored for the root)', async () => {
     writeFileSync(path.join(vaultDir, 'one.md'), '# One');
 
     vi.resetModules();
+    storage = await import('../src/storage/db.js');
+    storage.openDb();
     const { startWatcher } = await import('./helpers/owned-indexer');
-    startWatcher(512);
+    watcher = startWatcher(512, true);
     await new Promise((r) => setTimeout(r, 50));
 
     const chokidar = await import('chokidar');
