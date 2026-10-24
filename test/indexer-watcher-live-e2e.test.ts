@@ -200,13 +200,27 @@ describe('live watcher e2e (real chokidar + real indexer)', () => {
     );
   });
 
-  it('indexes and removes a newly created Unicode subtree using NFD paths', async () => {
-    const directory = 'Caf\u00e9';
-    const note = `${directory}/R\u00e9sum\u00e9.md`;
-    mkdirSync(abs(directory));
-    writeFileSync(abs(note), '# Unicode path');
+  it.each(['NFC', 'NFD'])(
+    'indexes and removes a %s Unicode subtree using NFD index keys',
+    async (form) => {
+      const directory = 'Caf\u00e9'.normalize(form);
+      const note = `${directory}/R\u00e9sum\u00e9.md`.normalize(form);
+      mkdirSync(abs(directory));
+      writeFileSync(abs(note), '# Unicode path');
+      assert.ok(await waitFor(() => indexedPaths().includes(note.normalize('NFD'))));
+      rmSync(abs(directory), { recursive: true });
+      assert.ok(await waitFor(() => !indexedPaths().includes(note.normalize('NFD'))));
+    },
+  );
+
+  it('indexes a Unicode filename when Git rules make its directory visible', async () => {
+    const note = 'archive/Caf\u00e9/R\u00e9sum\u00e9.md';
+    mkdirSync(abs('archive/Caf\u00e9'));
+    writeFileSync(abs(note), '# Newly visible Unicode file');
+    assert.ok(!indexedPaths().includes(note.normalize('NFD')));
+    writeFileSync(abs('.gitignore'), 'keep/\n');
     assert.ok(await waitFor(() => indexedPaths().includes(note.normalize('NFD'))));
-    rmSync(abs(directory), { recursive: true });
+    writeFileSync(abs('.gitignore'), 'archive/\nkeep/\n');
     assert.ok(await waitFor(() => !indexedPaths().includes(note.normalize('NFD'))));
   });
 
