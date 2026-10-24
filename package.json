@@ -76,7 +76,8 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@modelcontextprotocol/node": "^2.1.2",
+    "@modelcontextprotocol/server": "^2.4.0",
     "better-sqlite3": "^12.11.1",
     "chokidar": "^6.0.0",
     "cli-table3": "^0.6.5",
@@ -101,6 +102,8 @@
     "@colbymchenry/codegraph": "1.6.2",
     "@commitlint/cli": "21.2.4",
     "@commitlint/config-conventional": "21.2.4",
+    "@eslint/js": "10.0.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
     "@vitest/coverage-v8": "^4.1.11",
@@ -116,8 +119,7 @@
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "typescript-eslint": "8.72.0",
-    "vitest": "^4.1.11",
-    "@eslint/js": "10.0.1"
+    "vitest": "^4.1.11"
   },
   "lint-staged": {
     "*.{json,md,yml,yaml}": [

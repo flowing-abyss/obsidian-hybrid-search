@@ -1,4 +1,5 @@
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHandler } from '@modelcontextprotocol/server';
 import http, {
   type IncomingMessage,
   type Server as NodeHttpServer,
@@ -35,9 +36,16 @@ export async function runHttpMcpServer(
 ): Promise<HttpMcpServerHandle> {
   const runtime = await createMcpRuntime();
   let actualPort = options.port;
+  const reportError = (error: Error) => console.error('[mcp-http] request error:', error);
+  const handler = createMcpHandler(() => createMcpServer(runtime), {
+    legacy: 'stateless',
+    onerror: reportError,
+  });
+  const serveRequest = toNodeHandler(handler, { onerror: reportError });
 
   const nodeServer = http.createServer((req, res) => {
     void handleRequest(req, res).catch((err: unknown) => {
+      console.error('[mcp-http] request error:', err);
       writeJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
     });
   });
@@ -73,17 +81,7 @@ export async function runHttpMcpServer(
       return;
     }
 
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableDnsRebindingProtection: options.allowAnyHost !== true,
-      allowedHosts: allowedHosts(options.host, actualPort, options.allowedHosts),
-    });
-    const mcpServer = createMcpServer(runtime);
-    res.once('close', () => {
-      void Promise.allSettled([transport.close(), mcpServer.close()]);
-    });
-    await mcpServer.connect(transport);
-    await transport.handleRequest(req, res);
+    await serveRequest(req, res);
   }
 
   await listen(nodeServer, options.host, options.port);
@@ -98,15 +96,26 @@ export async function runHttpMcpServer(
   }
 
   const url = `http://${options.host}:${actualPort}/mcp`;
+  let closing: Promise<void> | undefined;
   return {
     host: options.host,
     port: actualPort,
     url,
     healthUrl: `http://${options.host}:${actualPort}/health`,
-    close: async () => {
-      await closeMcpRuntime(runtime);
-      await closeNodeServer(nodeServer);
-      closeDb();
+    close: () => {
+      closing ??= (async () => {
+        const results = await Promise.allSettled([
+          closeNodeServer(nodeServer),
+          handler.close(),
+          closeMcpRuntime(runtime),
+        ]);
+        closeDb();
+        const errors = results.flatMap((result): unknown[] =>
+          result.status === 'rejected' ? [result.reason] : [],
+        );
+        if (errors.length) throw new AggregateError(errors, 'MCP HTTP shutdown failed');
+      })();
+      return closing;
     },
   };
 }
