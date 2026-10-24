@@ -108,7 +108,7 @@ async function indexBatch(
   force: boolean,
 ): Promise<IndexBatchResult> {
   const result: IndexBatchResult = { indexed: 0, skipped: 0, errors: [] };
-  const policy = createIgnorePolicyForFiles(files.map(toVaultRelativePath));
+  const policy = createIgnorePolicyForFiles(files.map(toPhysicalRelativePath));
   const outcomes = await Promise.allSettled(
     files.map(async (file) => {
       assertIndexRun(run);
@@ -158,8 +158,12 @@ export async function withIndexingDbLock<T>(operation: () => T | Promise<T>): Pr
   return run;
 }
 
+function toPhysicalRelativePath(fullPath: string): string {
+  return path.relative(config.vaultPath, fullPath).split(path.sep).join('/');
+}
+
 function toVaultRelativePath(fullPath: string): string {
-  return normalizeNotePath(path.relative(config.vaultPath, fullPath).split(path.sep).join('/'));
+  return normalizeNotePath(toPhysicalRelativePath(fullPath));
 }
 
 function resolveMarkdownReferencesForNote(
@@ -394,7 +398,8 @@ export async function indexFile(
 ): Promise<'indexed' | 'skipped' | { error: string; cause?: unknown }> {
   let attemptedFingerprint = fileFingerprint(fullPath);
   try {
-    const preparationPolicy = policy ?? createIgnorePolicyForFiles([toVaultRelativePath(fullPath)]);
+    const preparationPolicy =
+      policy ?? createIgnorePolicyForFiles([toPhysicalRelativePath(fullPath)]);
     for (let attempt = 0; attempt < 2; attempt++) {
       attemptedFingerprint = fileFingerprint(fullPath);
       const prepared = await prepareIndexFile(
@@ -407,7 +412,25 @@ export async function indexFile(
       assertIndexRun(run);
       if (prepared.kind === 'ignored') return 'skipped';
       if (prepared.kind === 'missing') {
-        deleteNote(run.lease, prepared.path);
+        const removed = await retryIndexWrite(run, () =>
+          withIndexMutation(run.lease, () => {
+            try {
+              statSync(fullPath);
+              return false;
+            } catch (error) {
+              if (
+                !error ||
+                typeof error !== 'object' ||
+                !('code' in error) ||
+                error.code !== 'ENOENT'
+              )
+                throw error;
+            }
+            deleteNote(run.lease, prepared.path);
+            return true;
+          }),
+        );
+        if (!removed) continue;
         bumpIndexVersion();
         throw new Error(`ENOENT: note no longer exists, ${prepared.path}`);
       }
@@ -434,7 +457,11 @@ export async function indexFile(
             current.size !== prepared.fingerprint.size
           )
             return 'changed' as const;
-          if (createIgnorePolicyForFiles([prepared.note.path]).isIgnored(prepared.note.path)) {
+          if (
+            createIgnorePolicyForFiles([toPhysicalRelativePath(fullPath)]).isIgnored(
+              prepared.note.path,
+            )
+          ) {
             deleteNote(run.lease, prepared.note.path, true);
             return 'skipped' as const;
           }

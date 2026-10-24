@@ -174,6 +174,77 @@ describe('fresh scoped ignore policy', () => {
     );
   });
 
+  it('reads nested physical NFC ancestors directly while preserving normalized-only lookup', () => {
+    const physical = 'Caf\u00e9/R\u00e9sum\u00e9';
+    const normalized = physical.normalize('NFD');
+    write('.gitignore', '*.tmp\n');
+    write('Caf\u00e9/.gitignore', '*.md\n');
+    write(`${physical}/.gitignore`, '!kept.md\n');
+    write(`${physical}/blocked.md`, 'ignored');
+    write(`${physical}/kept.md`, 'kept');
+    const full = createIgnorePolicy();
+    vi.mocked(readdirSync).mockClear();
+
+    const physicalPolicy = createIgnorePolicyForFiles([
+      `${physical}/blocked.md`,
+      `${physical}/kept.md`,
+    ]);
+    assert.equal(physicalPolicy.isIgnored(`${normalized}/blocked.md`), true);
+    assert.equal(physicalPolicy.isIgnored(`${normalized}/kept.md`), false);
+    assert.equal(vi.mocked(readdirSync).mock.calls.length, 0);
+
+    const normalizedPolicy = createIgnorePolicyForFiles([
+      `${normalized}/blocked.md`,
+      `${normalized}/kept.md`,
+    ]);
+    for (const file of ['blocked.md', 'kept.md']) {
+      assert.equal(
+        normalizedPolicy.isIgnored(`${normalized}/${file}`),
+        full.isIgnored(`${physical}/${file}`),
+      );
+    }
+    const visited = vi.mocked(readdirSync).mock.calls.map(([dir]) => String(dir));
+    assert.ok(visited.length <= 2);
+    assert.ok(visited.every((dir) => [vaultDir, path.join(vaultDir, 'Caf\u00e9')].includes(dir)));
+  });
+
+  it('does not enumerate a wide vault for repeated fresh root-file checks', () => {
+    for (let i = 0; i < 5000; i++) write(`note-${i}.md`, '');
+    write('.gitignore', 'note-0.md\n');
+    vi.mocked(readdirSync).mockClear();
+    for (let i = 0; i < 200; i++) {
+      assert.equal(createIgnorePolicyForFiles([`note-${i}.md`]).isIgnored(`note-${i}.md`), i === 0);
+    }
+    assert.equal(vi.mocked(readdirSync).mock.calls.length, 0);
+    write('.gitignore', 'note-1.md\n');
+    assert.equal(createIgnorePolicyForFiles(['note-1.md']).isIgnored('note-1.md'), true);
+    assert.equal(createIgnorePolicyForFiles(['note-0.md']).isIgnored('note-0.md'), false);
+  });
+
+  it('indexes a physical Unicode path with fresh ancestor rules and an NFD database identity', async () => {
+    const { indexFile } = await import('../src/indexing/indexer.js');
+    const db = await import('./helpers/owned-storage.js');
+    const physical = 'Caf\u00e9/R\u00e9sum\u00e9/note.md';
+    write('Caf\u00e9/.gitignore', '*.md\n');
+    write('Caf\u00e9/R\u00e9sum\u00e9/.gitignore', '!note.md\n');
+    write(physical, '---\ntitle: Kept by its physical ancestor\n---\n');
+    db.openDb();
+    db.initVecTable(4);
+    vi.mocked(readdirSync).mockClear();
+    try {
+      await db.withTestIndexRun(async (run) => {
+        assert.equal(await indexFile(run, path.join(vaultDir, physical), 512, true), 'indexed');
+        assert.equal(
+          db.getNoteByPath(physical.normalize('NFD'))?.title,
+          'Kept by its physical ancestor',
+        );
+      });
+      assert.equal(vi.mocked(readdirSync).mock.calls.length, 0);
+    } finally {
+      db.closeDb();
+    }
+  });
+
   it('rereads created, edited, and deleted Git rules without a watcher event', () => {
     write('a/note.md', 'body');
     assert.equal(createIgnorePolicyForFiles(['a/note.md']).isIgnored('a/note.md'), false);
@@ -200,7 +271,7 @@ describe('fresh scoped ignore policy', () => {
     assert.equal(scoped.isIgnored('a/b/note.md'), true);
     const visited = vi.mocked(readdirSync).mock.calls.map(([dir]) => String(dir));
     const readRules = vi.mocked(readFileSync).mock.calls.map(([file]) => String(file));
-    assert.deepEqual(visited, [vaultDir, path.join(vaultDir, 'a'), path.join(vaultDir, 'a/b')]);
+    assert.deepEqual(visited, []);
     assert.deepEqual(readRules, [
       path.join(vaultDir, '.gitignore'),
       path.join(vaultDir, 'a/.gitignore'),
