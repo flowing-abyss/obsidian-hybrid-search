@@ -49,7 +49,7 @@ it('stages an incompatible rebuild without changing the active index, then publi
     embeddingDim: 5,
     metadata: { vaultPath: vault, apiBaseUrl: '', apiModel: '' },
   });
-  stage.stageRebuildNote(lease, rebuild, note('new.md', 5), '', { mtimeMs: 1, size: 6 });
+  stage.stageRebuildNote(lease, rebuild, note('new.md', 5), '', { mtimeMs: 1, size: 6 }, 'none');
   stage.setRebuildReferences(lease, rebuild, 'new.md', references);
   assert.equal(db.getStoredModel(), 'old');
   assert.ok(db.getNoteByPath('old.md'));
@@ -77,7 +77,7 @@ it('rolls back a publication failure and preserves staging for safe cleanup', ()
     embeddingDim: 3,
     metadata: { vaultPath: vault, apiBaseUrl: '', apiModel: '' },
   });
-  stage.stageRebuildNote(lease, rebuild, note('new.md'), '', { mtimeMs: 1, size: 6 });
+  stage.stageRebuildNote(lease, rebuild, note('new.md'), '', { mtimeMs: 1, size: 6 }, 'none');
   stage.setRebuildReferences(lease, rebuild, 'new.md', references);
   db.getDb().exec(
     "CREATE TRIGGER fail_new BEFORE INSERT ON notes BEGIN SELECT RAISE(ABORT, 'publication failed'); END",
@@ -98,7 +98,7 @@ it('rejects missing embeddings and publication by a stale owner', () => {
   const failed = note('bad.md');
   failed.chunks[0]!.embedding = null;
   assert.throws(
-    () => stage.stageRebuildNote(lease, rebuild, failed, '', { mtimeMs: 1, size: 6 }),
+    () => stage.stageRebuildNote(lease, rebuild, failed, '', { mtimeMs: 1, size: 6 }, 'none'),
     /embedding/i,
   );
   db.releaseIndexLease(lease);
@@ -123,7 +123,7 @@ it('preserves discontiguous source spans through staging and atomic publication'
     embeddingDim: 3,
     metadata: { vaultPath: vault, apiBaseUrl: '', apiModel: '' },
   });
-  stage.stageRebuildNote(lease, rebuild, projected, '', { mtimeMs: 1, size: 13 });
+  stage.stageRebuildNote(lease, rebuild, projected, '', { mtimeMs: 1, size: 13 }, 'none');
   stage.setRebuildReferences(lease, rebuild, projected.path, references);
   stage.publishRebuild(lease, rebuild);
   assert.deepEqual(
@@ -161,7 +161,7 @@ it('publishes legitimate separator-only spans but rejects malformed staged spans
     embeddingDim: 3,
     metadata: { vaultPath: vault, apiBaseUrl: '', apiModel: '' },
   });
-  stage.stageRebuildNote(lease, rebuild, projected, '', { mtimeMs: 1, size: 12 });
+  stage.stageRebuildNote(lease, rebuild, projected, '', { mtimeMs: 1, size: 12 }, 'none');
   stage.setRebuildReferences(lease, rebuild, projected.path, references);
   for (const spans of [
     [],
@@ -177,7 +177,7 @@ it('publishes legitimate separator-only spans but rejects malformed staged spans
     const invalid = note('invalid.md');
     invalid.chunks[0]!.sourceSpans = spans;
     assert.throws(
-      () => stage.stageRebuildNote(lease, rebuild, invalid, '', { mtimeMs: 1, size: 6 }),
+      () => stage.stageRebuildNote(lease, rebuild, invalid, '', { mtimeMs: 1, size: 6 }, 'none'),
       /source spans/i,
     );
   }
@@ -207,7 +207,14 @@ it('publishes the policy with its snapshot and fences incompatible ordinary writ
     contentPolicySignature: 'filtered-policy',
     metadata: { vaultPath: vault, apiBaseUrl: '', apiModel: '' },
   });
-  stage.stageRebuildNote(lease, rebuild, note('new.md'), '', { mtimeMs: 1, size: 6 });
+  stage.stageRebuildNote(
+    lease,
+    rebuild,
+    note('new.md'),
+    '',
+    { mtimeMs: 1, size: 6 },
+    'filtered-policy',
+  );
   stage.setRebuildReferences(lease, rebuild, 'new.md', references);
   stage.publishRebuild(lease, rebuild);
   assert.equal(db.getActiveContentPolicySignature(), 'filtered-policy');

@@ -456,3 +456,51 @@ it('releases an owner after its idle worker dies and lets a healthy follower fin
     for (const [key, value] of previous) vi.stubEnv(key, value);
   }
 });
+
+it.each(['vault', 'path', 'force', 'files'] as const)(
+  'resumes background indexing after %s recovery of a failed automatic policy change',
+  async (mode) => {
+    write('note.md');
+    await service().reindex();
+    const filtered = service(rule);
+    embeddings.mockImplementation((texts) =>
+      Promise.resolve(
+        texts.map(() => ({
+          ok: false as const,
+          kind: 'permanent' as const,
+          message: 'temporary provider outage',
+        })),
+      ),
+    );
+    filtered.start();
+    await vi.waitFor(() => assert.equal(db.getStats().failedIndexing, 1), { timeout: 3000 });
+    const calls = embeddings.mock.calls.length;
+    filtered.start();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(embeddings.mock.calls.length, calls);
+    assert.equal(watchers.length, 0);
+    assert.equal(body(), source);
+    embeddings.mockImplementation((texts) =>
+      Promise.resolve(
+        texts.map(() => ({
+          ok: true as const,
+          embedding: new Float32Array([1, 0, 0, 0]),
+        })),
+      ),
+    );
+    if (mode === 'files') await filtered.reindexFiles(['note.md']);
+    else
+      await filtered.reindex(
+        mode === 'path' ? { path: 'note.md' } : mode === 'force' ? { force: true } : {},
+      );
+    assert.ok(!body()?.includes('hiddenneedle'));
+    await vi.waitFor(() => assert.equal(watchers.length, 1), { timeout: 3000 });
+    assert.equal(db.getStats().failedIndexing, 0);
+    write('later.md', 'Later public source %%hiddenneedle%% remains searchable.');
+    watchers[0]!.emit('change', path.join(vault, 'later.md'));
+    await vi.waitFor(
+      () => assert.equal(body('later.md'), 'Later public source   remains searchable.'),
+      { timeout: 3000 },
+    );
+  },
+);

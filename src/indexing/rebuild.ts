@@ -98,6 +98,7 @@ export async function rebuildIndex(
                 prepared.note,
                 prepared.frontmatterRaw,
                 prepared.fingerprint,
+                prepared.contentPolicySignature,
               );
             else if (prepared.kind === 'missing') removeRebuildNote(run.lease, id, prepared.path);
           }),

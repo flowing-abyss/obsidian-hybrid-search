@@ -284,6 +284,7 @@ export type PreparedFile =
       note: PreparedIndexNote;
       frontmatterRaw: string;
       modelName: string;
+      contentPolicySignature: string;
       fingerprint: { mtimeMs: number; size: number };
     }
   | { kind: 'unchanged'; path: string; mtime: number; updateMtime: boolean }
@@ -300,6 +301,7 @@ export async function prepareIndexFile(
   assertIndexRun(run);
   const relPath = toVaultRelativePath(fullPath);
   const modelName = activeModelName();
+  const contentPolicySignature = contentPolicyForRun(run);
   if (policy.isIgnored(relPath)) return { kind: 'ignored' };
   let stat: Stats;
   let raw: string;
@@ -394,6 +396,7 @@ export async function prepareIndexFile(
     kind: 'prepared',
     frontmatterRaw,
     modelName,
+    contentPolicySignature,
     fingerprint: { mtimeMs: stat.mtimeMs, size: stat.size },
     note: {
       path: relPath,
@@ -552,7 +555,10 @@ export async function indexFile(
           commitIndexedNote(
             run.lease,
             prepared.note,
-            { modelName: prepared.modelName, contentPolicySignature: contentPolicyForRun(run) },
+            {
+              modelName: prepared.modelName,
+              contentPolicySignature: prepared.contentPolicySignature,
+            },
             resolvePreparedReferences(prepared.note, prepared.frontmatterRaw),
           );
           return 'indexed' as const;

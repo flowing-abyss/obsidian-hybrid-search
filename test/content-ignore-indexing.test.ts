@@ -49,7 +49,8 @@ vi.stubEnv('OPENAI_API_KEY', 'fixture');
 vi.stubEnv('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small');
 
 const storage = await import('./helpers/owned-storage.js');
-const { indexFile } = await import('../src/indexing/indexer.js');
+const { indexFile, prepareIndexFile } = await import('../src/indexing/indexer.js');
+const stage = await import('../src/storage/index-rebuild.js');
 const { getEmbeddingDim, clearOllamaSemaphore } = await import('../src/inference/embedder.js');
 const { reranker } = await import('../src/inference/reranker.js');
 const capturedCandidates: string[] = [];
@@ -247,4 +248,99 @@ it('removes a large generated drawing payload before chunking and keeps no-match
     'Visible unchanged 😀\r\nSecond paragraph.',
   );
   assert.ok(chunks('no-match.md').every((row) => row.source_spans === null));
+});
+
+it('rejects a prepared note with a different policy before replacing staged content', async () => {
+  const filename = path.join(vault, 'proof.md');
+  writeFileSync(filename, 'Visible %%hiddenneedle%% body.');
+  const filter = createContentFilter(parseContentIgnorePatterns(rule));
+  try {
+    await storage.withTestIndexRun(async (owner) => {
+      const identity = await prepareIndexFile(
+        owner,
+        filename,
+        8192,
+        { isIgnored: () => false },
+        true,
+      );
+      const filtered = await prepareIndexFile(
+        { ...owner, contentFilter: filter },
+        filename,
+        8192,
+        { isIgnored: () => false },
+        true,
+      );
+      assert.equal(identity.kind, 'prepared');
+      assert.equal(filtered.kind, 'prepared');
+      if (identity.kind !== 'prepared' || filtered.kind !== 'prepared')
+        throw new Error('Missing prepared fixture');
+      const id = stage.beginRebuild(owner.lease, {
+        modelName: filtered.modelName,
+        embeddingDim: 4,
+        contentPolicySignature: filter.signature,
+        metadata: {
+          vaultPath: vault,
+          apiBaseUrl: `http://127.0.0.1:${address.port}/v1`,
+          apiModel: 'text-embedding-3-small',
+        },
+      });
+      stage.stageRebuildNote(
+        owner.lease,
+        id,
+        filtered.note,
+        filtered.frontmatterRaw,
+        filtered.fingerprint,
+        filtered.contentPolicySignature,
+      );
+      const staged = JSON.stringify(stage.readRebuildNotes(id));
+      const chunksBefore = storage
+        .getDb()
+        .prepare('SELECT * FROM index_rebuild_chunks ORDER BY ordinal')
+        .all();
+      for (const proof of [
+        identity.contentPolicySignature,
+        'different-policy',
+        undefined as unknown as string,
+      ]) {
+        assert.throws(
+          () =>
+            stage.stageRebuildNote(
+              owner.lease,
+              id,
+              identity.note,
+              identity.frontmatterRaw,
+              identity.fingerprint,
+              proof,
+            ),
+          /content policy/i,
+        );
+        assert.equal(JSON.stringify(stage.readRebuildNotes(id)), staged);
+        assert.deepEqual(
+          storage.getDb().prepare('SELECT * FROM index_rebuild_chunks ORDER BY ordinal').all(),
+          chunksBefore,
+        );
+      }
+      assert.equal(identity.contentPolicySignature, 'none');
+      assert.equal(filtered.contentPolicySignature, filter.signature);
+      assert.equal(storage.getActiveContentPolicySignature(), 'none');
+      stage.setRebuildReferences(owner.lease, id, filtered.note.path, {
+        links: [],
+        markdownLinks: [],
+        urls: [],
+      });
+      stage.publishRebuild(owner.lease, id);
+      assert.equal(storage.getActiveContentPolicySignature(), filter.signature);
+      assert.ok(!storage.getNoteByPath('proof.md')!.content.includes('hiddenneedle'));
+      assert.equal(
+        storage
+          .getDb()
+          .prepare("SELECT count(*) FROM notes_fts_bm25 WHERE notes_fts_bm25 MATCH 'hiddenneedle'")
+          .pluck()
+          .get(),
+        0,
+      );
+    });
+  } finally {
+    await filter.close();
+  }
 });

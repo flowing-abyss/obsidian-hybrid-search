@@ -286,6 +286,13 @@ export function createIndexService(): IndexService {
     },
     onError: report,
   });
+  async function runExplicitIndex(
+    work: (run: IndexRunContext) => Promise<IndexResult>,
+  ): Promise<IndexResult> {
+    const result = await coordinator.foreground((owner) => withContentRun(owner, work));
+    if (started && !closed && result.errors.length === 0) coordinator.start();
+    return result;
+  }
   return {
     start() {
       if (closed) throw new Error('Indexing service is closed');
@@ -314,57 +321,53 @@ export function createIndexService(): IndexService {
       }
     },
     reindexFiles(paths, onProgress) {
-      return coordinator.foreground((owner) =>
-        withContentRun(owner, async (run) => {
-          const contextLength = await prepareContentOwner(run, true);
-          const result: IndexResult = { indexed: 0, skipped: 0, errors: [] };
-          reportIndexProgress(run, paths.length, 0);
-          for (const [index, notePath] of paths.entries()) {
-            const status = await indexFileWithRecovery(
-              run,
-              path.join(config.vaultPath, notePath),
-              contextLength,
-              true,
-            );
-            if (status === 'indexed') result.indexed++;
-            else if (status === 'skipped') result.skipped++;
-            else {
-              result.errors.push({ path: notePath, error: status.error });
-              if (status.cause instanceof ContentFilterError) await run.contentFilter?.close();
-            }
-            reportIndexProgress(run, paths.length, index + 1);
-            onProgress?.(index + 1, paths.length);
-          }
-          return result;
-        }),
-      );
-    },
-    reindex(options = {}) {
-      return coordinator.foreground((owner) =>
-        withContentRun(owner, async (run) => {
-          if (options.force && !options.path) {
-            try {
-              return await rebuildIndex(run, await getContextLength());
-            } catch (error) {
-              reportRunFailure(run, 'rebuild', error);
-              throw error;
-            }
-          }
-          const contextLength = await prepareContentOwner(run, true);
-          if (!options.path)
-            return indexVaultSync(run, false, 'Indexing vault...', { requireClean: true });
-          reportIndexProgress(run, 1, 0);
+      return runExplicitIndex(async (run) => {
+        const contextLength = await prepareContentOwner(run, true);
+        const result: IndexResult = { indexed: 0, skipped: 0, errors: [] };
+        reportIndexProgress(run, paths.length, 0);
+        for (const [index, notePath] of paths.entries()) {
           const status = await indexFileWithRecovery(
             run,
-            path.join(config.vaultPath, options.path),
+            path.join(config.vaultPath, notePath),
             contextLength,
-            options.force,
+            true,
           );
-          if (status === 'indexed') return { indexed: 1, skipped: 0, errors: [] };
-          if (status === 'skipped') return { indexed: 0, skipped: 1, errors: [] };
-          return { indexed: 0, skipped: 0, errors: [{ path: options.path, error: status.error }] };
-        }),
-      );
+          if (status === 'indexed') result.indexed++;
+          else if (status === 'skipped') result.skipped++;
+          else {
+            result.errors.push({ path: notePath, error: status.error });
+            if (status.cause instanceof ContentFilterError) await run.contentFilter?.close();
+          }
+          reportIndexProgress(run, paths.length, index + 1);
+          onProgress?.(index + 1, paths.length);
+        }
+        return result;
+      });
+    },
+    reindex(options = {}) {
+      return runExplicitIndex(async (run) => {
+        if (options.force && !options.path) {
+          try {
+            return await rebuildIndex(run, await getContextLength());
+          } catch (error) {
+            reportRunFailure(run, 'rebuild', error);
+            throw error;
+          }
+        }
+        const contextLength = await prepareContentOwner(run, true);
+        if (!options.path)
+          return indexVaultSync(run, false, 'Indexing vault...', { requireClean: true });
+        reportIndexProgress(run, 1, 0);
+        const status = await indexFileWithRecovery(
+          run,
+          path.join(config.vaultPath, options.path),
+          contextLength,
+          options.force,
+        );
+        if (status === 'indexed') return { indexed: 1, skipped: 0, errors: [] };
+        if (status === 'skipped') return { indexed: 0, skipped: 1, errors: [] };
+        return { indexed: 0, skipped: 0, errors: [{ path: options.path, error: status.error }] };
+      });
     },
   };
 }
