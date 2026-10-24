@@ -902,6 +902,63 @@ describe('issue #55 – index entry points and saved-version migration', () => {
     });
   }
 
+  it('sweeps version-3 exclude duplicates without reembedding survivors or editing Markdown', async () => {
+    assert.equal(runGit(vaultDir, ['init', '--quiet']).status, 0);
+    process.env.OBSIDIAN_INCLUDE_PATTERNS = 'rescued/**';
+    write('.git/info/exclude', 'duplicate/\nrescued/\n');
+    const kept = ['retained.md', 'rescued/keep.md'];
+    const removed = 'duplicate/copy.md';
+    for (const rel of [...kept, removed]) {
+      const raw = '# Saved\n\nBody of ' + rel;
+      write(rel, raw);
+      upsertNote({
+        path: rel,
+        title: rel,
+        tags: [],
+        content: raw,
+        hash: createHash('md5').update(raw).digest('hex'),
+        mtime: statSync(path.join(vaultDir, rel)).mtimeMs,
+        chunks: [{ text: raw, embedding: EMBEDDING }],
+      });
+    }
+    upsertLinks(removed, ['retained.md']);
+    upsertMarkdownLinks(removed, ['retained.md']);
+    const snapshot = () =>
+      kept.map((rel) => ({
+        note: getDb().prepare('SELECT * FROM notes WHERE path = ?').get(rel),
+        chunks: getDb()
+          .prepare(
+            'SELECT c.id, c.note_id, c.text, hex(v.embedding) AS vector FROM chunks c ' +
+              'JOIN notes n ON n.id = c.note_id JOIN vec_chunks v ON v.chunk_id = c.id ' +
+              'WHERE n.path = ? ORDER BY c.id',
+          )
+          .all(rel),
+      }));
+    const before = snapshot();
+    const source = readFileSync(path.join(vaultDir, removed), 'utf8');
+    const oldSignature = JSON.parse(createIgnorePolicy().signature()) as Record<string, unknown>;
+    oldSignature.matcherVersion = 3;
+    getPathsToRemoveForIgnoreChange([], JSON.stringify(oldSignature), () => false);
+    vi.mocked(embedder.embedDetailed).mockClear();
+    cleanupStaleNotes();
+    assert.equal(getDb().prepare('SELECT id FROM notes WHERE path = ?').get(removed), undefined);
+    assert.deepEqual(snapshot(), before);
+    assert.equal(readFileSync(path.join(vaultDir, removed), 'utf8'), source);
+    assert.equal((getDb().prepare('SELECT count(*) AS n FROM chunks').get() as { n: number }).n, 2);
+    assert.equal(
+      (getDb().prepare('SELECT count(*) AS n FROM vec_chunks').get() as { n: number }).n,
+      2,
+    );
+    assert.ok(getDb().prepare('SELECT 1 FROM links WHERE from_path = ?').get(removed));
+    assert.ok(getDb().prepare('SELECT 1 FROM markdown_links WHERE from_path = ?').get(removed));
+    const result = await indexVaultSync();
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.indexed, 0);
+    cleanupStaleNotes();
+    assert.deepEqual(snapshot(), before);
+    assert.equal(vi.mocked(embedder.embedDetailed).mock.calls.length, 0);
+  });
+
   it('sweeps version-2 selections while preserving saved survivor vectors and ignored-note links', async () => {
     process.env.OBSIDIAN_INCLUDE_PATTERNS = 'UP55/wide/n*es/*.md';
     write('UP55/.gitignore', 'cache\n');
@@ -988,7 +1045,7 @@ describe('issue #55 – index entry points and saved-version migration', () => {
     const signature = getDb()
       .prepare("SELECT value FROM settings WHERE key = 'ignore_state_signature'")
       .get() as { value: string };
-    assert.equal((JSON.parse(signature.value) as { matcherVersion: number }).matcherVersion, 3);
+    assert.equal((JSON.parse(signature.value) as { matcherVersion: number }).matcherVersion, 4);
 
     const result = await indexVaultSync();
     assert.deepEqual(result.errors, []);

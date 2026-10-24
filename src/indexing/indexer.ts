@@ -1,3 +1,4 @@
+import type { FSWatcher } from 'chokidar';
 import { createHash } from 'node:crypto';
 import { readdirSync, statSync, type Stats } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -171,7 +172,7 @@ function resolveMarkdownReferencesForNote(
   return { links, urls: references.urls };
 }
 
-function* walkDir(dir: string, policy: IgnorePolicy): Generator<string> {
+function* walkDir(dir: string, policy: Pick<IgnorePolicy, 'isIgnored'>): Generator<string> {
   let entries: { name: string; isDirectory(): boolean; isFile(): boolean }[];
   try {
     entries = readdirSync(dir, {
@@ -194,9 +195,10 @@ function* walkDir(dir: string, policy: IgnorePolicy): Generator<string> {
   }
 }
 
-export function scanVault(): string[] {
+export function scanVault(
+  policy: Pick<IgnorePolicy, 'isIgnored'> = createIgnorePolicy(),
+): string[] {
   const files: string[] = [];
-  const policy = createIgnorePolicy();
   for (const fullPath of walkDir(config.vaultPath, policy)) {
     const rel = toVaultRelativePath(fullPath);
     if (!policy.isIgnored(rel)) {
@@ -361,12 +363,11 @@ async function resolveAllMarkdownReferences(): Promise<void> {
  * - notes whose files were deleted from disk
  * Called on server startup and during full reindex.
  */
-export function cleanupStaleNotes(fsPaths?: Set<string>): void {
+export function cleanupStaleNotes(fsPaths?: Set<string>, policy = createIgnorePolicy()): void {
   let deleted = 0;
 
   // Newly ignored notes: file still exists on disk, keep their link entries
   // so backlinks from ignored notes remain visible in search results
-  const policy = createIgnorePolicy();
   const pathsToRemove = getPathsToRemoveForIgnoreChange(
     config.ignorePatterns,
     policy.signature(),
@@ -418,11 +419,12 @@ export async function indexVaultSync(
   header = 'Indexing vault...',
   options: { requireClean?: boolean; recoverDatabase?: () => void } = {},
 ): Promise<IndexResult> {
-  const files = scanVault();
+  const policy = createIgnorePolicy();
+  const files = scanVault(policy);
   const fsPaths = new Set(files.map(toVaultRelativePath));
   await runWithDatabaseRecovery(
     'stale-note cleanup',
-    () => cleanupStaleNotes(fsPaths),
+    () => cleanupStaleNotes(fsPaths, policy),
     options.recoverDatabase,
   );
 
@@ -626,12 +628,13 @@ async function processQueue(contextLength: number): Promise<void> {
 }
 
 export async function startBackgroundIndexing(contextLength: number): Promise<void> {
-  const files = scanVault();
+  const policy = createIgnorePolicy();
+  const files = scanVault(policy);
   const fsPaths = new Set(files.map(toVaultRelativePath));
   await withIndexingDbLock(() => {
     return runWithDatabaseRecovery(
       'background stale-note cleanup',
-      () => cleanupStaleNotes(fsPaths),
+      () => cleanupStaleNotes(fsPaths, policy),
       recoverDatabaseSidecarsForIndexing,
     );
   });
@@ -655,51 +658,111 @@ export interface WatcherHandle {
 export function startWatcher(contextLength: number): WatcherHandle {
   const fileDelays = new Map<string, ReturnType<typeof setTimeout>>();
   const pendingUnlinks = new Set<string>();
+  const watchers: FSWatcher[] = [];
+  const pendingReady = new Set<FSWatcher>();
+  let policyTimer: ReturnType<typeof setTimeout> | undefined;
+  let policyRefreshPending = false;
   let closed = false;
   let settleReady!: () => void;
   const ready = new Promise<void>((resolve) => {
     settleReady = resolve;
   });
-  let closeWatcher: (() => Promise<void>) | undefined;
   let closing: Promise<void> | undefined;
   let lastErrorLog = -Infinity;
+  const ownWatcher = (watcher: FSWatcher) => {
+    watchers.push(watcher);
+    pendingReady.add(watcher);
+    watcher.on('ready', () => {
+      pendingReady.delete(watcher);
+      if (pendingReady.size === 0) settleReady();
+    });
+    watcher.on('error', (err: unknown) => {
+      const now = Date.now();
+      if (!closed && now - lastErrorLog >= 30_000) {
+        lastErrorLog = now;
+        console.warn('[watcher] filesystem watch error; index updates may be incomplete:', err);
+      }
+      settleReady();
+    });
+    return watcher;
+  };
   const initialization = import('chokidar')
     .then(({ watch }) => {
       if (closed) return;
       let watcherPolicy = createIgnorePolicy();
-      const watcher = watch(config.vaultPath, {
-        backend: 'auto',
-        ignored: (filePath: string, stats?: Stats) => {
-          const base = path.basename(filePath);
-          if (base === '.gitignore') return false;
-          const rel = toVaultRelativePath(filePath);
-          if (rel === '') return false;
-          try {
-            if ((stats ?? statSync(filePath)).isDirectory()) {
-              return watcherPolicy.isIgnored(rel + '/');
+      const watcher = ownWatcher(
+        watch(config.vaultPath, {
+          backend: 'auto',
+          ignored: (filePath: string, stats?: Stats) => {
+            const base = path.basename(filePath);
+            if (base === '.gitignore') return !config.respectGitignore;
+            const rel = toVaultRelativePath(filePath);
+            if (rel === '') return false;
+            try {
+              if ((stats ?? statSync(filePath)).isDirectory()) {
+                return watcherPolicy.isIgnored(rel + '/');
+              }
+            } catch {
+              // A vanished path can be a directory. Chokidar checks ancestors
+              // when reconciling deletions, so applying the file extension filter
+              // here would hide unlink events for all of its former children.
+              return watcherPolicy.isIgnored(rel) && watcherPolicy.isIgnored(rel + '/');
             }
-          } catch {
-            // A vanished path can be a directory. Chokidar checks ancestors
-            // when reconciling deletions, so applying the file extension filter
-            // here would hide unlink events for all of its former children.
-            return watcherPolicy.isIgnored(rel) && watcherPolicy.isIgnored(rel + '/');
+            if (!base.endsWith('.md')) return true;
+            return watcherPolicy.isIgnored(rel);
+          },
+          persistent: true,
+          ignoreInitial: true,
+        }),
+      );
+      let controlWatcher: FSWatcher | undefined;
+      let controlFiles: readonly string[] = [];
+      let controlKeys = new Set<string>();
+      let ancestorKeys = new Set<string>();
+      const controlKey = (file: string) => path.resolve(file);
+      const updateControlTargets = (policyFiles: readonly string[]) => {
+        // A deleted gitfile removes the context. Keep only that known locator
+        // so recreating it restores the repository without discovering new roots.
+        const nextFiles =
+          policyFiles.length > 0
+            ? policyFiles
+            : controlFiles.filter((file) => path.basename(file) === '.git');
+        const previousKeys = controlKeys;
+        controlKeys = new Set(nextFiles.map(controlKey));
+        ancestorKeys = new Set();
+        for (const file of nextFiles) {
+          for (let parent = path.dirname(file); ; parent = path.dirname(parent)) {
+            ancestorKeys.add(controlKey(parent));
+            if (parent === path.dirname(parent)) break;
           }
-          if (!base.endsWith('.md')) return true;
-          return watcherPolicy.isIgnored(rel);
-        },
-        persistent: true,
-        ignoreInitial: true,
-      });
-      closeWatcher = () => watcher.close();
-      watcher.on('ready', settleReady);
-      watcher.on('error', (err: unknown) => {
-        const now = Date.now();
-        if (!closed && now - lastErrorLog >= 30_000) {
-          lastErrorLog = now;
-          console.warn('[watcher] filesystem watch error; index updates may be incomplete:', err);
         }
-        settleReady();
-      });
+        if (controlWatcher) {
+          const added = nextFiles.filter((file) => !previousKeys.has(controlKey(file)));
+          const removed = controlFiles.filter((file) => !controlKeys.has(controlKey(file)));
+          if (added.length > 0) controlWatcher.add(added);
+          if (removed.length > 0) controlWatcher.unwatch(removed);
+        } else if (nextFiles.length > 0) {
+          controlWatcher = ownWatcher(
+            watch([...nextFiles], {
+              // Native missing-file watches can miss the first creation on macOS.
+              // Poll only these metadata files; the vault tree keeps its native backend.
+              backend: 'polling',
+              pollingInterval: 1000,
+              persistent: true,
+              ignoreInitial: true,
+              ignored: (file: string) =>
+                !controlKeys.has(controlKey(file)) && !ancestorKeys.has(controlKey(file)),
+            }),
+          );
+          const changed = (file: string) => {
+            if (controlKeys.has(controlKey(file))) schedulePolicyRefresh();
+          };
+          controlWatcher.on('add', changed);
+          controlWatcher.on('change', changed);
+          controlWatcher.on('unlink', changed);
+        }
+        controlFiles = nextFiles;
+      };
 
       const handleFileChange = (filePath: string) => {
         const existing = fileDelays.get(filePath);
@@ -720,42 +783,53 @@ export function startWatcher(contextLength: number): WatcherHandle {
         fileDelays.set(filePath, timer);
       };
 
-      const handleGitignoreChange = () => {
-        void withIndexingDbLock(async () => {
-          if (closed) return;
-          try {
-            watcherPolicy = createIgnorePolicy();
-            const files = scanVault();
-            const fsPaths = new Set(files.map(toVaultRelativePath));
-            await runWithDatabaseRecovery(
-              'watcher gitignore cleanup',
-              () => cleanupStaleNotes(fsPaths),
-              recoverDatabaseSidecarsForIndexing,
-            );
-            if (closed) return;
-            for (const file of files) {
-              const normalizedPath = path.normalize(file);
-              if (!_indexQueue.includes(normalizedPath)) {
-                _indexQueue.push(normalizedPath);
-                _totalExpected++;
-              }
-            }
-            watcher.add(config.vaultPath);
-            void processQueue(contextLength).catch((err) => {
-              console.warn('[watcher] queue processing error:', err);
-            });
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.warn(`[watcher] gitignore change error: ${msg}`);
+      const refreshPolicy = async () => {
+        const nextPolicy = createIgnorePolicy();
+        const files = scanVault(nextPolicy);
+        const fsPaths = new Set(files.map(toVaultRelativePath));
+        await runWithDatabaseRecovery(
+          'watcher ignore policy cleanup',
+          () => cleanupStaleNotes(fsPaths, nextPolicy),
+          recoverDatabaseSidecarsForIndexing,
+        );
+        if (closed) return;
+        watcherPolicy = nextPolicy;
+        updateControlTargets(nextPolicy.controlWatchFiles);
+        watcher.add(config.vaultPath);
+        for (const file of files) {
+          const physicalPath = path.normalize(file);
+          if (!_indexQueue.includes(physicalPath)) {
+            _indexQueue.push(physicalPath);
+            _totalExpected++;
           }
+        }
+        void processQueue(contextLength).catch((err) => {
+          console.warn('[watcher] queue processing error:', err);
         });
       };
+      const schedulePolicyRefresh = () => {
+        if (closed || policyRefreshPending || !config.respectGitignore) return;
+        if (policyTimer) clearTimeout(policyTimer);
+        policyTimer = setTimeout(() => {
+          policyTimer = undefined;
+          if (closed) return;
+          policyRefreshPending = true;
+          void withIndexingDbLock(async () => {
+            policyRefreshPending = false;
+            if (closed) return;
+            await refreshPolicy();
+          }).catch((err) => {
+            if (!closed) console.warn('[watcher] ignore policy refresh error:', err);
+          });
+        }, config.debounce);
+      };
+      updateControlTargets(watcherPolicy.controlWatchFiles);
 
       const safeHandleFileChange = (filePath: string) => {
         if (closed) return;
         try {
           if (path.basename(filePath) === '.gitignore') {
-            handleGitignoreChange();
+            schedulePolicyRefresh();
             return;
           }
           if (!filePath.endsWith('.md')) return;
@@ -768,14 +842,14 @@ export function startWatcher(contextLength: number): WatcherHandle {
 
       const safeHandleUnlink = (filePath: string) => {
         if (closed || pendingUnlinks.has(filePath)) return;
+        if (path.basename(filePath) === '.gitignore') {
+          schedulePolicyRefresh();
+          return;
+        }
         pendingUnlinks.add(filePath);
         void withIndexingDbLock(async () => {
           try {
             if (closed) return;
-            if (path.basename(filePath) === '.gitignore') {
-              handleGitignoreChange();
-              return;
-            }
             if (!filePath.endsWith('.md')) return;
             const rel = toVaultRelativePath(filePath);
             const existing = fileDelays.get(filePath);
@@ -815,7 +889,17 @@ export function startWatcher(contextLength: number): WatcherHandle {
       settleReady();
       for (const timer of fileDelays.values()) clearTimeout(timer);
       fileDelays.clear();
-      closing ??= initialization.then(() => closeWatcher?.());
+      if (policyTimer) clearTimeout(policyTimer);
+      closing ??= initialization.then(async () => {
+        const results = await Promise.allSettled(
+          watchers.map((watcher) => Promise.resolve().then(() => watcher.close())),
+        );
+        const errors = results
+          .filter((result) => result.status === 'rejected')
+          .map((result) => result.reason as unknown);
+        if (errors.length > 0)
+          throw new AggregateError(errors, 'Failed to close filesystem watchers');
+      });
       return closing;
     },
   };
