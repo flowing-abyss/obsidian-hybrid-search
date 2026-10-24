@@ -92,6 +92,77 @@ describe('bounded content filtering', () => {
     expect(workers()[0]!.heapLimit).toBeLessThan(400 * 1024 * 1024);
   });
 
+  it.each([
+    '--max-old-space-size=1024 --max-semi-space-size=64',
+    '--max-old-space-size-percentage=50',
+    '--max_old_space_size_percentage "50"',
+    '--max_old_space_size_percentage "" "50"',
+    '"--max_heap_size=1024"',
+  ])('bounds the real child heap with inherited %s', async (options) => {
+    vi.stubEnv('NODE_OPTIONS', options);
+    const filter = client();
+    expect(
+      (await filter.project('secret remaining', { signal: new AbortController().signal })).text,
+    ).toBe(' remaining');
+    expect(workers()).toHaveLength(1);
+    expect(workers()[0]!.heapLimit).toBeLessThan(400 * 1024 * 1024);
+    expect(process.env.NODE_OPTIONS).toBe(options);
+  });
+
+  it('preserves quoted preloads and unrelated runtime options while bounding the heap', async () => {
+    const preload = path.join(directory, 'preload --max-old-space-size=4096 fixture.cjs');
+    const marker = path.join(directory, 'preloaded');
+    fs.writeFileSync(
+      preload,
+      `let disabled = false;
+      try { ({}).__proto__; } catch (error) { disabled = error.code === 'ERR_PROTO_ACCESS'; }
+      require('node:fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ disabled }));`,
+    );
+    const options = `--max-heap-size=1024 --require ${JSON.stringify(preload)} --disable-proto=throw --max_old_space_size_percentage "50"`;
+    vi.stubEnv('NODE_OPTIONS', options);
+    expect(
+      (await client().project('secret remaining', { signal: new AbortController().signal })).text,
+    ).toBe(' remaining');
+    expect(JSON.parse(fs.readFileSync(marker, 'utf8'))).toEqual({ disabled: true });
+    expect(workers()[0]!.heapLimit).toBeLessThan(400 * 1024 * 1024);
+    expect(process.env.NODE_OPTIONS).toBe(options);
+  });
+
+  it('preserves inherited filesystem permission restrictions', async () => {
+    const preload = path.join(directory, 'permission probe.cjs');
+    const marker = path.join(directory, 'permission-result');
+    fs.writeFileSync(
+      preload,
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify({
+        allowed: process.permission.has('fs.write', ${JSON.stringify(marker)}),
+        denied: process.permission.has('fs.write', ${JSON.stringify(path.join(os.tmpdir(), 'ohs-outside-worker-permission'))})
+      }));`,
+    );
+    vi.stubEnv(
+      'NODE_OPTIONS',
+      `--max-semi-space-size=64 --permission --allow-fs-read=* --allow-fs-write=${JSON.stringify(directory)} --allow-worker --require ${JSON.stringify(preload)}`,
+    );
+    expect(
+      (await client().project('secret remaining', { signal: new AbortController().signal })).text,
+    ).toBe(' remaining');
+    expect(JSON.parse(fs.readFileSync(marker, 'utf8'))).toEqual({ allowed: true, denied: false });
+    expect(workers()[0]!.heapLimit).toBeLessThan(400 * 1024 * 1024);
+  });
+
+  it.each([
+    '--max-old-space-size-percentage --not-a-node-option',
+    '--max-semi-space-size=64 --not-a-node-option',
+    '--max-semi-space-size=64 --require "unterminated',
+    '--max-semi-space-size=64 --require "invalid-escape\\',
+  ])('keeps malformed inherited options observable for %s', async (options) => {
+    vi.stubEnv('NODE_OPTIONS', options);
+    await expect(
+      client().project('secret remaining', { signal: new AbortController().signal }),
+    ).rejects.toMatchObject({ name: 'ContentFilterError', scope: 'worker' });
+    expect(workers()).toEqual([]);
+    expect(process.env.NODE_OPTIONS).toBe(options);
+  });
+
   it.each([false, true])(
     'shares one owner listener across a full worker batch with cancel=%s',
     async (cancel) => {

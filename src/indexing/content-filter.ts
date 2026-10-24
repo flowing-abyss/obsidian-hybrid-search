@@ -57,6 +57,46 @@ function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error('Content filtering stopped', { cause: error });
 }
 
+function workerNodeOptions(raw: string | undefined): string | undefined {
+  if (!raw) return raw;
+  const tokens: Array<{ raw: string; value: string }> = [];
+  let start = 0;
+  let value = '';
+  let quoted = false;
+  // NODE_OPTIONS separates on spaces and only escapes characters inside double quotes.
+  for (let index = 0; index < raw.length; index++) {
+    const char = raw[index];
+    if (char === '\\' && quoted) {
+      if (++index === raw.length) return raw;
+      value += raw[index];
+    } else if (char === '"') quoted = !quoted;
+    else if (char === ' ' && !quoted) {
+      if (value) tokens.push({ raw: raw.slice(start, index), value });
+      start = index + 1;
+      value = '';
+    } else value += char;
+  }
+  // Leave malformed options intact so Node reports its normal startup failure.
+  if (quoted) return raw;
+  if (value) tokens.push({ raw: raw.slice(start), value });
+  const retained: string[] = [];
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index]!;
+    const equals = token.value.indexOf('=');
+    const name = (equals < 0 ? token.value : token.value.slice(0, equals)).replaceAll('_', '-');
+    const size = equals < 0 ? tokens[index + 1]?.value : token.value.slice(equals + 1);
+    if (
+      /^--max-(?:old-space-size(?:-percentage)?|semi-space-size|heap-size)$/.test(name) &&
+      size !== undefined &&
+      size.trim() !== '' &&
+      Number.isFinite(Number(size))
+    ) {
+      if (equals < 0) index++;
+    } else retained.push(token.raw);
+  }
+  return retained.join(' ');
+}
+
 export function policySignature(patterns: readonly ContentIgnorePattern[]): string {
   if (!patterns.length) return CONTENT_POLICY_IDENTITY;
   const canonical = [
@@ -212,8 +252,10 @@ class WorkerContentFilter implements ContentFilter {
       );
     const child = fork(workerUrl, [], {
       execPath: this.options.execPath,
+      env: { ...process.env, NODE_OPTIONS: workerNodeOptions(process.env.NODE_OPTIONS) },
       execArgv: [
         '--max-old-space-size=256',
+        '--max-semi-space-size=16',
         ...(workerUrl.pathname.endsWith('.ts') ? ['--import', 'tsx'] : []),
       ],
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
