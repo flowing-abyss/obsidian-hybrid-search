@@ -2,7 +2,7 @@
 # Start the brainstorm server and output connection info
 # Usage: start-server.sh [--project-dir <path>] [--host <bind-host>] [--url-host <display-host>] [--foreground] [--background]
 #
-# Starts server on a random high port, outputs JSON with URL.
+# Starts server on an OS-assigned port, outputs JSON with URL.
 # Each session gets its own directory to avoid conflicts.
 #
 # Options:
