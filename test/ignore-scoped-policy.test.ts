@@ -59,7 +59,7 @@ describe('scoped repository exclude snapshots', () => {
       process.env.OBSIDIAN_VAULT_PATH = fixture.vault;
       process.env.OBSIDIAN_RESPECT_GITIGNORE = 'false';
       process.env.OBSIDIAN_IGNORE_PATTERNS = 'secret.md';
-      writeFileSync(path.join(fixture.repo, '.git'), 'invalid gitfile');
+      fixture.write('.git', 'invalid gitfile');
       vi.mocked(readFileSync).mockClear();
       const scoped = createIgnorePolicyForFiles(['note.md', 'secret.md']);
       assert.equal(scoped.isIgnored('note.md'), false);
