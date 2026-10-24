@@ -19,6 +19,88 @@ function chunk(source: string, start: number, end: number, headings: string[] = 
 }
 
 describe('embedChunksWithRecovery', () => {
+  it('identifies the exact prepared input for each accepted recovery leaf, including a separator', async () => {
+    const source = 'A B';
+    const prepared = new WeakMap<Chunk, string>();
+    const requests: string[] = [];
+    const result = await embedChunksWithRecovery({
+      source,
+      chunks: [chunk(source, 0, source.length)],
+      boundaryIndex: createChunkBoundaryIndex(source),
+      project: (body) => `P\n${body}`,
+      onPreparedInput: (leaf, input) => prepared.set(leaf, input),
+      embed: (inputs) => {
+        requests.push(...inputs);
+        return Promise.resolve(
+          inputs.map((input): EmbeddingOutcome =>
+            input.length > 3
+              ? { ok: false, kind: 'input_too_long', message: 'too long' }
+              : { ok: true, embedding: vector(input.length) },
+          ),
+        );
+      },
+    });
+
+    assert.deepEqual(
+      result.map(({ chunk: leaf }) => leaf.text),
+      ['A', ' ', 'B'],
+    );
+    assert.deepEqual(
+      result.map(({ chunk: leaf }) => prepared.get(leaf)),
+      ['P\nA', 'P\n ', 'P\nB'],
+    );
+    for (const { chunk: leaf } of result) assert.ok(requests.includes(prepared.get(leaf)!));
+  });
+
+  it('uses already prepared candidate inputs once and projects only new retry leaves', async () => {
+    const source = 'abc';
+    const project = vi.fn((body: string) => `Title\n${body}`);
+    const requests: string[] = [];
+    const prepared = new WeakMap<Chunk, string>();
+    const result = await embedChunksWithRecovery({
+      source,
+      chunks: [chunk(source, 0, source.length)],
+      preparedInputs: ['Title\nabc'],
+      boundaryIndex: createChunkBoundaryIndex(source),
+      project,
+      onPreparedInput: (leaf, input) => prepared.set(leaf, input),
+      embed: (inputs) => {
+        requests.push(...inputs);
+        return Promise.resolve(
+          inputs.map((input): EmbeddingOutcome =>
+            input.length > 7
+              ? { ok: false, kind: 'input_too_long', message: 'too long' }
+              : { ok: true, embedding: vector(input.length) },
+          ),
+        );
+      },
+    });
+
+    assert.equal(requests[0], 'Title\nabc');
+    assert.equal(project.mock.calls.length, requests.length - 1);
+    assert.deepEqual(
+      result.map(({ chunk: leaf }) => prepared.get(leaf)),
+      ['Title\na', 'Title\nb', 'Title\nc'],
+    );
+  });
+
+  it('rejects mismatched prepared input counts before making an embedding request', async () => {
+    const source = 'abc';
+    const embed = vi.fn(() => Promise.resolve([]));
+    await assert.rejects(
+      embedChunksWithRecovery({
+        source,
+        chunks: [chunk(source, 0, source.length)],
+        preparedInputs: [],
+        boundaryIndex: createChunkBoundaryIndex(source),
+        project: (body) => body,
+        embed,
+      }),
+      /prepared input count/i,
+    );
+    assert.equal(embed.mock.calls.length, 0);
+  });
+
   it('embeds an initially successful batch once without changing its leaves', async () => {
     const source = 'alpha\nbeta';
     const chunks = [chunk(source, 0, 5), chunk(source, 6, 10)];

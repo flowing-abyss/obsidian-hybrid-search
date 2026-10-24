@@ -14,8 +14,10 @@ export interface EmbeddedChunk {
 export interface EmbedChunksWithRecoveryOptions {
   source: string;
   chunks: readonly Chunk[];
+  preparedInputs?: readonly string[];
   boundaryIndex: ChunkBoundaryIndex;
   project: (body: string, headingChain: readonly string[]) => string;
+  onPreparedInput?: (chunk: Chunk, input: string) => void;
   embed: (texts: string[]) => Promise<EmbeddingOutcome[]>;
   maxDepth?: number;
 }
@@ -110,10 +112,16 @@ export async function embedChunksWithRecovery(
 ): Promise<EmbeddedChunk[]> {
   const { source, chunks, boundaryIndex, project, embed } = options;
   const maxDepth = options.maxDepth ?? 8;
+  if (options.preparedInputs && options.preparedInputs.length !== chunks.length)
+    throw new Error('Prepared input count does not match the chunk count');
   if (chunks.length === 0) return [];
 
+  const prepare = (chunk: Chunk, input = project(chunk.text, chunk.headingChain)): string => {
+    options.onPreparedInput?.(chunk, input);
+    return input;
+  };
   const initialOutcomes = await embed(
-    chunks.map((chunk) => project(chunk.text, chunk.headingChain)),
+    chunks.map((chunk, index) => prepare(chunk, options.preparedInputs?.[index])),
   );
 
   const processLeaf = async (
@@ -139,7 +147,7 @@ export async function embedChunksWithRecovery(
 
     const leaves: EmbeddedChunk[] = [];
     for (const child of split) {
-      const [childOutcome] = await embed([project(child.text, child.headingChain)]);
+      const [childOutcome] = await embed([prepare(child)]);
       leaves.push(...(await processLeaf(child, childOutcome, depth + 1)));
     }
     return leaves;

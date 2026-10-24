@@ -138,6 +138,71 @@ function assertSourceMap(notePath: string, source: string) {
   return rows;
 }
 
+it('records embedding provenance without preparing accepted inputs again', async () => {
+  const embedder = await import('../src/inference/embedder.js');
+  const originalPolicy = embedder.getDocumentTokenPolicy;
+  let calls = 0;
+  let callsAfterRequest = 0;
+  const marker = 'uniquepreparationmarker';
+  const spy = vi.spyOn(embedder, 'getDocumentTokenPolicy').mockImplementation(async () => {
+    const policy = await originalPolicy();
+    return {
+      ...policy,
+      count: (text: string) => {
+        calls++;
+        if (inputs.some((input) => input.includes(marker))) callsAfterRequest++;
+        return policy.count(text);
+      },
+    };
+  });
+  const filename = path.join(vault, 'preparation.md');
+  writeFileSync(filename, `Visible planetary ${marker}.`);
+  try {
+    await storage.withTestIndexRun(async (owner) => {
+      const ordinary = await prepareIndexFile(
+        owner,
+        filename,
+        8192,
+        { isIgnored: () => false },
+        true,
+      );
+      assert.equal(ordinary.kind, 'prepared');
+      assert.equal(
+        callsAfterRequest,
+        0,
+        'Accepted input was tokenized again after its HTTP request',
+      );
+      const ordinaryCalls = calls;
+      inputs.length = 0;
+      calls = 0;
+      callsAfterRequest = 0;
+      const candidate = await prepareIndexFile(
+        { ...owner, reuseEmbeddings: true },
+        filename,
+        8192,
+        { isIgnored: () => false },
+        true,
+      );
+      assert.equal(candidate.kind, 'prepared');
+      assert.equal(
+        inputs.filter((input) => input.includes(marker)).length,
+        1,
+        'A missing reusable vector must still be embedded',
+      );
+      assert.equal(callsAfterRequest, 0);
+      assert.equal(
+        calls,
+        ordinaryCalls,
+        'A reuse miss must use its already prepared candidate inputs',
+      );
+      if (ordinary.kind === 'prepared' && candidate.kind === 'prepared')
+        assert.equal(candidate.note.embeddingContext, ordinary.note.embeddingContext);
+    });
+  } finally {
+    spy.mockRestore();
+  }
+});
+
 it('keeps the filtered projection throughout SQLite, HTTP embedding, retrieval and reranking, while read stays original', async () => {
   assert.equal(await getEmbeddingDim({ refresh: true }), 4);
   await index({ 'Public target.md': 'Other planetary research.', 'projection.md': raw });

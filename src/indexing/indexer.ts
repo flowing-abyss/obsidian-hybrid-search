@@ -348,21 +348,43 @@ export async function prepareIndexFile(
       config.chunkOverlap,
       boundaryIndex,
     );
+    const inputHashes = new WeakMap<Chunk, string>();
+    const rememberInput = (chunk: Chunk, input: string): void => {
+      inputHashes.set(
+        chunk,
+        createHash('sha256')
+          .update(JSON.stringify(prepareEmbeddingInput(input, 'document')))
+          .digest('hex'),
+      );
+    };
     const inputContext = (prepared: readonly Chunk[]): string => {
       const digest = createHash('sha256').update(
-        JSON.stringify(['document-v1', modelName, config.apiBaseUrl, tokenPolicy.limit]),
+        JSON.stringify([
+          'document-input-sha256-v2',
+          modelName,
+          config.apiBaseUrl,
+          tokenPolicy.limit,
+        ]),
       );
-      for (const chunk of prepared)
-        digest.update(
-          JSON.stringify(
-            prepareEmbeddingInput(project(chunk.text, chunk.headingChain), 'document'),
-          ),
-        );
+      for (const chunk of prepared) {
+        const fingerprint = inputHashes.get(chunk);
+        if (fingerprint === undefined) throw new Error('Prepared embedding input is missing');
+        digest.update(fingerprint);
+      }
       return digest.digest('hex');
     };
     const dimension = run.reuseEmbeddings ? getStoredEmbeddingDim() : null;
-    const reusable =
+    const preparedInputs =
       run.reuseEmbeddings && dimension !== null
+        ? chunks.map((chunk) => {
+            const input = project(chunk.text, chunk.headingChain);
+            rememberInput(chunk, input);
+            return input;
+          })
+        : undefined;
+    const candidateContext = preparedInputs ? inputContext(chunks) : null;
+    const reusable =
+      candidateContext !== null && dimension !== null
         ? getReusableEmbeddings({
             path: relPath,
             hash,
@@ -370,7 +392,7 @@ export async function prepareIndexFile(
             content,
             modelName,
             dimension,
-            embeddingContext: inputContext(chunks),
+            embeddingContext: candidateContext,
             chunks: chunks.map((chunk) => ({
               text: chunk.text,
               headingPath: chunk.headingChain.length ? chunk.headingChain.join(' > ') : null,
@@ -382,14 +404,23 @@ export async function prepareIndexFile(
       : await embedChunksWithRecovery({
           source: content,
           chunks,
+          preparedInputs,
           boundaryIndex,
           project,
+          onPreparedInput: rememberInput,
           embed: (texts) => {
             assertIndexRun(run);
             return embedDetailed(texts, 'document', { signal: run.signal });
           },
         });
-    embeddingContext = inputContext(embeddedChunks.map(({ chunk }) => chunk));
+    // Recovery keeps each accepted leaf object, but may replace and reorder the
+    // initial chunks. Only an identical accepted sequence can use its earlier proof.
+    embeddingContext =
+      candidateContext !== null &&
+      embeddedChunks.length === chunks.length &&
+      embeddedChunks.every(({ chunk }, index) => chunk === chunks[index])
+        ? candidateContext
+        : inputContext(embeddedChunks.map(({ chunk }) => chunk));
   }
   assertIndexRun(run);
   return {
