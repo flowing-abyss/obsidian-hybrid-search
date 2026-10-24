@@ -1,5 +1,5 @@
 import ignore, { type Ignore } from 'ignore';
-import { readdirSync, readFileSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync, type Dirent } from 'node:fs';
 import path from 'node:path';
 import { config } from '../runtime/config.js';
 import { resolveGitContext, type GitContext } from './git-context.js';
@@ -21,6 +21,8 @@ interface GitignoreLayer {
 interface ExplicitMatcher {
   ignores(relPath: string): boolean;
 }
+
+type ScopedAncestors = ReadonlyMap<string, ReadonlySet<string>>;
 
 export interface IgnorePolicy {
   isIgnored(relPath: string): boolean;
@@ -162,6 +164,34 @@ function toGitPath(vaultPrefix: string, relativePath: string): string {
   return vaultPrefix ? vaultPrefix + (relativePath ? '/' + relativePath : '') : relativePath;
 }
 
+function scopedChildDirectories(dir: string, names: ReadonlySet<string>): string[] {
+  const children = new Set<string>();
+  let entries: Dirent[] | undefined;
+  for (const name of names) {
+    try {
+      // Preserve the caller's physical spelling and do not follow directory symlinks.
+      if (lstatSync(path.join(dir, name)).isDirectory()) children.add(name);
+      continue;
+    } catch (error) {
+      if (
+        !error ||
+        typeof error !== 'object' ||
+        !('code' in error) ||
+        (error.code !== 'ENOENT' && error.code !== 'ENOTDIR')
+      )
+        throw error;
+    }
+    // Database callers may only know an NFD identity. Resolve that identity in
+    // this parent once, without enumerating siblings during ordinary updates.
+    entries ??= readdirSync(dir, { withFileTypes: true, encoding: 'utf-8' });
+    for (const entry of entries) {
+      if (entry.isDirectory() && entry.name.normalize('NFD') === name.normalize('NFD'))
+        children.add(entry.name);
+    }
+  }
+  return [...children];
+}
+
 function loadGitignoreLayers(
   vaultPath: string,
   operationalExcludes: Ignore,
@@ -169,7 +199,7 @@ function loadGitignoreLayers(
   includePatterns: readonly string[],
   respectGitignore: boolean,
   context: GitContext | undefined,
-  allowedAncestors?: ReadonlySet<string>,
+  scopedAncestors?: ScopedAncestors,
 ): GitignoreLayer[] {
   if (!respectGitignore) return [];
   const layers: GitignoreLayer[] = [];
@@ -200,18 +230,22 @@ function loadGitignoreLayers(
     const activeLayers = layer ? [...inheritedLayers, layer] : inheritedLayers;
     if (layer) layers.push(layer);
 
-    let entries: { name: string; isDirectory(): boolean }[];
-    try {
-      entries = readdirSync(dir, { withFileTypes: true, encoding: 'utf-8' });
-    } catch {
-      return;
+    let childNames: string[];
+    if (scopedAncestors) {
+      const names = scopedAncestors.get(baseRelPath);
+      if (!names) return;
+      childNames = scopedChildDirectories(dir, names);
+    } else {
+      try {
+        childNames = readdirSync(dir, { withFileTypes: true, encoding: 'utf-8' })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => entry.name);
+      } catch {
+        return;
+      }
     }
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const childRelPath = normalizeRelPath(
-        baseRelPath ? baseRelPath + '/' + entry.name : entry.name,
-      );
-      if (allowedAncestors && !allowedAncestors.has(childRelPath)) continue;
+    for (const name of childNames) {
+      const childRelPath = normalizeRelPath(baseRelPath ? baseRelPath + '/' + name : name);
       const childDirPath = childRelPath + '/';
       if (matcherIgnores(operationalExcludes, childDirPath)) continue;
       if (explicitExcludes.ignores(childDirPath)) continue;
@@ -220,7 +254,7 @@ function loadGitignoreLayers(
         !includeMayMatchDescendant(childDirPath, includePatterns)
       )
         continue;
-      walk(path.join(dir, entry.name), childRelPath, activeLayers);
+      walk(path.join(dir, name), childRelPath, activeLayers);
     }
   };
   walk(vaultPath, '', [...layers]);
@@ -356,7 +390,7 @@ export function createIgnorePolicy(
 
 function createPolicyComponents(
   options: NonNullable<Parameters<typeof createIgnorePolicy>[0]>,
-  allowedAncestors?: ReadonlySet<string>,
+  scopedAncestors?: ScopedAncestors,
 ) {
   const vaultPath = options.vaultPath ?? config.vaultPath;
   const ignorePatterns = options.ignorePatterns ?? config.ignorePatterns;
@@ -382,7 +416,7 @@ function createPolicyComponents(
     includePatterns,
     respectGitignore,
     context,
-    allowedAncestors,
+    scopedAncestors,
   );
 
   return {
@@ -410,8 +444,8 @@ function createPolicyComponents(
   };
 }
 
-function fileAncestorPaths(relativePaths: readonly string[]): ReadonlySet<string> | undefined {
-  const ancestors = new Set<string>();
+function fileAncestorPaths(relativePaths: readonly string[]): ScopedAncestors | undefined {
+  const ancestors = new Map<string, Set<string>>();
   for (const relativePath of relativePaths) {
     const normalized = normalizeRelPath(relativePath);
     if (
@@ -422,9 +456,15 @@ function fileAncestorPaths(relativePaths: readonly string[]): ReadonlySet<string
     ) {
       return undefined;
     }
-    const parts = normalized.split('/');
-    for (let length = 1; length < parts.length; length++) {
-      ancestors.add(parts.slice(0, length).join('/'));
+    const parts = relativePath
+      .replaceAll(path.sep, '/')
+      .replace(/^\.\/+/, '')
+      .split('/');
+    for (const [index, name] of parts.slice(0, -1).entries()) {
+      const parent = parts.slice(0, index).join('/').normalize('NFD');
+      const children = ancestors.get(parent) ?? new Set<string>();
+      children.add(name);
+      ancestors.set(parent, children);
     }
   }
   return ancestors;

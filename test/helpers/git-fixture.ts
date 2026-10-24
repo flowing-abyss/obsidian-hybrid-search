@@ -1,11 +1,38 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  ftruncateSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+function writeFixtureFile(file: string, content: string): void {
+  let descriptor: number;
+  try {
+    // Git marks .git files hidden on Windows; opening them with 'w' fails with EPERM.
+    descriptor = openSync(file, 'r+');
+  } catch (error) {
+    if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
+    writeFileSync(file, content);
+    return;
+  }
+  try {
+    ftruncateSync(descriptor, 0);
+    writeFileSync(descriptor, content);
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
 export function createGitFixture(options: { linked?: boolean; vaultPrefix?: string } = {}) {
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'ohs-git-fixture-')));
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'ohs-git-fixture-')));
   const emptyConfig = path.join(root, 'empty-config');
   writeFileSync(emptyConfig, '');
   const env = Object.fromEntries(
@@ -45,16 +72,18 @@ export function createGitFixture(options: { linked?: boolean; vaultPrefix?: stri
     git(['worktree', 'add', '--detach', '--quiet', linked]);
     repo = linked;
   }
-  repo = realpathSync(repo);
+  repo = realpathSync.native(repo);
   const vault = path.join(repo, options.vaultPrefix ?? '');
   mkdirSync(vault, { recursive: true });
-  const commonDir = realpathSync(git(['rev-parse', '--path-format=absolute', '--git-common-dir']));
+  const commonDir = realpathSync.native(
+    git(['rev-parse', '--path-format=absolute', '--git-common-dir']),
+  );
   return {
     root,
     repo,
     vault,
     commonDir,
-    exclude: path.resolve(
+    exclude: realpathSync.native(
       git(['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude']),
     ),
     git,
@@ -69,7 +98,7 @@ export function createGitFixture(options: { linked?: boolean; vaultPrefix?: stri
     write(relativeRepoPath: string, content: string): void {
       const file = path.join(repo, relativeRepoPath);
       mkdirSync(path.dirname(file), { recursive: true });
-      writeFileSync(file, content);
+      writeFixtureFile(file, content);
     },
     dispose(): void {
       rmSync(root, { recursive: true, force: true });

@@ -1,6 +1,9 @@
 import Database from 'better-sqlite3';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, it, vi } from 'vitest';
@@ -117,6 +120,57 @@ it.each(['deleted', 'replaced', 'ignored'])(
     });
   },
 );
+
+it('keeps and reindexes a missing source recreated while SQLite synchronously waits for a writer', async () => {
+  const { indexFile } = await import('../src/indexing/indexer.js');
+  const file = path.join(vault, 'recreated-during-lock.md');
+  await db.withTestIndexRun(async (run) => {
+    writeFileSync(file, '---\ntitle: Original\n---\n');
+    assert.equal(await indexFile(run, file, 512, true), 'indexed');
+    rmSync(file);
+    const child = spawn(
+      process.execPath,
+      [
+        '-e',
+        `const Database = require(process.argv[1]);
+         const { writeFileSync } = require('node:fs');
+         const db = new Database(process.argv[2]);
+         db.exec('BEGIN IMMEDIATE');
+         process.once('message', () => setTimeout(() => {
+           writeFileSync(process.argv[3], '---\\ntitle: Recreated\\n---\\n');
+           db.exec('ROLLBACK');
+           db.close();
+           process.exit(0);
+         }, 100));
+         process.send('locked');`,
+        createRequire(import.meta.url).resolve('better-sqlite3'),
+        config.dbPath,
+        file,
+      ],
+      { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] },
+    );
+    let stderr = '';
+    child.stderr?.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+    const exited: Promise<unknown[]> = once(child, 'exit');
+    try {
+      const message: unknown = (await once(child, 'message'))[0];
+      assert.equal(message, 'locked');
+      assert.equal(existsSync(file), false);
+      child.send('recreate');
+      const result = await indexFile(run, file, 512, true);
+      const [code] = await exited;
+      assert.equal(code, 0, stderr);
+      assert.equal(existsSync(file), true);
+      assert.equal(db.getNoteByPath('recreated-during-lock.md')?.title, 'Recreated');
+      assert.equal(result, 'indexed');
+    } finally {
+      if (child.exitCode === null) child.kill();
+      await exited;
+      rmSync(file, { force: true });
+      storage.deleteNote(run.lease, 'recreated-during-lock.md');
+    }
+  });
+});
 
 it('revalidates the staged snapshot after a delayed full publication', async () => {
   const { indexFile } = await import('../src/indexing/indexer.js');
