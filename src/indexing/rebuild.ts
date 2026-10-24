@@ -46,7 +46,7 @@ export async function rebuildIndex(
     staged = true;
     for (let pass = 0; pass < 3; pass++) {
       run.signal.throwIfAborted();
-      const files = scanVault(run);
+      const files = scanVault(undefined, run);
       reportIndexProgress(run, files.length, 0);
       const policy = createIgnorePolicy();
       const prior = new Map(readRebuildNotes(id).map((row) => [row.note.path, row]));
@@ -103,7 +103,7 @@ export async function rebuildIndex(
         );
       const published = await retryIndexWrite(run, () =>
         withIndexMutation(run.lease, () => {
-          const finalFiles = scanVault(run);
+          const finalFiles = scanVault(undefined, run);
           const stable =
             finalFiles.length === rows.length &&
             finalFiles.every((file) => {

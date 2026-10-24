@@ -1,15 +1,18 @@
 import ignore, { type Ignore } from 'ignore';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { config } from '../runtime/config.js';
+import { resolveGitContext, type GitContext } from './git-context.js';
 
 const OPERATIONAL_IGNORE_PATTERNS = ['.obsidian/**', '.obsidian-hybrid-search.db*'];
 // Bump when ignore-selection semantics change. Notes that only the new matcher ignores
 // are then swept as newly ignored (links kept) rather than as files deleted from disk.
-const IGNORE_MATCHER_VERSION = 3;
+const IGNORE_MATCHER_VERSION = 4;
 
 interface GitignoreLayer {
-  baseRelPath: string;
+  kind: 'gitignore' | 'exclude';
+  sourcePath: string;
+  baseGitPath: string;
   content: string;
   matcher: Ignore;
   directMatchers: Map<string, Ignore>;
@@ -22,6 +25,7 @@ interface ExplicitMatcher {
 export interface IgnorePolicy {
   isIgnored(relPath: string): boolean;
   signature(): string;
+  readonly controlWatchFiles: readonly string[];
 }
 
 function normalizeRelPath(relPath: string): string {
@@ -121,22 +125,37 @@ function toLayerRelativePath(relPath: string, baseRelPath: string): string | nul
   return normalized.slice(prefix.length);
 }
 
-function readGitignoreLayer(dir: string, baseRelPath: string): GitignoreLayer | null {
-  const fullPath = path.join(dir, '.gitignore');
-  if (!existsSync(fullPath)) return null;
+function readGitignoreLayer(
+  fullPath: string,
+  baseGitPath: string,
+  kind: GitignoreLayer['kind'] = 'gitignore',
+): GitignoreLayer | null {
   try {
-    const content = readFileSync(fullPath, 'utf-8').replaceAll(path.sep, '/').normalize('NFD');
+    // Backslashes in Git patterns are escapes, including on Windows.
+    const content = readFileSync(fullPath, 'utf-8').normalize('NFD');
     const matcher = ignore().add(content);
     return {
-      baseRelPath,
+      kind,
+      sourcePath: fullPath,
+      baseGitPath,
       content,
       matcher,
-      // Derived matchers belong to this loaded layer and policy snapshot only.
       directMatchers: new Map([['', matcher]]),
     };
-  } catch {
-    return null;
+  } catch (cause) {
+    if (
+      cause &&
+      typeof cause === 'object' &&
+      'code' in cause &&
+      (cause.code === 'ENOENT' || cause.code === 'ENOTDIR')
+    )
+      return null;
+    throw new Error('Cannot read Git ignore rules: ' + fullPath, { cause });
   }
+}
+
+function toGitPath(vaultPrefix: string, relativePath: string): string {
+  return vaultPrefix ? vaultPrefix + (relativePath ? '/' + relativePath : '') : relativePath;
 }
 
 function loadGitignoreLayers(
@@ -145,17 +164,35 @@ function loadGitignoreLayers(
   explicitExcludes: ExplicitMatcher,
   includePatterns: readonly string[],
   respectGitignore: boolean,
+  context: GitContext | undefined,
   allowedAncestors?: ReadonlySet<string>,
 ): GitignoreLayer[] {
   if (!respectGitignore) return [];
   const layers: GitignoreLayer[] = [];
+  const vaultPrefix = context?.vaultPrefix ?? '';
+  if (context) {
+    const exclude = readGitignoreLayer(context.excludePath, '', 'exclude');
+    if (exclude) layers.push(exclude);
+    for (const file of context.ancestorGitignorePaths) {
+      const base = normalizeRelPath(path.relative(context.worktreePath, path.dirname(file)));
+      if (base && gitignoreIgnores(layers, base + '/') && includePatterns.length === 0)
+        return layers;
+      const layer = readGitignoreLayer(file, base);
+      if (layer) layers.push(layer);
+    }
+    if (vaultPrefix && gitignoreIgnores(layers, vaultPrefix + '/') && includePatterns.length === 0)
+      return layers;
+  }
 
   const walk = (
     dir: string,
     baseRelPath: string,
     inheritedLayers: readonly GitignoreLayer[],
   ): void => {
-    const layer = readGitignoreLayer(dir, baseRelPath);
+    const layer = readGitignoreLayer(
+      path.join(dir, '.gitignore'),
+      toGitPath(vaultPrefix, baseRelPath),
+    );
     const activeLayers = layer ? [...inheritedLayers, layer] : inheritedLayers;
     if (layer) layers.push(layer);
 
@@ -165,27 +202,24 @@ function loadGitignoreLayers(
     } catch {
       return;
     }
-
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const childRelPath = normalizeRelPath(
-        baseRelPath ? `${baseRelPath}/${entry.name}` : entry.name,
+        baseRelPath ? baseRelPath + '/' + entry.name : entry.name,
       );
       if (allowedAncestors && !allowedAncestors.has(childRelPath)) continue;
       const childDirPath = childRelPath + '/';
       if (matcherIgnores(operationalExcludes, childDirPath)) continue;
       if (explicitExcludes.ignores(childDirPath)) continue;
       if (
-        gitignoreIgnores(activeLayers, childDirPath) &&
+        gitignoreIgnores(activeLayers, toGitPath(vaultPrefix, childDirPath)) &&
         !includeMayMatchDescendant(childDirPath, includePatterns)
-      ) {
+      )
         continue;
-      }
       walk(path.join(dir, entry.name), childRelPath, activeLayers);
     }
   };
-
-  walk(vaultPath, '', []);
+  walk(vaultPath, '', [...layers]);
   return layers;
 }
 
@@ -221,7 +255,7 @@ function gitignoreIgnores(layers: readonly GitignoreLayer[], relPath: string): b
     const current = parts.slice(0, i + 1).join('/') + (directory ? '/' : '');
     let ignored = false;
     for (const layer of layers) {
-      const layerPath = toLayerRelativePath(current, layer.baseRelPath);
+      const layerPath = toLayerRelativePath(current, layer.baseGitPath);
       if (layerPath === null || !layerPath) continue;
       const result = testGitignoreLayer(layer, layerPath);
       if (result.ignored) ignored = true;
@@ -280,10 +314,11 @@ export function createIgnorePolicy(
   } = {},
 ): IgnorePolicy {
   const policy = createPolicyComponents(options);
-  const { ignorePatterns, includePatterns, respectGitignore, gitignoreLayers } = policy;
+  const { ignorePatterns, includePatterns, respectGitignore, gitignoreLayers, context } = policy;
 
   return {
     isIgnored: policy.isIgnored,
+    controlWatchFiles: policy.controlWatchFiles,
     signature(): string {
       return JSON.stringify({
         matcherVersion: IGNORE_MATCHER_VERSION,
@@ -291,9 +326,22 @@ export function createIgnorePolicy(
         ignorePatterns: sortedPatterns(ignorePatterns),
         includePatterns: sortedPatterns(includePatterns),
         respectGitignore,
+        gitContext: context
+          ? {
+              worktreePath: context.worktreePath,
+              gitDirPath: context.gitDirPath,
+              commonDirPath: context.commonDirPath,
+              vaultPrefix: context.vaultPrefix,
+              excludePath: context.excludePath,
+              excludeContent:
+                gitignoreLayers.find((layer) => layer.kind === 'exclude')?.content ?? null,
+            }
+          : null,
         gitignoreFiles: gitignoreLayers
           .map((layer) => ({
-            path: layer.baseRelPath ? `${layer.baseRelPath}/.gitignore` : '.gitignore',
+            path: layer.sourcePath,
+            kind: layer.kind,
+            baseGitPath: layer.baseGitPath,
             content: layer.content,
           }))
           .sort((a, b) => a.path.localeCompare(b.path)),
@@ -313,21 +361,36 @@ function createPolicyComponents(
   const operationalExcludes = createMatcher(OPERATIONAL_IGNORE_PATTERNS);
   const explicitExcludes = createExplicitMatcher(ignorePatterns);
   const includes = createMatcher(includePatterns);
+  const context = respectGitignore ? resolveGitContext(vaultPath) : undefined;
+  const controlWatchFiles = context
+    ? [
+        ...new Set([
+          context.excludePath,
+          ...context.indirectionFiles,
+          ...context.ancestorGitignorePaths,
+        ]),
+      ]
+    : [];
   const gitignoreLayers = loadGitignoreLayers(
     vaultPath,
     operationalExcludes,
     explicitExcludes,
     includePatterns,
     respectGitignore,
+    context,
     allowedAncestors,
   );
 
   return {
     isIgnored: (relPath: string): boolean => {
       const normalized = normalizeRelPath(relPath);
+      if (!normalized) return false;
       if (matcherIgnores(operationalExcludes, normalized)) return true;
       if (explicitExcludes.ignores(normalized)) return true;
-      const ignoredByGitignore = gitignoreIgnores(gitignoreLayers, normalized);
+      const ignoredByGitignore = gitignoreIgnores(
+        gitignoreLayers,
+        toGitPath(context?.vaultPrefix ?? '', normalized),
+      );
       if (!ignoredByGitignore) return false;
       if (normalized.endsWith('/') && includeMayMatchDescendant(normalized, includePatterns)) {
         return false;
@@ -338,6 +401,8 @@ function createPolicyComponents(
     includePatterns,
     respectGitignore,
     gitignoreLayers,
+    context,
+    controlWatchFiles,
   };
 }
 

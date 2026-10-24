@@ -42,12 +42,12 @@
         },
         {
           "name": "OBSIDIAN_RESPECT_GITIGNORE",
-          "description": "Read root and nested .gitignore files when indexing; set to false, 0, or no to disable.",
+          "description": "Read applicable .gitignore files and repository info/exclude rules when indexing; set to false, 0, or no to disable both.",
           "default": "true"
         },
         {
           "name": "OBSIDIAN_INCLUDE_PATTERNS",
-          "description": "Comma-separated patterns to re-include notes ignored only by .gitignore."
+          "description": "Comma-separated patterns to re-include notes ignored only by Git ignore rules."
         },
         {
           "name": "OPENAI_API_KEY",
