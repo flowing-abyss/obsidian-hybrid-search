@@ -5,6 +5,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, request as httpRequest } from 'node:http';
+import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
@@ -12,7 +13,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, beforeEach, describe, it, vi } from 'vitest';
 import type { HttpMcpServerHandle } from '../src/transports/mcp-http-server.js';
 
-const { closeDb, getDb, initVecTable, openDb, upsertNote } =
+const { closeDb, getDb, initVecTable, openDb, readIndexOwner, upsertNote } =
   await import('./helpers/owned-storage.js');
 const { runHttpMcpServer } = await import('../src/transports/mcp-http-server.js');
 const searcher = await import('../src/search/searcher.js');
@@ -237,6 +238,12 @@ describe('modern MCP HTTP', () => {
         releaseEmbedding?.();
         await Promise.all([shutdown, request]);
       }
+      if (!disconnect) {
+        const result = await request;
+        assert.ok(result, 'connected client must receive its admitted result');
+        assert.equal(result.response.status, 200);
+        assert.match(JSON.stringify(result.reply.result?.content), /alpha\.md/);
+      }
       assert.equal(database.open, false);
     });
   }
@@ -336,6 +343,38 @@ describe('modern MCP HTTP', () => {
     }
   });
 
+  it('rejects a missing Host header at the MCP boundary', async () => {
+    httpServer = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
+    const body = JSON.stringify(message(1, 'tools/list'));
+    const port = httpServer.port;
+    const response = await new Promise<string>((resolve, reject) => {
+      const socket = createConnection({ host: '127.0.0.1', port });
+      let received = '';
+      socket.setTimeout(5_000, () => socket.destroy(new Error('HTTP response timed out')));
+      socket.on('error', reject);
+      socket.on('data', (chunk: Buffer) => {
+        received += chunk.toString();
+      });
+      socket.on('end', () => resolve(received));
+      socket.once('connect', () =>
+        socket.end(
+          [
+            'POST /mcp HTTP/1.0',
+            'Content-Type: application/json',
+            'Accept: application/json, text/event-stream',
+            `Mcp-Protocol-Version: ${revision}`,
+            'Mcp-Method: tools/list',
+            `Content-Length: ${Buffer.byteLength(body)}`,
+            'Connection: close',
+            '',
+            body,
+          ].join('\r\n'),
+        ),
+      );
+    });
+    assert.match(response.split('\r\n')[0] ?? '', /^HTTP\/1\.[01] 400 /);
+  });
+
   it('rejects inconsistent protocol envelopes and keeps serving after errors', async () => {
     httpServer = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
     const mismatchedHeaders: Record<string, string>[] = [
@@ -430,6 +469,23 @@ function startStdio() {
 }
 
 describe('modern MCP stdio', () => {
+  it('exits after fatal transport closure and releases indexing ownership', async () => {
+    const session = startStdio();
+    assert.ok((await session.request('server/discover')).result);
+    openDb();
+    await vi.waitFor(() => assert.equal(readIndexOwner().mode, 'background'), { timeout: 5_000 });
+    session.child.stdin.once('error', () => {}); // A fatal peer close may interrupt this oversized write.
+    session.child.stdin.write(Buffer.alloc(11 * 1024 * 1024, 'x'));
+    const exited = await Promise.race([
+      session.closed.then(() => true),
+      delay(3_000).then(() => false),
+    ]);
+    assert.equal(exited, true, 'fatal wire closure must stop the MCP process');
+    assert.equal(session.child.exitCode, 1);
+    assert.match(session.stderr(), /ReadBuffer exceeded maximum size/);
+    assert.equal(readIndexOwner().token, null, 'shutdown must release the database lease');
+  });
+
   it('reports invalid envelopes on stderr without echoing their contents and keeps serving', async () => {
     const session = startStdio();
     session.child.stdin.write(

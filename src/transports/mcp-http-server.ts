@@ -81,6 +81,10 @@ export async function runHttpMcpServer(
       return;
     }
 
+    if (!req.headers.host) {
+      writeJson(res, 400, { error: 'Missing Host header' });
+      return;
+    }
     await serveRequest(req, res);
   }
 
@@ -106,9 +110,11 @@ export async function runHttpMcpServer(
       closing ??= (async () => {
         const results = await Promise.allSettled([
           closeNodeServer(nodeServer),
-          handler.close(),
           closeMcpRuntime(runtime),
         ]);
+        // Let connected clients receive admitted results before closing their
+        // SDK transports. This server does not advertise persistent subscriptions.
+        results.push(...(await Promise.allSettled([handler.close()])));
         closeDb();
         const errors = results.flatMap((result): unknown[] =>
           result.status === 'rejected' ? [result.reason] : [],
