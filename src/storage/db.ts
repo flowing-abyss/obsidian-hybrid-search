@@ -232,6 +232,9 @@ function rebuildFrontmatterLookup(db: DB): void {
   }
 }
 
+// Advance this revision for schema changes, independently of ownership table setup.
+const INDEX_SCHEMA_VERSION = '1';
+
 function runMigrations(db: DB): void {
   // Base schema — no FTS tables here; they are managed by the versioned migration below
   db.exec(`
@@ -551,7 +554,11 @@ export function openDb(): DB {
       ? (db.prepare("SELECT value FROM settings WHERE key='index_ownership_schema'").get() as
           { value: string } | undefined)
       : undefined;
-    if (revision?.value !== '1') {
+    const schemaRevision = settingsExist
+      ? (db.prepare("SELECT value FROM settings WHERE key='index_schema_version'").get() as
+          { value: string } | undefined)
+      : undefined;
+    if (revision?.value !== '1' || schemaRevision?.value !== INDEX_SCHEMA_VERSION) {
       const lease = _ownership.claim(randomUUID(), 'bootstrap');
       if (!lease) throw new IndexInitializationBusyError();
       try {
@@ -568,6 +575,9 @@ export function openDb(): DB {
           db.prepare(
             "INSERT OR REPLACE INTO settings(key,value) VALUES('index_ownership_schema','1')",
           ).run();
+          db.prepare(
+            "INSERT OR REPLACE INTO settings(key,value) VALUES('index_schema_version',?)",
+          ).run(INDEX_SCHEMA_VERSION);
         });
       } finally {
         _ownership.release(lease);
