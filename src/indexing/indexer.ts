@@ -707,7 +707,8 @@ export function startWatcher(contextLength: number): WatcherHandle {
         const timer = setTimeout(() => {
           fileDelays.delete(filePath);
           if (closed) return;
-          const normalizedPath = normalizeNotePath(path.normalize(filePath));
+          // Keep the filesystem spelling; only database-relative keys use NFD.
+          const normalizedPath = path.normalize(filePath);
           if (!_indexQueue.includes(normalizedPath)) {
             _indexQueue.push(normalizedPath);
             _totalExpected++;
@@ -733,7 +734,7 @@ export function startWatcher(contextLength: number): WatcherHandle {
             );
             if (closed) return;
             for (const file of files) {
-              const normalizedPath = normalizeNotePath(path.normalize(file));
+              const normalizedPath = path.normalize(file);
               if (!_indexQueue.includes(normalizedPath)) {
                 _indexQueue.push(normalizedPath);
                 _totalExpected++;
