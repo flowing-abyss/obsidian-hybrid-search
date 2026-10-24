@@ -151,6 +151,81 @@ describe('E5-style prefix for BGE / E5 models via API', () => {
   });
 });
 
+describe('Qwen embedding query instructions', () => {
+  const instruction =
+    'Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:';
+  const models = [
+    'qwen3-embedding:0.6b',
+    'qwen/qwen3-embedding-8b',
+    'Qwen/Qwen3-Embedding-0.6B',
+    'text-embedding-qwen3-embedding-4b',
+    'qwen3-embedding',
+  ];
+  let inputs: string[][];
+
+  beforeEach(() => {
+    inputs = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((_url: string, opts: { body: string }) => {
+        const { input } = JSON.parse(opts.body) as { input: string[] };
+        inputs.push(input);
+        return {
+          ok: true,
+          status: 200,
+          json: () => ({
+            data: input.map((_, index) => ({ embedding: new Array(384).fill(0.1), index })),
+          }),
+        };
+      }),
+    );
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each(models)(
+    'prepares query requests once for %s and leaves documents unchanged',
+    async (model) => {
+      vi.stubEnv('OPENAI_EMBEDDING_MODEL', model);
+      const query = 'Как работает поиск?\nInclude examples.';
+      const documents = ['First source passage', 'Русский документ\nwith a second line'];
+      await embed([query], 'query');
+      await embed(documents, 'document');
+      assert.deepEqual(inputs, [[instruction + query], documents]);
+    },
+  );
+
+  it('keeps empty query text intact after the instruction', () => {
+    vi.stubEnv('OPENAI_EMBEDDING_MODEL', 'qwen3-embedding');
+    assert.equal(prepareEmbeddingInput('', 'query'), instruction);
+  });
+
+  it('uses the same query formatter for a local Qwen model', () => {
+    vi.stubEnv('OPENAI_API_KEY', '');
+    vi.stubEnv('OPENAI_BASE_URL', '');
+    vi.stubEnv('LOCAL_EMBEDDING_MODEL', 'onnx-community/Qwen3-Embedding-0.6B-ONNX');
+    assert.equal(prepareEmbeddingInput('query text', 'query'), instruction + 'query text');
+    assert.equal(prepareEmbeddingInput('source text', 'document'), 'source text');
+  });
+
+  it.each(['qwen3.5:4b', 'qwen3:8b', 'unknown-embedding', 'hotchpotch/bekko-embedding-v1-a8m'])(
+    'keeps %s input unchanged',
+    async (model) => {
+      vi.stubEnv('OPENAI_EMBEDDING_MODEL', model);
+      await embed(['query text'], 'query');
+      await embed(['source text'], 'document');
+      assert.deepEqual(inputs, [['query text'], ['source text']]);
+    },
+  );
+
+  it('preserves both E5 prefixes', async () => {
+    vi.stubEnv('OPENAI_EMBEDDING_MODEL', 'intfloat/multilingual-e5-small');
+    await embed(['query text'], 'query');
+    await embed(['source text'], 'document');
+    assert.deepEqual(inputs, [['query: query text'], ['passage: source text']]);
+  });
+});
+
 describe('local document token policy', () => {
   afterEach(() => {
     process.env.OPENAI_API_KEY = 'test-key';
