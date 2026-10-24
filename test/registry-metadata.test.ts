@@ -50,6 +50,16 @@ describe('MCP Registry metadata', () => {
     assert.deepEqual(npmPackage?.packageArguments, [{ type: 'positional', value: 'mcp' }]);
   });
 
+  it('offers content patterns without requiring or enabling them by default', () => {
+    const server = readJson<ServerJson>('server.json');
+    const env = server.packages[0]?.environmentVariables ?? [];
+    const patterns = env.filter((entry) => entry.name === 'OBSIDIAN_CONTENT_IGNORE_PATTERNS');
+
+    assert.equal(patterns.length, 1);
+    assert.notEqual(patterns[0]?.isRequired, true);
+    assert.equal('default' in patterns[0]!, false);
+  });
+
   it('requires only the vault path for first-time configuration', () => {
     const server = readJson<ServerJson>('server.json');
     const env = server.packages[0]?.environmentVariables ?? [];

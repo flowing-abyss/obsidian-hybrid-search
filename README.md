@@ -488,16 +488,17 @@ Set `OBSIDIAN_PREFIX` to add a prefix to every tool name. For example, `myvault_
 
 ## Configuration
 
-| Environment variable         | Default                              | Description                                                                        |
-| ---------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
-| `OBSIDIAN_VAULT_PATH`        | Required for MCP; CLI auto-detects   | Absolute path to your vault                                                        |
-| `OBSIDIAN_PREFIX`            | `""`                                 | Optional MCP tool prefix, e.g. `myvault_` → `myvault_search`, `myvault_read`       |
-| `OBSIDIAN_IGNORE_PATTERNS`   | `.obsidian/**,templates/**,*.canvas` | Comma-separated ignore patterns                                                    |
-| `OBSIDIAN_RESPECT_GITIGNORE` | `true`                               | Read root and nested `.gitignore` files; set to `false` to disable                 |
-| `OBSIDIAN_INCLUDE_PATTERNS`  | `""`                                 | Comma-separated patterns to re-include notes ignored only by `.gitignore`          |
-| `OPENAI_API_KEY`             | None                                 | API key; omit to use local model embeddings or keyless servers (Ollama, LM Studio) |
-| `OPENAI_BASE_URL`            | `https://api.openai.com/v1`          | API base URL                                                                       |
-| `OPENAI_EMBEDDING_MODEL`     | `text-embedding-3-small`             | Embedding model name                                                               |
+| Environment variable               | Default                              | Description                                                                                                                              |
+| ---------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `OBSIDIAN_VAULT_PATH`              | Required for MCP; CLI auto-detects   | Absolute path to your vault                                                                                                              |
+| `OBSIDIAN_PREFIX`                  | `""`                                 | Optional MCP tool prefix, e.g. `myvault_` → `myvault_search`, `myvault_read`                                                             |
+| `OBSIDIAN_IGNORE_PATTERNS`         | `.obsidian/**,templates/**,*.canvas` | Comma-separated ignore patterns                                                                                                          |
+| `OBSIDIAN_RESPECT_GITIGNORE`       | `true`                               | Read root and nested `.gitignore` files; set to `false` to disable                                                                       |
+| `OBSIDIAN_INCLUDE_PATTERNS`        | `""`                                 | Comma-separated patterns to re-include notes ignored only by `.gitignore`                                                                |
+| `OBSIDIAN_CONTENT_IGNORE_PATTERNS` | `""`                                 | Comma-separated regex rules for note body text to leave out of search, e.g. `/%%[\s\S]*?%%/g`. Original files and `read` stay unchanged. |
+| `OPENAI_API_KEY`                   | None                                 | API key; omit to use local model embeddings or keyless servers (Ollama, LM Studio)                                                       |
+| `OPENAI_BASE_URL`                  | `https://api.openai.com/v1`          | API base URL                                                                                                                             |
+| `OPENAI_EMBEDDING_MODEL`           | `text-embedding-3-small`             | Embedding model name                                                                                                                     |
 
 ### Ignore patterns
 

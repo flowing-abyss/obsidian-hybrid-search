@@ -23,6 +23,9 @@ export const config = {
       .map((p) => p.trim())
       .filter(Boolean);
   },
+  get contentIgnorePatternsRaw(): string | undefined {
+    return process.env.OBSIDIAN_CONTENT_IGNORE_PATTERNS;
+  },
   get respectGitignore(): boolean {
     const raw = process.env.OBSIDIAN_RESPECT_GITIGNORE?.trim().toLowerCase();
     return raw !== 'false' && raw !== '0' && raw !== 'no';

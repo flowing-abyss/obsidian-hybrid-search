@@ -6,16 +6,20 @@ export function extractMarkdownNote(raw: string, fallbackTitle: string) {
   const { data: frontmatter, content } = parsed;
   const frontmatterRaw: string = parsed.matter ?? '';
   const title = frontmatter.title == null ? fallbackTitle : String(frontmatter.title);
+  const tags = extractNoteTags(content, frontmatter);
+  const aliases = parseAliasField(frontmatter.aliases as unknown);
+
+  return { frontmatter, content, frontmatterRaw, title, tags, aliases };
+}
+
+export function extractNoteTags(content: string, frontmatter: Record<string, unknown>): string[] {
   const frontmatterTags: string[] = Array.isArray(frontmatter.tags)
     ? frontmatter.tags.map(String)
     : typeof frontmatter.tags === 'string'
       ? frontmatter.tags.split(',').map((t: string) => t.trim())
       : [];
   const inlineTags = parseInlineTags(content);
-  const tags = [...new Set([...frontmatterTags, ...inlineTags])];
-  const aliases = parseAliasField(frontmatter.aliases as unknown);
-
-  return { frontmatter, content, frontmatterRaw, title, tags, aliases };
+  return [...new Set([...frontmatterTags, ...inlineTags])];
 }
 
 /**

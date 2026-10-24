@@ -303,6 +303,7 @@ describe('createMcpServer — tool dispatch', () => {
   });
 
   it('registers a tools/call handler that dispatches to read', async () => {
+    writeFileSync(path.join(vaultDir, 'tool-test.md'), 'Original %%knowledge%% for MCP read.');
     const runtime = await createMcpRuntime();
     const server = createMcpServer(runtime);
     const callHandler = getHandler(server, 'tools/call');
@@ -314,11 +315,12 @@ describe('createMcpServer — tool dispatch', () => {
     assert.equal(result.content.length, 1);
     assert.equal(result.content[0]?.type, 'text');
     const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
-      results: { path: string; found: boolean }[];
+      results: { path: string; found: boolean; content?: string }[];
     };
     assert.ok(Array.isArray(parsed.results));
     assert.equal(parsed.results[0]?.path, 'tool-test.md');
     assert.equal(parsed.results[0]?.found, true);
+    assert.equal(parsed.results[0]?.content, 'Original %%knowledge%% for MCP read.');
   });
 
   it('tools/call returns validation error for unknown tool', async () => {

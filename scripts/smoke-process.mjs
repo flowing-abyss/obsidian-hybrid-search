@@ -14,6 +14,8 @@ import { localModelEnv } from './run-command.mjs';
 
 const TIMEOUT = 180_000;
 const note = 'notes/Astronomy.md';
+const hidden = 'packagedhiddenneedle';
+const contentPattern = String.raw`/%%[\s\S]*?%%/g`;
 function assertSearch(results) {
   assert.ok(
     Array.isArray(results) && results.some((item) => item.path === note),
@@ -90,6 +92,10 @@ async function jsonLines(cli, env) {
         { id: 'search-17', query: 'astronomy', options: { mode: 'fulltext' } },
         (response) => assertSearch(response.results),
       ],
+      [
+        { id: 'hidden-18', query: hidden, options: { mode: 'fulltext' } },
+        (response) => assert.deepEqual(response.results, []),
+      ],
       [{ id: 'status-23', action: 'status' }, (response) => assertStatus(response.status)],
       [{ id: 'invalid-4', query: 27 }, (response) => assert.match(response.error, /Invalid/)],
     ]) {
@@ -130,6 +136,11 @@ async function checkMcp(transport) {
     const read = JSON.parse(await call('read', { paths: [note] }));
     assert.equal(read.results[0].path, note);
     assert.match(read.results[0].content, /planets/);
+    assert.ok(read.results[0].content.includes(hidden));
+    assert.deepEqual(
+      JSON.parse(await call('search', { query: hidden, mode: 'fulltext' })).results,
+      [],
+    );
     assertStatus(JSON.parse(await call('status', {})));
     const invalid = await client.callTool({ name: 'search', arguments: { query: 27 } });
     assert.equal(invalid.isError, true);
@@ -195,14 +206,13 @@ export async function smokeProcess(packageRoot, inheritedEnv = process.env) {
     OBSIDIAN_INCLUDE_PATTERNS: '',
     OBSIDIAN_IGNORE_PATTERNS: '.cache/**',
     OBSIDIAN_RESPECT_GITIGNORE: 'false',
+    OBSIDIAN_CONTENT_IGNORE_PATTERNS: '',
   };
   try {
     mkdirSync(path.join(root, 'notes'));
     mkdirSync(path.join(root, 'kitchen'));
-    writeFileSync(
-      path.join(root, note),
-      '---\ntags: [science, focus]\nstatus: active\n---\n# Astronomy\nAstronomy studies planets and stars in the universe. Telescopes observe distant planets and galaxies. See [[Stars]].\n',
-    );
+    const original = `---\ntags: [science, focus]\nstatus: active\n---\n# Astronomy\nAstronomy studies planets and stars in the universe. Telescopes observe distant planets and galaxies. See [[Stars]].\n%%${hidden}%%\n`;
+    writeFileSync(path.join(root, note), original);
     writeFileSync(
       path.join(root, 'notes/Stars.md'),
       '# Stars\nStars are luminous spheres of plasma. Astronomy studies their light, mass and life cycles across the universe.\n',
@@ -215,9 +225,9 @@ export async function smokeProcess(packageRoot, inheritedEnv = process.env) {
       path.join(root, 'kitchen/Bread.md'),
       '# Bread\nBread is baked with flour, water and yeast. Knead the dough and let it rise before baking in a hot kitchen oven.\n',
     );
-    const run = (args, json = true) => {
+    const run = (args, json = true, overrides = {}) => {
       const result = spawnSync(process.execPath, [cli, ...args], {
-        env,
+        env: { ...env, ...overrides },
         cwd: root,
         encoding: 'utf8',
         timeout: TIMEOUT,
@@ -254,6 +264,15 @@ export async function smokeProcess(packageRoot, inheritedEnv = process.env) {
     const read = run(['read', note, '--json']);
     assert.equal(read[0].path, note);
     assert.match(read[0].content, /planets/);
+    assertSearch(run(['search', hidden, '--mode', 'fulltext', '--json']));
+    env.OBSIDIAN_CONTENT_IGNORE_PATTERNS = contentPattern;
+    run(['reindex'], false);
+    assert.deepEqual(run(['search', hidden, '--mode', 'fulltext', '--json']), []);
+    assert.ok(run(['read', note, '--json'])[0].content.includes(hidden));
+    assert.equal(
+      run(['read', note, '--raw'], false, { OBSIDIAN_CONTENT_IGNORE_PATTERNS: '/[/g' }),
+      original,
+    );
     await jsonLines(cli, env);
     for (const args of [[cli, 'mcp'], [path.join(packageRoot, 'dist/src/server.js')]]) {
       await checkMcp(
@@ -261,6 +280,9 @@ export async function smokeProcess(packageRoot, inheritedEnv = process.env) {
       );
     }
     await http(cli, env);
+    env.OBSIDIAN_CONTENT_IGNORE_PATTERNS = '';
+    run(['reindex'], false);
+    assertSearch(run(['search', hidden, '--mode', 'fulltext', '--json']));
     console.log('installed CLI, JSON-lines, MCP stdio (both bins) and MCP HTTP smoke passed');
   } finally {
     rmSync(root, { recursive: true, force: true });

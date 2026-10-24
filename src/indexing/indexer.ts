@@ -3,18 +3,25 @@ import { createHash } from 'node:crypto';
 import { readdirSync, statSync, type Stats } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { chunkNote, createChunkBoundaryIndex, refineChunksToFit } from '../content/chunker.js';
+import {
+  chunkNote,
+  createChunkBoundaryIndex,
+  refineChunksToFit,
+  type Chunk,
+} from '../content/chunker.js';
+import { CONTENT_POLICY_IDENTITY, mapContentRange } from '../content/content-ignore.js';
 import {
   extractMarkdownReferences,
   resolveMarkdownNoteLinks,
 } from '../content/markdown-references.js';
-import { extractMarkdownNote, parseWikilinks } from '../content/note-extractor.js';
+import { extractMarkdownNote, extractNoteTags, parseWikilinks } from '../content/note-extractor.js';
 import { normalizeNotePath } from '../content/text-normalization.js';
 import {
   activeModelName,
   embedDetailed,
   getContextLength,
   getDocumentTokenPolicy,
+  prepareEmbeddingInput,
 } from '../inference/embedder.js';
 import { config } from '../runtime/config.js';
 import {
@@ -23,6 +30,7 @@ import {
   commitIndexedNote,
   deleteNote,
   getNoteMeta,
+  getStoredEmbeddingDim,
   hasIndexFailure,
   IndexStorageError,
   readIndexOwner,
@@ -37,6 +45,7 @@ import {
 import { IndexLeaseLostError } from '../storage/index-ownership.js';
 import {
   getExistingNotePathSet,
+  getReusableEmbeddings,
   readWikiCatalogRows,
   storePopulateMissingLinks,
   storePopulateMissingMarkdownReferences,
@@ -55,8 +64,23 @@ import {
   embedChunksWithRecovery,
   type EmbeddedChunk,
 } from './chunk-embedding.js';
-import { reportIndexProgress, type IndexRunContext } from './index-owner.js';
+import {
+  ContentFilterBatchCancelledError,
+  ContentFilterError,
+  type ContentFilter,
+} from './content-filter.js';
+import { reportIndexProgress, type IndexRunContext as OwnerRunContext } from './index-owner.js';
 import { retryIndexWrite } from './index-write.js';
+
+export interface IndexRunContext extends OwnerRunContext {
+  readonly contentFilter?: ContentFilter;
+  readonly contentPolicySignature?: string;
+  readonly reuseEmbeddings?: boolean;
+}
+
+export function contentPolicyForRun(run: IndexRunContext): string {
+  return run.contentPolicySignature ?? run.contentFilter?.signature ?? CONTENT_POLICY_IDENTITY;
+}
 
 export interface IndexResult {
   indexed: number;
@@ -108,6 +132,8 @@ async function indexBatch(
   force: boolean,
 ): Promise<IndexBatchResult> {
   const result: IndexBatchResult = { indexed: 0, skipped: 0, errors: [] };
+  const cancelled: string[] = [];
+  let filterFailed = false;
   const policy = createIgnorePolicyForFiles(files.map(toPhysicalRelativePath));
   const outcomes = await Promise.allSettled(
     files.map(async (file) => {
@@ -115,14 +141,34 @@ async function indexBatch(
       const status = await indexFile(run, file, contextLength, force, policy);
       if (status === 'indexed') result.indexed++;
       else if (status === 'skipped') result.skipped++;
-      else {
+      else if (status.cause instanceof ContentFilterBatchCancelledError) {
+        cancelled.push(file);
+        filterFailed = true;
+      } else {
         result.errors.push({ path: file, error: status.error });
+        if (status.cause instanceof ContentFilterError) filterFailed = true;
         if (status.cause instanceof IndexStorageError) result.storageError = status.cause;
       }
     }),
   );
   const failure = outcomes.find((outcome) => outcome.status === 'rejected');
+  if (
+    filterFailed ||
+    (failure?.status === 'rejected' && failure.reason instanceof ContentFilterError)
+  )
+    await run.contentFilter?.close();
   if (failure?.status === 'rejected') throw failure.reason;
+  if (cancelled.length) {
+    if (cancelled.length === files.length)
+      throw new Error('Content filtering could not start a preparation batch. Retry indexing.');
+    // Unattempted siblings are not failed sources. A fresh worker processes only
+    // those siblings after every request in the poisoned batch has settled.
+    const retried = await indexBatch(run, cancelled, contextLength, force);
+    result.indexed += retried.indexed;
+    result.skipped += retried.skipped;
+    result.errors.push(...retried.errors);
+    result.storageError ??= retried.storageError;
+  }
   return result;
 }
 
@@ -222,7 +268,7 @@ export function scanVault(
   } catch (error) {
     if (run && !run.signal.aborted && !(error instanceof IndexLeaseLostError)) {
       try {
-        recordIndexFailure(run.lease, '', 'scan', fileFingerprint(config.vaultPath), error);
+        recordIndexFailure(run.lease, '', 'scan', fileFingerprint(config.vaultPath, run), error);
       } catch (failure) {
         if (!(failure instanceof IndexLeaseLostError))
           console.error('[indexer] could not record scan failure:', failure);
@@ -238,6 +284,7 @@ export type PreparedFile =
       note: PreparedIndexNote;
       frontmatterRaw: string;
       modelName: string;
+      contentPolicySignature: string;
       fingerprint: { mtimeMs: number; size: number };
     }
   | { kind: 'unchanged'; path: string; mtime: number; updateMtime: boolean }
@@ -254,6 +301,7 @@ export async function prepareIndexFile(
   assertIndexRun(run);
   const relPath = toVaultRelativePath(fullPath);
   const modelName = activeModelName();
+  const contentPolicySignature = contentPolicyForRun(run);
   if (policy.isIgnored(relPath)) return { kind: 'ignored' };
   let stat: Stats;
   let raw: string;
@@ -275,14 +323,18 @@ export async function prepareIndexFile(
     throw error;
   }
   const hash = createHash('md5').update(raw).digest('hex');
-  const { frontmatter, content, frontmatterRaw, title, tags, aliases } = extractMarkdownNote(
-    raw,
-    path.basename(fullPath, '.md'),
-  );
+  const extracted = extractMarkdownNote(raw, path.basename(fullPath, '.md'));
+  const { frontmatter, frontmatterRaw, title, aliases } = extracted;
+  const projection = run.contentFilter
+    ? await run.contentFilter.project(extracted.content, { signal: run.signal })
+    : null;
+  const content = projection?.text ?? extracted.content;
+  const tags = projection?.segments ? extractNoteTags(content, frontmatter) : extracted.tags;
   const semanticChunks = chunkNote(content, contextLength).filter(
     (chunk) => chunk.text.trim().length > 0,
   );
   let embeddedChunks: EmbeddedChunk[] = [];
+  let embeddingContext: string | null = null;
   if (semanticChunks.length > 0) {
     assertIndexRun(run);
     const tokenPolicy = await getDocumentTokenPolicy();
@@ -296,22 +348,86 @@ export async function prepareIndexFile(
       config.chunkOverlap,
       boundaryIndex,
     );
-    embeddedChunks = await embedChunksWithRecovery({
-      source: content,
-      chunks,
-      boundaryIndex,
-      project,
-      embed: (texts) => {
-        assertIndexRun(run);
-        return embedDetailed(texts, 'document', { signal: run.signal });
-      },
-    });
+    const inputHashes = new WeakMap<Chunk, string>();
+    const rememberInput = (chunk: Chunk, input: string): void => {
+      inputHashes.set(
+        chunk,
+        createHash('sha256')
+          .update(JSON.stringify(prepareEmbeddingInput(input, 'document')))
+          .digest('hex'),
+      );
+    };
+    const inputContext = (prepared: readonly Chunk[]): string => {
+      const digest = createHash('sha256').update(
+        JSON.stringify([
+          'document-input-sha256-v2',
+          modelName,
+          config.apiBaseUrl,
+          tokenPolicy.limit,
+        ]),
+      );
+      for (const chunk of prepared) {
+        const fingerprint = inputHashes.get(chunk);
+        if (fingerprint === undefined) throw new Error('Prepared embedding input is missing');
+        digest.update(fingerprint);
+      }
+      return digest.digest('hex');
+    };
+    const dimension = run.reuseEmbeddings ? getStoredEmbeddingDim() : null;
+    const preparedInputs =
+      run.reuseEmbeddings && dimension !== null
+        ? chunks.map((chunk) => {
+            const input = project(chunk.text, chunk.headingChain);
+            rememberInput(chunk, input);
+            return input;
+          })
+        : undefined;
+    const candidateContext = preparedInputs ? inputContext(chunks) : null;
+    const reusable =
+      candidateContext !== null && dimension !== null
+        ? getReusableEmbeddings({
+            path: relPath,
+            hash,
+            title,
+            content,
+            modelName,
+            dimension,
+            embeddingContext: candidateContext,
+            chunks: chunks.map((chunk) => ({
+              text: chunk.text,
+              headingPath: chunk.headingChain.length ? chunk.headingChain.join(' > ') : null,
+            })),
+          })
+        : null;
+    embeddedChunks = reusable
+      ? chunks.map((chunk, index) => ({ chunk, embedding: reusable[index]! }))
+      : await embedChunksWithRecovery({
+          source: content,
+          chunks,
+          preparedInputs,
+          boundaryIndex,
+          project,
+          onPreparedInput: rememberInput,
+          embed: (texts) => {
+            assertIndexRun(run);
+            return embedDetailed(texts, 'document', { signal: run.signal });
+          },
+        });
+    // Recovery keeps each accepted leaf object, but may replace and reorder the
+    // initial chunks. Only an identical accepted sequence can use its earlier proof.
+    embeddingContext =
+      candidateContext !== null &&
+      embeddedChunks.length === chunks.length &&
+      embeddedChunks.every(({ chunk }, index) => chunk === chunks[index])
+        ? candidateContext
+        : inputContext(embeddedChunks.map(({ chunk }) => chunk));
   }
   assertIndexRun(run);
   return {
     kind: 'prepared',
     frontmatterRaw,
     modelName,
+    contentPolicySignature,
     fingerprint: { mtimeMs: stat.mtimeMs, size: stat.size },
     note: {
       path: relPath,
@@ -322,12 +438,14 @@ export async function prepareIndexFile(
       frontmatter,
       mtime: stat.mtimeMs,
       hash,
+      embeddingContext,
       chunks: embeddedChunks.map(({ chunk, embedding }) => ({
         text: chunk.text,
         headingPath: chunk.headingChain.length > 0 ? chunk.headingChain.join(' > ') : null,
         embedding,
-        charStart: chunk.charStart,
-        charEnd: chunk.charEnd,
+        ...(projection?.segments
+          ? mapContentRange(projection, chunk.charStart, chunk.charEnd)
+          : { charStart: chunk.charStart, charEnd: chunk.charEnd }),
       })),
     },
   };
@@ -396,12 +514,12 @@ export async function indexFile(
   force = false,
   policy?: Pick<IgnorePolicy, 'isIgnored'>,
 ): Promise<'indexed' | 'skipped' | { error: string; cause?: unknown }> {
-  let attemptedFingerprint = fileFingerprint(fullPath);
+  let attemptedFingerprint = fileFingerprint(fullPath, run);
   try {
     const preparationPolicy =
       policy ?? createIgnorePolicyForFiles([toPhysicalRelativePath(fullPath)]);
     for (let attempt = 0; attempt < 2; attempt++) {
-      attemptedFingerprint = fileFingerprint(fullPath);
+      attemptedFingerprint = fileFingerprint(fullPath, run);
       const prepared = await prepareIndexFile(
         run,
         fullPath,
@@ -468,7 +586,10 @@ export async function indexFile(
           commitIndexedNote(
             run.lease,
             prepared.note,
-            { modelName: prepared.modelName },
+            {
+              modelName: prepared.modelName,
+              contentPolicySignature: prepared.contentPolicySignature,
+            },
             resolvePreparedReferences(prepared.note, prepared.frontmatterRaw),
           );
           return 'indexed' as const;
@@ -483,6 +604,12 @@ export async function indexFile(
     );
   } catch (error) {
     if (run.signal.aborted || error instanceof IndexLeaseLostError) throw error;
+    if (error instanceof ContentFilterBatchCancelledError)
+      return { error: error.message, cause: error };
+    if (error instanceof ContentFilterError && error.scope === 'worker') {
+      recordIndexFailure(run.lease, '', 'content-filter', attemptedFingerprint, error);
+      throw error;
+    }
     recordFileFailure(run, fullPath, attemptedFingerprint, error);
     if (process.env.LOG_LEVEL === 'debug')
       console.error('[indexer] error indexing', fullPath, error);
@@ -510,7 +637,7 @@ export async function indexFileWithRecovery(
   contextLength: number,
   force = false,
   recoverDatabase?: () => void,
-): Promise<'indexed' | 'skipped' | { error: string }> {
+): Promise<'indexed' | 'skipped' | { error: string; cause?: unknown }> {
   const result = await indexFile(run, fullPath, contextLength, force);
   if (typeof result !== 'object' || !(result.cause instanceof IndexStorageError)) return result;
   process.stderr.write(
@@ -616,7 +743,7 @@ function scanAndCleanup(run: IndexRunContext): { files: string[]; policy: Ignore
       (error.code === 'SQLITE_BUSY' || error.code === 'SQLITE_LOCKED');
     if (!busy && !run.signal.aborted && !(error instanceof IndexLeaseLostError)) {
       try {
-        recordIndexFailure(run.lease, '', operation, fileFingerprint(config.vaultPath), error);
+        recordIndexFailure(run.lease, '', operation, fileFingerprint(config.vaultPath, run), error);
       } catch (failure) {
         if (!(failure instanceof IndexLeaseLostError))
           console.error('[indexer] could not record reconciliation failure:', failure);
@@ -770,7 +897,7 @@ export async function indexVaultSync(
   return result;
 }
 
-function fileFingerprint(fullPath: string): string {
+function fileFingerprint(fullPath: string, run: IndexRunContext): string {
   let fingerprint = 'missing';
   try {
     const stat = statSync(fullPath);
@@ -778,7 +905,7 @@ function fileFingerprint(fullPath: string): string {
   } catch {
     /* Missing paths retry when created. */
   }
-  return `${activeModelName()}:${config.apiBaseUrl}:${fingerprint}`;
+  return `${activeModelName()}:${config.apiBaseUrl}:${contentPolicyForRun(run)}:${fingerprint}`;
 }
 
 interface IndexQueue {
@@ -865,7 +992,8 @@ async function processQueue(run: IndexRunContext, contextLength: number): Promis
         for (const file of batch) queue.paths.delete(file);
         publishProgress(run, queue);
         const retryable = batch.filter(
-          (file) => !hasIndexFailure(toVaultRelativePath(file), 'index', fileFingerprint(file)),
+          (file) =>
+            !hasIndexFailure(toVaultRelativePath(file), 'index', fileFingerprint(file, run)),
         );
         const result = await indexBatchWithRecovery(run, retryable, contextLength, false);
         failed += batch.length - retryable.length;
@@ -1113,7 +1241,7 @@ export function startWatcher(contextLength: number, run: IndexRunContext): Watch
             }
             if (!filePath.endsWith('.md')) return;
             const rel = toVaultRelativePath(filePath);
-            if (hasIndexFailure(rel, 'delete', fileFingerprint(filePath))) return;
+            if (hasIndexFailure(rel, 'delete', fileFingerprint(filePath, run))) return;
             const existing = fileDelays.get(filePath);
             if (existing) {
               clearTimeout(existing);
@@ -1147,7 +1275,7 @@ export function startWatcher(contextLength: number, run: IndexRunContext): Watch
                 run.lease,
                 toVaultRelativePath(filePath),
                 'delete',
-                fileFingerprint(filePath),
+                fileFingerprint(filePath, run),
                 err,
               );
             } catch (failure) {

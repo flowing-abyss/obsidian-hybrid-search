@@ -50,6 +50,10 @@
           "description": "Comma-separated patterns to re-include notes ignored only by Git ignore rules."
         },
         {
+          "name": "OBSIDIAN_CONTENT_IGNORE_PATTERNS",
+          "description": "Comma-separated regex rules for note body text to leave out of search, e.g. /%%[\\s\\S]*?%%/g. Original files and read stay unchanged."
+        },
+        {
           "name": "OPENAI_API_KEY",
           "description": "Optional API key for OpenAI-compatible remote embeddings; omit to use local embeddings.",
           "isSecret": true

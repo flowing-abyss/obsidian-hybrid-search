@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
 import * as sqliteVec from 'sqlite-vec';
 import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
+import { CONTENT_POLICY_IDENTITY, type SourcePart } from '../content/content-ignore.js';
 import { normalizeNotePath, normalizeTag } from '../content/text-normalization.js';
 import { config } from '../runtime/config.js';
 import { getIgnoreSignature, isIgnored } from '../vault/ignore.js';
@@ -304,6 +305,9 @@ function runMigrations(db: DB): void {
   if (!cols.some((c) => c.name === 'frontmatter')) {
     db.exec("ALTER TABLE notes ADD COLUMN frontmatter TEXT NOT NULL DEFAULT ''");
   }
+  if (!cols.some((c) => c.name === 'embedding_context')) {
+    db.exec('ALTER TABLE notes ADD COLUMN embedding_context TEXT');
+  }
 
   const chunkCols = db.prepare('PRAGMA table_info(chunks)').all() as { name: string }[];
   if (!chunkCols.some((c) => c.name === 'embedding_status')) {
@@ -314,6 +318,9 @@ function runMigrations(db: DB): void {
   }
   if (!chunkCols.some((c) => c.name === 'char_end')) {
     db.exec('ALTER TABLE chunks ADD COLUMN char_end INTEGER');
+  }
+  if (!chunkCols.some((c) => c.name === 'source_spans')) {
+    db.exec('ALTER TABLE chunks ADD COLUMN source_spans TEXT');
   }
 
   // Partial index for fast --errors lookups (only indexes failed rows)
@@ -784,23 +791,35 @@ export interface PreparedIndexNote {
   frontmatter?: Record<string, unknown>;
   mtime: number;
   hash: string;
+  embeddingContext?: string | null;
   chunks: {
     text: string;
     headingPath?: string | null;
     embedding: Float32Array | null;
     charStart?: number | null;
     charEnd?: number | null;
+    sourceSpans?: readonly SourcePart[] | null;
   }[];
 }
 
 export function upsertNote(
   lease: IndexLease,
   note: PreparedIndexNote,
-  context?: { modelName: string },
+  context?: { modelName: string; contentPolicySignature?: string },
 ): void {
   return withIndexMutation(lease, () => {
     const db = getDb();
     const write = db.transaction(() => {
+      const desiredPolicy = context?.contentPolicySignature ?? CONTENT_POLICY_IDENTITY;
+      const policyMismatch = context && getActiveContentPolicySignature() !== desiredPolicy;
+      const empty =
+        policyMismatch &&
+        !db.prepare('SELECT 1 FROM notes LIMIT 1').get() &&
+        !db.prepare('SELECT 1 FROM chunks LIMIT 1').get();
+      if (policyMismatch && !empty)
+        throw new Error(
+          'Content policy mismatch. Existing index preserved; restart with the intended configuration or reindex.',
+        );
       const storedModel = getStoredModel();
       if (storedModel && context && storedModel !== context.modelName) {
         throw new Error(
@@ -851,7 +870,7 @@ export function upsertNote(
 
         db.prepare(
           `
-      UPDATE notes SET title = ?, tags = ?, aliases = ?, content = ?, frontmatter = ?, mtime = ?, hash = ?
+      UPDATE notes SET title = ?, tags = ?, aliases = ?, content = ?, frontmatter = ?, mtime = ?, hash = ?, embedding_context = ?
       WHERE path = ?
     `,
         ).run(
@@ -862,6 +881,7 @@ export function upsertNote(
           fmString,
           note.mtime,
           note.hash,
+          note.embeddingContext ?? null,
           note.path,
         );
 
@@ -878,8 +898,8 @@ export function upsertNote(
         const result = db
           .prepare(
             `
-      INSERT INTO notes (path, title, tags, aliases, content, frontmatter, mtime, hash)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO notes (path, title, tags, aliases, content, frontmatter, mtime, hash, embedding_context)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
           )
           .run(
@@ -891,6 +911,7 @@ export function upsertNote(
             fmString,
             note.mtime,
             note.hash,
+            note.embeddingContext ?? null,
           );
 
         const noteId = result.lastInsertRowid as number;
@@ -906,29 +927,24 @@ export function upsertNote(
           context.modelName,
         );
       }
+      if (empty)
+        db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES ('content_policy',?)").run(
+          desiredPolicy,
+        );
     });
     write.immediate();
   });
 }
 
-function insertChunks(
-  db: DB,
-  noteId: number,
-  chunks: {
-    text: string;
-    headingPath?: string | null;
-    embedding: Float32Array | null;
-    charStart?: number | null;
-    charEnd?: number | null;
-  }[],
-): void {
+function insertChunks(db: DB, noteId: number, chunks: PreparedIndexNote['chunks']): void {
   const insertChunk = db.prepare(
-    'INSERT INTO chunks (note_id, chunk_index, text, heading_path, embedding_status, char_start, char_end) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO chunks (note_id, chunk_index, text, heading_path, embedding_status, char_start, char_end, source_spans) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   );
   const insertVec = db.prepare('INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)');
 
   for (let i = 0; i < chunks.length; i++) {
-    const { text, headingPath, embedding, charStart, charEnd } = chunks[i]!;
+    const { text, headingPath, embedding, charStart, charEnd, sourceSpans } = chunks[i]!;
+    validateChunkSourceSpans(chunks[i]!);
     const status = embedding !== null ? 'ok' : 'failed';
     const result = insertChunk.run(
       noteId,
@@ -938,6 +954,7 @@ function insertChunks(
       status,
       charStart ?? null,
       charEnd ?? null,
+      sourceSpans ? JSON.stringify(sourceSpans) : null,
     );
     if (embedding !== null) {
       // sqlite-vec vec0 requires INTEGER (BigInt), not REAL (JS number)
@@ -945,6 +962,46 @@ function insertChunks(
       insertVec.run(chunkId, embedding);
     }
   }
+}
+
+/** Validate persisted discontiguous anchors without retaining a second source body. */
+export function validateChunkSourceSpans(chunk: PreparedIndexNote['chunks'][number]): void {
+  const spans = chunk.sourceSpans;
+  if (spans == null) return;
+  const { charStart, charEnd, text } = chunk;
+  const invalid = () => new Error('Invalid chunk source spans; existing index preserved.');
+  if (
+    !Array.isArray(spans) ||
+    !Number.isInteger(charStart) ||
+    !Number.isInteger(charEnd) ||
+    charStart == null ||
+    charEnd == null ||
+    charStart < 0 ||
+    charEnd <= charStart
+  )
+    throw invalid();
+  let previous = charStart;
+  let length = 0;
+  for (const span of spans) {
+    if (span === ' ' || span === '\n') {
+      if (text[length] !== span) throw invalid();
+      length++;
+    } else {
+      if (
+        !Array.isArray(span) ||
+        span.length !== 2 ||
+        !Number.isInteger(span[0]) ||
+        !Number.isInteger(span[1]) ||
+        span[0]! < previous ||
+        span[1]! <= span[0]! ||
+        span[1]! > charEnd
+      )
+        throw invalid();
+      length += span[1]! - span[0]!;
+      previous = Number(span[1]);
+    }
+  }
+  if (length === 0 || length !== text.length) throw invalid();
 }
 
 /**
@@ -1602,6 +1659,13 @@ export function getStoredModel(): string | null {
   return row?.value ?? null;
 }
 
+export function getActiveContentPolicySignature(): string {
+  return (
+    (getDb().prepare("SELECT value FROM settings WHERE key='content_policy'").pluck().get() as
+      string | undefined) ?? CONTENT_POLICY_IDENTITY
+  );
+}
+
 export interface NoteReferences {
   links: string[];
   markdownLinks: string[];
@@ -1622,7 +1686,7 @@ export function clearIndexFailures(lease: IndexLease, notePath: string, operatio
 export function commitIndexedNote(
   lease: IndexLease,
   note: PreparedIndexNote,
-  context: { modelName: string },
+  context: { modelName: string; contentPolicySignature?: string },
   references: NoteReferences,
 ): void {
   withIndexMutation(lease, () => {
@@ -1680,6 +1744,7 @@ export function repairIndexIntegrity(lease: IndexLease): {
 export interface RebuildTarget {
   modelName: string;
   embeddingDim: number;
+  contentPolicySignature?: string;
   metadata: { vaultPath: string; apiBaseUrl: string; apiModel: string };
 }
 
@@ -1702,7 +1767,7 @@ export function replaceActiveIndex(
     db.prepare("DELETE FROM settings WHERE key IN ('embedding_model','embedding_dim')").run();
     initVecTable(lease, target.embeddingDim);
     const insert = db.prepare(
-      'INSERT INTO notes(path,title,tags,aliases,content,frontmatter,mtime,hash) VALUES(?,?,?,?,?,?,?,?)',
+      'INSERT INTO notes(path,title,tags,aliases,content,frontmatter,mtime,hash,embedding_context) VALUES(?,?,?,?,?,?,?,?,?)',
     );
     const link = db.prepare('INSERT OR IGNORE INTO links(from_path,to_path) VALUES(?,?)');
     const markdown = db.prepare(
@@ -1721,6 +1786,7 @@ export function replaceActiveIndex(
           note.frontmatter ? yamlStringify(note.frontmatter) : '',
           note.mtime,
           note.hash,
+          note.embeddingContext ?? null,
         ).lastInsertRowid,
       );
       replaceNoteAliases(db, id, aliases);
@@ -1734,6 +1800,7 @@ export function replaceActiveIndex(
     }
     const setting = db.prepare('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)');
     setting.run('embedding_model', target.modelName);
+    setting.run('content_policy', target.contentPolicySignature ?? CONTENT_POLICY_IDENTITY);
     setting.run('db_version', String(version + 1));
     saveConfigMeta(lease, target.metadata);
     updateLastIndexed(lease);

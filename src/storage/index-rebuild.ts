@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { CONTENT_POLICY_IDENTITY } from '../content/content-ignore.js';
 import { extractMarkdownNote } from '../content/note-extractor.js';
 import {
   getDb,
   replaceActiveIndex,
+  validateChunkSourceSpans,
   withIndexMutation,
   type NoteReferences,
   type PreparedIndexNote,
@@ -41,6 +43,7 @@ export function stageRebuildNote(
   note: PreparedIndexNote,
   frontmatterRaw: string,
   fingerprint: { mtimeMs: number; size: number },
+  contentPolicySignature: string,
 ): void {
   withIndexMutation(lease, () => {
     const db = getDb();
@@ -48,7 +51,12 @@ export function stageRebuildNote(
       { target_json: string } | undefined;
     if (!row) throw new Error('Rebuild no longer exists');
     const target = JSON.parse(row.target_json) as RebuildTarget;
+    if (contentPolicySignature !== (target.contentPolicySignature ?? CONTENT_POLICY_IDENTITY))
+      throw new Error(
+        'Content policy changed during rebuild preparation; existing index preserved.',
+      );
     for (const chunk of note.chunks) {
+      validateChunkSourceSpans(chunk);
       if (
         !chunk.embedding ||
         chunk.embedding.length !== target.embeddingDim ||
