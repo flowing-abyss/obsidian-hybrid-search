@@ -1,4 +1,5 @@
 import { ChildProcess } from 'node:child_process';
+import { getEventListeners } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -90,6 +91,36 @@ describe('bounded content filtering', () => {
     expect(workers()).toHaveLength(1);
     expect(workers()[0]!.heapLimit).toBeLessThan(400 * 1024 * 1024);
   });
+
+  it.each([false, true])(
+    'shares one owner listener across a full worker batch with cancel=%s',
+    async (cancel) => {
+      const filter = client();
+      const owner = new AbortController();
+      const unrelated = [vi.fn(), vi.fn()];
+      for (const listener of unrelated) owner.signal.addEventListener('abort', listener);
+      const baseline = getEventListeners(owner.signal, 'abort').length;
+      const pending = Promise.allSettled(
+        Array.from({ length: 10 }, (_, index) =>
+          filter.project(`${index} secret visible`, { signal: owner.signal }),
+        ),
+      );
+      try {
+        expect(getEventListeners(owner.signal, 'abort')).toHaveLength(baseline + 1);
+        if (cancel) owner.abort(new Error('Owner left'));
+        const results = await pending;
+        expect(
+          results.every((result) => result.status === (cancel ? 'rejected' : 'fulfilled')),
+        ).toBe(true);
+        expect(getEventListeners(owner.signal, 'abort')).toHaveLength(baseline);
+        if (!cancel) owner.abort();
+        for (const listener of unrelated) expect(listener).toHaveBeenCalledOnce();
+      } finally {
+        await filter.close();
+        await pending;
+      }
+    },
+  );
 
   it('times out a real catastrophic expression while the parent remains responsive', async () => {
     const filter = client('/(a+)+$/', { jobTimeoutMs: 100 });

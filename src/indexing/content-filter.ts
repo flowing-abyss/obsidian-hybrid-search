@@ -43,7 +43,6 @@ interface ProjectionJob {
   signal: AbortSignal;
   resolve(value: ContentProjection): void;
   reject(error: Error): void;
-  abort: () => void;
   settled: boolean;
 }
 
@@ -73,6 +72,10 @@ class WorkerContentFilter implements ContentFilter {
   private pending: PendingRequest | null = null;
   private active: ProjectionJob | null = null;
   private readonly queue: ProjectionJob[] = [];
+  private readonly abortGroups = new Map<
+    AbortSignal,
+    { jobs: Set<ProjectionJob>; abort: () => void }
+  >();
   private initialized = false;
   private running = false;
   private closed = false;
@@ -110,9 +113,18 @@ class WorkerContentFilter implements ContentFilter {
         resolve,
         reject,
         settled: false,
-        abort: () => this.cancel(job),
       };
-      signal.addEventListener('abort', job.abort, { once: true });
+      let group = this.abortGroups.get(signal);
+      if (!group) {
+        const jobs = new Set<ProjectionJob>();
+        const abort = () => {
+          for (const pending of [...jobs]) this.cancel(pending);
+        };
+        group = { jobs, abort };
+        this.abortGroups.set(signal, group);
+        signal.addEventListener('abort', abort, { once: true });
+      }
+      group.jobs.add(job);
       this.queue.push(job);
       this.pump();
     });
@@ -128,7 +140,12 @@ class WorkerContentFilter implements ContentFilter {
   private settle(job: ProjectionJob, error: Error | null, value?: ContentProjection): void {
     if (job.settled) return;
     job.settled = true;
-    job.signal.removeEventListener('abort', job.abort);
+    const group = this.abortGroups.get(job.signal)!;
+    group.jobs.delete(job);
+    if (group.jobs.size === 0) {
+      job.signal.removeEventListener('abort', group.abort);
+      this.abortGroups.delete(job.signal);
+    }
     if (error) job.reject(error);
     else job.resolve(value!);
   }
