@@ -42,6 +42,23 @@ describe('content pattern literals', () => {
     ]);
   });
 
+  it.each(['/[[]/v,/abc]/g', '/[[]/v/]/g'])(
+    'does not swallow rule boundaries after an inconsistent Unicode-set scan %s',
+    (raw) => {
+      expect(() => parseContentIgnorePatterns(raw)).toThrow(
+        /OBSIDIAN_CONTENT_IGNORE_PATTERNS.*rule 1/,
+      );
+    },
+  );
+
+  it('parses a nested Unicode-set rule followed by ordinary rules', () => {
+    expect(parseContentIgnorePatterns(String.raw`/[a&&[b\/c]]/v,/second/g,/third/`)).toEqual([
+      { source: String.raw`[a&&[b\/c]]`, flags: 'v' },
+      { source: 'second', flags: 'g' },
+      { source: 'third', flags: '' },
+    ]);
+  });
+
   it.each([
     '/a/gg',
     '/a/uv',

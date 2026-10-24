@@ -1,3 +1,4 @@
+import { ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -114,6 +115,8 @@ describe('bounded content filtering', () => {
       filter.project('Other source', { signal }),
     ]);
     expect(results.map((result) => result.status)).toEqual(['rejected', 'rejected']);
+    expect(results[0]).toMatchObject({ reason: { name: 'ContentFilterError', scope: 'job' } });
+    expect(results[1]).toMatchObject({ reason: { name: 'ContentFilterBatchCancelledError' } });
     await expect(filter.project('Later source', { signal })).rejects.toThrow(/content/i);
     expect(workers()).toHaveLength(1);
     const recovered = client('/secret/g');
@@ -137,9 +140,12 @@ describe('bounded content filtering', () => {
   it('bounds worker startup separately from projection execution', async () => {
     vi.stubEnv('OHS_CONTENT_FILTER_MODE', 'hang-init');
     const filter = client('/secret/g', { startupTimeoutMs: 1000, jobTimeoutMs: 20 });
-    await expect(
-      filter.project('secret', { signal: new AbortController().signal }),
-    ).rejects.toThrow(/content.*initializ.*timed out/i);
+    const pending = filter.project('secret', { signal: new AbortController().signal });
+    await expect(pending).rejects.toMatchObject({
+      name: 'ContentFilterError',
+      scope: 'worker',
+    });
+    await expect(pending).rejects.toThrow(/content.*initializ.*timed out/i);
     await filter.close();
     expect(workers()).toHaveLength(1);
   });
@@ -214,6 +220,63 @@ describe('bounded content filtering', () => {
       filter.project('secret', { signal: new AbortController().signal }),
     ).rejects.toThrow(/closed|stopped/i);
     expect(workers()).toEqual([]);
+  });
+
+  it('reports a failed kill and retains the real child for a later confirmed reap', async () => {
+    const filter = client();
+    await filter.project('visible source', { signal: new AbortController().signal });
+    const pid = workers()[0]!.pid;
+    const kill = vi.spyOn(ChildProcess.prototype, 'kill').mockReturnValue(false);
+    try {
+      await expect(filter.close()).rejects.toThrow(/terminat|exit|kill/i);
+      expect(() => process.kill(pid, 0)).not.toThrow();
+      kill.mockRestore();
+      await filter.close();
+      expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));
+    } finally {
+      kill.mockRestore();
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        /* Already reaped. */
+      }
+      await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), { timeout: 2000 });
+    }
+  });
+
+  it('releases the handle and process exit listener after a real OS spawn failure', async () => {
+    const baseline = process.listenerCount('exit');
+    const filter = client('/secret/g', {
+      execPath: path.join(directory, 'missing-node-executable'),
+    });
+    await expect(
+      filter.project('visible source', { signal: new AbortController().signal }),
+    ).rejects.toThrow(/worker failed/i);
+    await filter.close();
+    expect(process.listenerCount('exit')).toBe(baseline);
+    expect(workers()).toEqual([]);
+  });
+
+  it('accepts actual exit when kill reports a concurrent exit race', async () => {
+    const filter = client();
+    await filter.project('visible source', { signal: new AbortController().signal });
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- invoked with its original child receiver below
+    const original = ChildProcess.prototype.kill;
+    const kill = vi.spyOn(ChildProcess.prototype, 'kill').mockImplementation(function (
+      this: ChildProcess,
+      signal,
+    ) {
+      original.call(this, signal);
+      return false;
+    });
+    try {
+      await filter.close();
+      expect(() => process.kill(workers()[0]!.pid, 0)).toThrow(
+        expect.objectContaining({ code: 'ESRCH' }),
+      );
+    } finally {
+      kill.mockRestore();
+    }
   });
 
   it('runs the compiled worker without the development loader', async () => {

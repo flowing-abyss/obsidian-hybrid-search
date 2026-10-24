@@ -19,6 +19,7 @@ import { createIgnorePolicy } from '../vault/ignore.js';
 import { reportIndexProgress } from './index-owner.js';
 import { retryIndexWrite } from './index-write.js';
 import {
+  contentPolicyForRun,
   createPreparedReferenceResolver,
   prepareIndexFile,
   scanVault,
@@ -30,14 +31,28 @@ import {
 export async function rebuildIndex(
   run: IndexRunContext,
   contextLength: number,
+  options: { reason?: 'force' | 'content-policy' } = {},
 ): Promise<IndexResult> {
   const previousDimension = getStoredEmbeddingDim();
   let staged = false;
   try {
-    const dimension = await getEmbeddingDim({ refresh: true, signal: run.signal });
+    const policyOnly = options.reason === 'content-policy';
+    const dimension =
+      policyOnly && previousDimension !== null
+        ? previousDimension
+        : await getEmbeddingDim({ refresh: true, signal: run.signal });
+    primeEmbeddingDim(dimension);
+    const preparationRun: IndexRunContext = {
+      ...run,
+      get contentFilter() {
+        return run.contentFilter;
+      },
+      reuseEmbeddings: policyOnly,
+    };
     const id = beginRebuild(run.lease, {
       modelName: activeModelName(),
       embeddingDim: dimension,
+      contentPolicySignature: contentPolicyForRun(run),
       metadata: {
         vaultPath: config.vaultPath,
         apiBaseUrl: config.apiBaseUrl,
@@ -69,7 +84,13 @@ export async function rebuildIndex(
             }
             if (existing && existing.mtime === current.mtimeMs && existing.size === current.size)
               return;
-            const prepared = await prepareIndexFile(run, file, contextLength, policy, true);
+            const prepared = await prepareIndexFile(
+              preparationRun,
+              file,
+              contextLength,
+              policy,
+              true,
+            );
             if (prepared.kind === 'prepared')
               stageRebuildNote(
                 run.lease,

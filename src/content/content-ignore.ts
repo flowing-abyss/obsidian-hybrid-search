@@ -3,6 +3,8 @@ export interface ContentIgnorePattern {
   readonly flags: string;
 }
 
+export const CONTENT_POLICY_IDENTITY = 'none';
+
 export type SourcePart = readonly [start: number, end: number] | ' ' | '\n';
 
 interface ProjectionSegment {
@@ -63,6 +65,8 @@ function readPattern(raw: string, start: number, rule: number) {
     closing = findClosingSlash(raw, start, true);
     if (closing === -1) throw patternError(rule, start, 'missing closing Unicode-set class');
     tail = readFlags(raw, closing + 1);
+    if (!tail.flags.includes('v'))
+      throw patternError(rule, start, 'inconsistent Unicode-set delimiter or flags');
   }
   const source = raw.slice(start + 1, closing);
   try {

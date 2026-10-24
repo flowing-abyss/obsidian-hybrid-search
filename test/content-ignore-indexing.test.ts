@@ -227,6 +227,15 @@ it('maps accepted provider recovery leaves against the original Unicode and CRLF
   }
 });
 
+it('persists separator-only recovery leaves without inventing retained source characters', async () => {
+  inputLimit = 120;
+  const source = 'A%%hidden%%B';
+  await index({ 'separator.md': `---\ntitle: ${'T'.repeat(118)}\n---\n${source}` });
+  const rows = assertSourceMap('separator.md', source);
+  assert.ok(rows.some((row) => row.text === ' ' && row.source_spans === '[" "]'));
+  assert.equal(rows.map((row) => row.text).join(''), 'A B');
+});
+
 it('removes a large generated drawing payload before chunking and keeps no-match text exact', async () => {
   const source = `Visible planetary caption.\n%%${'drawing-data,'.repeat(Math.ceil((16 * 1024 * 1024) / 13))}%%\nVisible end.`;
   await index({ 'drawing.md': source, 'no-match.md': 'Visible unchanged 😀\r\nSecond paragraph.' });

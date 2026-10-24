@@ -145,3 +145,81 @@ it('rejects malformed spans before replacing valid active chunks', () => {
   assert.equal(db.getNoteByPath('old.md')?.content, 'old.md');
   assert.equal(db.getDb().prepare('SELECT text FROM chunks').pluck().get(), 'old.md');
 });
+
+it('publishes legitimate separator-only spans but rejects malformed staged spans', () => {
+  const projected = note('separator.md');
+  projected.content = ' ';
+  projected.chunks[0] = {
+    text: ' ',
+    charStart: 1,
+    charEnd: 11,
+    sourceSpans: [' '],
+    embedding: new Float32Array(3).fill(0.5),
+  };
+  const rebuild = stage.beginRebuild(lease, {
+    modelName: 'old',
+    embeddingDim: 3,
+    metadata: { vaultPath: vault, apiBaseUrl: '', apiModel: '' },
+  });
+  stage.stageRebuildNote(lease, rebuild, projected, '', { mtimeMs: 1, size: 12 });
+  stage.setRebuildReferences(lease, rebuild, projected.path, references);
+  for (const spans of [
+    [],
+    [[4, 2]],
+    [[0, 7]],
+    [
+      [0, 3],
+      [2, 5],
+    ],
+    [[0.5, 6.5]],
+    [' '],
+  ] as NonNullable<PreparedIndexNote['chunks'][number]['sourceSpans']>[]) {
+    const invalid = note('invalid.md');
+    invalid.chunks[0]!.sourceSpans = spans;
+    assert.throws(
+      () => stage.stageRebuildNote(lease, rebuild, invalid, '', { mtimeMs: 1, size: 6 }),
+      /source spans/i,
+    );
+  }
+  stage.publishRebuild(lease, rebuild);
+  assert.deepEqual(
+    db.getDb().prepare('SELECT text,char_start,char_end,source_spans FROM chunks').get(),
+    { text: ' ', char_start: 1, char_end: 11, source_spans: '[" "]' },
+  );
+});
+
+it('publishes the policy with its snapshot and fences incompatible ordinary writers', () => {
+  const before = db.getDbVersion();
+  assert.throws(
+    () =>
+      db.commitIndexedNote(
+        lease,
+        note('new.md'),
+        { modelName: 'old', contentPolicySignature: 'filtered-policy' },
+        references,
+      ),
+    /content policy/i,
+  );
+  assert.equal(db.getDbVersion(), before);
+  const rebuild = stage.beginRebuild(lease, {
+    modelName: 'old',
+    embeddingDim: 3,
+    contentPolicySignature: 'filtered-policy',
+    metadata: { vaultPath: vault, apiBaseUrl: '', apiModel: '' },
+  });
+  stage.stageRebuildNote(lease, rebuild, note('new.md'), '', { mtimeMs: 1, size: 6 });
+  stage.setRebuildReferences(lease, rebuild, 'new.md', references);
+  stage.publishRebuild(lease, rebuild);
+  assert.equal(db.getActiveContentPolicySignature(), 'filtered-policy');
+  assert.throws(
+    () =>
+      db.commitIndexedNote(
+        lease,
+        note('new.md'),
+        { modelName: 'old', contentPolicySignature: 'none' },
+        references,
+      ),
+    /content policy/i,
+  );
+  assert.equal(db.getNoteByPath('new.md')?.content, 'new.md');
+});

@@ -1,11 +1,68 @@
 import {
   getDb,
+  getStoredModel,
+  hasVecTable,
   upsertLinks,
   upsertMarkdownLinks,
   upsertNoteUrls,
   withIndexMutation,
 } from './db.js';
 import type { IndexLease } from './index-ownership.js';
+
+/** Policy-only reuse requires an exact prepared-input proof, not just equal source hashes. */
+export function getReusableEmbeddings(request: {
+  path: string;
+  hash: string;
+  title: string;
+  content: string;
+  embeddingContext: string;
+  modelName: string;
+  dimension: number;
+  chunks: readonly { text: string; headingPath: string | null }[];
+}): Float32Array[] | null {
+  if (!hasVecTable() || getStoredModel() !== request.modelName) return null;
+  const db = getDb();
+  const note = db
+    .prepare(
+      'SELECT id FROM notes WHERE path=? AND hash=? AND title=? AND content=? AND embedding_context=?',
+    )
+    .get(request.path, request.hash, request.title, request.content, request.embeddingContext) as
+    { id: number } | undefined;
+  if (!note) return null;
+  const rows = db
+    .prepare(
+      `SELECT c.text,c.heading_path,c.embedding_status,v.embedding FROM chunks c
+    LEFT JOIN vec_chunks v ON v.chunk_id=c.id WHERE c.note_id=? ORDER BY c.chunk_index`,
+    )
+    .all(note.id) as Array<{
+    text: string;
+    heading_path: string | null;
+    embedding_status: string;
+    embedding: Buffer | null;
+  }>;
+  if (rows.length !== request.chunks.length) return null;
+  const vectors: Float32Array[] = [];
+  for (const [index, row] of rows.entries()) {
+    const chunk = request.chunks[index]!;
+    if (
+      row.text !== chunk.text ||
+      row.heading_path !== chunk.headingPath ||
+      row.embedding_status !== 'ok' ||
+      !row.embedding ||
+      row.embedding.byteLength !== request.dimension * 4
+    )
+      return null;
+    const vector = new Float32Array(
+      row.embedding.buffer.slice(
+        row.embedding.byteOffset,
+        row.embedding.byteOffset + row.embedding.byteLength,
+      ),
+    );
+    if (!vector.every(Number.isFinite)) return null;
+    vectors.push(vector);
+  }
+  return vectors;
+}
 
 function bumpGraphVersion(): void {
   getDb()

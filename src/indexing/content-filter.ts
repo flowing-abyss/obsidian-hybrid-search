@@ -1,6 +1,10 @@
 import { fork, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import type { ContentIgnorePattern, ContentProjection } from '../content/content-ignore.js';
+import {
+  CONTENT_POLICY_IDENTITY,
+  type ContentIgnorePattern,
+  type ContentProjection,
+} from '../content/content-ignore.js';
 import { config } from '../runtime/config.js';
 import { isContentProjection, type ContentFilterRequest } from './content-filter-protocol.js';
 
@@ -10,8 +14,26 @@ export interface ContentFilter {
   close(): Promise<void>;
 }
 
+export class ContentFilterError extends Error {
+  constructor(
+    error: Error,
+    readonly scope: 'job' | 'worker',
+  ) {
+    super(error.message, { cause: error });
+    this.name = 'ContentFilterError';
+  }
+}
+
+export class ContentFilterBatchCancelledError extends Error {
+  constructor(error: Error) {
+    super('Content filtering batch cancelled before this source was processed', { cause: error });
+    this.name = 'ContentFilterBatchCancelledError';
+  }
+}
+
 interface FilterOptions {
   workerUrl?: URL;
+  execPath?: string;
   startupTimeoutMs?: number;
   jobTimeoutMs?: number;
 }
@@ -36,8 +58,8 @@ function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error('Content filtering stopped', { cause: error });
 }
 
-function policySignature(patterns: readonly ContentIgnorePattern[]): string {
-  if (!patterns.length) return 'none';
+export function policySignature(patterns: readonly ContentIgnorePattern[]): string {
+  if (!patterns.length) return CONTENT_POLICY_IDENTITY;
   const canonical = [
     ...new Set(patterns.map(({ source, flags }) => JSON.stringify([source, flags]))),
   ].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
@@ -47,6 +69,7 @@ function policySignature(patterns: readonly ContentIgnorePattern[]): string {
 class WorkerContentFilter implements ContentFilter {
   readonly signature: string;
   private child: ChildProcess | null = null;
+  private childExit: Promise<void> | null = null;
   private pending: PendingRequest | null = null;
   private active: ProjectionJob | null = null;
   private readonly queue: ProjectionJob[] = [];
@@ -69,7 +92,7 @@ class WorkerContentFilter implements ContentFilter {
 
   project(body: string, { signal }: { signal: AbortSignal }): Promise<ContentProjection> {
     if (this.closed) return Promise.reject(new Error('Content filtering is closed'));
-    if (this.failure) return Promise.reject(this.failure);
+    if (this.failure) return Promise.reject(new ContentFilterBatchCancelledError(this.failure));
     if (signal.aborted) return Promise.reject(asError(signal.reason));
     if (!this.patterns.length) return Promise.resolve({ text: body, segments: null });
     if (this.queue.length + (this.active ? 1 : 0) >= config.batchSize) {
@@ -93,7 +116,8 @@ class WorkerContentFilter implements ContentFilter {
   close(): Promise<void> {
     this.closed = true;
     this.fail(new Error('Content filtering stopped'));
-    return this.cleanup ?? Promise.resolve();
+    if (!this.cleanup) this.beginCleanup();
+    return this.cleanup!;
   }
 
   private settle(job: ProjectionJob, error: Error | null, value?: ContentProjection): void {
@@ -165,6 +189,7 @@ class WorkerContentFilter implements ContentFilter {
         import.meta.url,
       );
     const child = fork(workerUrl, [], {
+      execPath: this.options.execPath,
       execArgv: [
         '--max-old-space-size=256',
         ...(workerUrl.pathname.endsWith('.ts') ? ['--import', 'tsx'] : []),
@@ -173,6 +198,14 @@ class WorkerContentFilter implements ContentFilter {
       windowsHide: true,
     });
     this.child = child;
+    this.childExit = new Promise<void>((resolve) => {
+      // A failed OS spawn emits error + close without an exit event.
+      child.once('close', () => {
+        if (this.child === child) this.child = null;
+        process.removeListener('exit', this.onExit);
+        resolve();
+      });
+    });
     process.once('exit', this.onExit);
     child.on('message', (reply: unknown) => this.onMessage(reply));
     child.on('error', (error) =>
@@ -248,33 +281,56 @@ class WorkerContentFilter implements ContentFilter {
 
   private fail(error: Error): void {
     if (this.failure) return;
-    this.failure = error;
+    const failure = new ContentFilterError(error, this.active ? 'job' : 'worker');
+    this.failure = failure;
     if (this.pending) {
       clearTimeout(this.pending.timer);
-      this.pending.reject(error);
+      this.pending.reject(failure);
       this.pending = null;
     }
-    if (this.active) this.settle(this.active, error);
-    for (const job of this.queue.splice(0)) this.settle(job, error);
-    this.cleanup = this.stopChild();
+    const responsible = this.active ?? this.queue.shift();
+    if (responsible) this.settle(responsible, failure);
+    for (const job of this.queue.splice(0))
+      this.settle(job, new ContentFilterBatchCancelledError(failure));
+    this.beginCleanup();
+  }
+
+  private beginCleanup(): void {
+    const cleanup = this.stopChild();
+    this.cleanup = cleanup;
+    // The active request can fail before its caller reaches close(). Keep that
+    // cleanup rejection observable there without creating an unhandled rejection.
+    void cleanup.catch(() => {
+      if (this.cleanup === cleanup) this.cleanup = null;
+    });
   }
 
   private stopChild(): Promise<void> {
     const child = this.child;
-    this.child = null;
-    process.removeListener('exit', this.onExit);
-    if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-    return new Promise((resolve) => {
+    if (!child) return Promise.resolve();
+    if (child.exitCode !== null || child.signalCode !== null) return this.childExit!;
+    return new Promise((resolve, reject) => {
+      let killFailure: unknown;
       const timer = setTimeout(() => {
-        child.unref();
-        child.channel?.unref();
-        resolve();
+        reject(
+          new ContentFilterError(
+            new Error(
+              'Could not terminate the content filtering worker; no replacement worker will start until it exits.',
+              { cause: killFailure },
+            ),
+            'worker',
+          ),
+        );
       }, 1000);
-      child.once('exit', () => {
+      void this.childExit!.then(() => {
         clearTimeout(timer);
         resolve();
       });
-      child.kill('SIGKILL');
+      try {
+        if (!child.kill('SIGKILL')) killFailure = new Error('Worker kill was not delivered');
+      } catch (error) {
+        killFailure = error;
+      }
     });
   }
 }
