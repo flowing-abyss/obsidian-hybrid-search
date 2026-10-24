@@ -48,13 +48,15 @@ export function createGitFixture(options: { linked?: boolean; vaultPrefix?: stri
   repo = realpathSync(repo);
   const vault = path.join(repo, options.vaultPrefix ?? '');
   mkdirSync(vault, { recursive: true });
-  const commonDir = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const commonDir = realpathSync(git(['rev-parse', '--path-format=absolute', '--git-common-dir']));
   return {
     root,
     repo,
     vault,
     commonDir,
-    exclude: git(['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude']),
+    exclude: path.resolve(
+      git(['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude']),
+    ),
     git,
     ignored(relativePath: string): boolean {
       const result = run(

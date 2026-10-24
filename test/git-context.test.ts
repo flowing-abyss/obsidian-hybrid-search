@@ -1,17 +1,36 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
-import { afterEach, describe, it } from 'vitest';
+import { afterEach, describe, it, vi } from 'vitest';
 import { resolveGitContext } from '../src/vault/git-context.js';
 import { createGitFixture } from './helpers/git-fixture.js';
 
 let fixture: ReturnType<typeof createGitFixture> | undefined;
 afterEach(() => {
+  vi.restoreAllMocks();
+  syncBuiltinESMExports();
   fixture?.dispose();
   fixture = undefined;
 });
 
 describe('containing Git repository context', () => {
+  it('includes the root Gitignore when a repository occupies the filesystem root', () => {
+    fixture = createGitFixture();
+    const root = path.parse(fixture.root).root;
+    const vault = path.join(root, 'projects', 'notes');
+    const directoryStats = fs.statSync(fixture.repo);
+    vi.spyOn(fs, 'statSync').mockImplementation((file) => {
+      if (String(file) === vault || String(file) === path.join(root, '.git')) return directoryStats;
+      throw Object.assign(new Error('missing fixture path'), { code: 'ENOENT' });
+    });
+    vi.spyOn(fs, 'realpathSync').mockImplementation((file) => String(file));
+    syncBuiltinESMExports();
+    assert.deepEqual(resolveGitContext(vault)?.ancestorGitignorePaths, [
+      path.join(root, '.gitignore'),
+      path.join(root, 'projects', '.gitignore'),
+    ]);
+  });
   for (const linked of [false, true]) {
     for (const vaultPrefix of ['', 'projects/notes']) {
       it(
@@ -20,8 +39,14 @@ describe('containing Git repository context', () => {
           fixture = createGitFixture({ linked, vaultPrefix });
           const context = resolveGitContext(fixture.vault);
           assert.ok(context);
-          assert.equal(context.worktreePath, fixture.git(['rev-parse', '--show-toplevel']));
-          assert.equal(context.gitDirPath, fixture.git(['rev-parse', '--absolute-git-dir']));
+          assert.equal(
+            context.worktreePath,
+            fs.realpathSync(fixture.git(['rev-parse', '--show-toplevel'])),
+          );
+          assert.equal(
+            context.gitDirPath,
+            fs.realpathSync(fixture.git(['rev-parse', '--absolute-git-dir'])),
+          );
           assert.equal(context.commonDirPath, fixture.commonDir);
           assert.equal(context.excludePath, fixture.exclude);
           assert.equal(context.vaultPrefix, vaultPrefix);

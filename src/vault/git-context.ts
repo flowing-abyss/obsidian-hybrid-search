@@ -77,13 +77,11 @@ export function resolveGitContext(vaultPath: string): GitContext | undefined {
         ? resolveDirectory(gitDirPath, readPointer(commonPointer, commonStats), commonPointer)
         : gitDirPath;
       const ancestorGitignorePaths: string[] = [];
-      for (
-        let ancestor = path.dirname(physicalVault);
-        physicalVault !== directory && ancestor !== path.dirname(directory);
-        ancestor = path.dirname(ancestor)
-      ) {
-        ancestorGitignorePaths.unshift(path.join(ancestor, '.gitignore'));
-        if (ancestor === directory) break;
+      if (physicalVault !== directory) {
+        for (let ancestor = path.dirname(physicalVault); ; ancestor = path.dirname(ancestor)) {
+          ancestorGitignorePaths.unshift(path.join(ancestor, '.gitignore'));
+          if (ancestor === directory) break;
+        }
       }
       return {
         worktreePath: directory,

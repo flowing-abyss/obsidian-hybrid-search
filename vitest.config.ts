@@ -19,6 +19,7 @@ export default defineConfig({
     exclude: [
       'test/integration.test.ts',
       'test/indexer-watcher-live-e2e.test.ts',
+      'test/indexer-git-exclude-live-e2e.test.ts',
       'test/reranker-real-model.test.ts',
     ],
     coverage: {
