@@ -51,7 +51,7 @@
         },
         {
           "name": "OBSIDIAN_CONTENT_IGNORE_PATTERNS",
-          "description": "Comma-separated regex rules for text to leave out of search, e.g. /%%[\\s\\S]*?%%/g. Original files and read stay unchanged."
+          "description": "Comma-separated regex rules for note body text to leave out of search, e.g. /%%[\\s\\S]*?%%/g. Original files and read stay unchanged."
         },
         {
           "name": "OPENAI_API_KEY",
