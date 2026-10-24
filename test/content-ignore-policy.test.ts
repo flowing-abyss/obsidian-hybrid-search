@@ -233,6 +233,16 @@ it('refuses a policy transition with a changed model and keeps the complete acti
   assert.equal(embeddings.mock.calls.length, calls);
 });
 
+it('refuses an automatic policy rebuild that would relabel unknown legacy vectors', async () => {
+  write('note.md');
+  await service().reindex();
+  db.getDb().prepare("DELETE FROM settings WHERE key='embedding_model'").run();
+  const before = snapshot();
+  await assert.rejects(service(rule).reindex(), /unknown.*reindex.*--force/i);
+  assert.equal(snapshot(), before);
+  assert.equal(readFileSync(path.join(vault, 'note.md'), 'utf8'), source);
+});
+
 it('keeps the old snapshot when a late document fails and allows an explicit retry', async () => {
   write('a.md');
   write('b.md', source.replace('rings', 'satellites'));

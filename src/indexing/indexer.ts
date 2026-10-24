@@ -1045,6 +1045,8 @@ export async function startBackgroundIndexing(
 export interface WatcherHandle {
   /** Startup has settled, including cancellation or an error reported on stderr. */
   ready: Promise<void>;
+  /** A fatal observation error, or undefined on normal close. Never rejects. */
+  stopped: Promise<Error | undefined>;
   /** Stop observation and pending debounce timers; queued indexing has its own lifecycle. */
   close(): Promise<void>;
 }
@@ -1061,6 +1063,17 @@ export function startWatcher(contextLength: number, run: IndexRunContext): Watch
   const ready = new Promise<void>((resolve) => {
     settleReady = resolve;
   });
+  let settleStopped!: (error?: Error) => void;
+  const stopped = new Promise<Error | undefined>((resolve) => {
+    settleStopped = resolve;
+  });
+  function fail(error: unknown): void {
+    if (closed || run.signal.aborted) return;
+    settleStopped(
+      error instanceof Error ? error : new Error('Filesystem watcher failed', { cause: error }),
+    );
+    settleReady();
+  }
   let closing: Promise<void> | undefined;
   let lastErrorLog = -Infinity;
   const ownWatcher = (watcher: FSWatcher) => {
@@ -1076,7 +1089,7 @@ export function startWatcher(contextLength: number, run: IndexRunContext): Watch
         lastErrorLog = now;
         console.warn('[watcher] filesystem watch error; index updates may be incomplete:', err);
       }
-      settleReady();
+      fail(err);
     });
     return watcher;
   };
@@ -1295,14 +1308,16 @@ export function startWatcher(contextLength: number, run: IndexRunContext): Watch
     })
     .catch((err) => {
       if (!closed && !run.signal.aborted) console.warn('[watcher] chokidar load error:', err);
-      settleReady();
+      fail(err);
     });
   const handle: WatcherHandle = {
     ready,
+    stopped,
     close() {
       run.signal.removeEventListener('abort', onAbort);
       closed = true;
       settleReady();
+      settleStopped();
       for (const timer of fileDelays.values()) clearTimeout(timer);
       fileDelays.clear();
       if (policyTimer) clearTimeout(policyTimer);
@@ -1320,7 +1335,9 @@ export function startWatcher(contextLength: number, run: IndexRunContext): Watch
     },
   };
   const onAbort = () => {
-    void handle.close();
+    // The owner awaits close again during cleanup; attach a rejection handler now
+    // so an early close failure cannot become an unhandled rejection.
+    void handle.close().catch(() => undefined);
   };
   run.signal.addEventListener('abort', onAbort, { once: true });
   if (run.signal.aborted) onAbort();

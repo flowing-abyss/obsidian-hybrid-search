@@ -695,20 +695,60 @@ export function hasVecTable(): boolean {
  * Results are ordered by chunk_index. Returns [] if the note has no indexed chunks.
  */
 export function getChunkEmbeddingsByPath(notePath: string): Float32Array[] {
-  if (!hasVecTable()) return [];
+  return getChunkEmbeddingSourceByPath(notePath).embeddings;
+}
+
+/** Capture source vectors and their provenance from the same SQLite snapshot. */
+export function getChunkEmbeddingSourceByPath(notePath: string): {
+  embeddings: Float32Array[];
+  modelName: string | null;
+} {
   const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT vc.embedding
-       FROM vec_chunks vc
-       JOIN chunks c ON c.id = vc.chunk_id
-       JOIN notes n ON n.id = c.note_id
-       WHERE n.path = ?
-       ORDER BY c.chunk_index`,
-    )
-    .all(notePath) as { embedding: Buffer }[];
-  return rows.map(
-    (r) => new Float32Array(r.embedding.buffer, r.embedding.byteOffset, r.embedding.byteLength / 4),
+  return db
+    .transaction(() => {
+      const modelName = getStoredModel();
+      if (!hasVecTable()) return { embeddings: [], modelName };
+      const rows = db
+        .prepare(
+          `SELECT vc.embedding
+         FROM vec_chunks vc
+         JOIN chunks c ON c.id = vc.chunk_id
+         JOIN notes n ON n.id = c.note_id
+         WHERE n.path = ?
+         ORDER BY c.chunk_index`,
+        )
+        .all(notePath) as { embedding: Buffer }[];
+      return {
+        modelName,
+        embeddings: rows.map(
+          (r) =>
+            new Float32Array(
+              r.embedding.buffer,
+              r.embedding.byteOffset,
+              r.embedding.byteLength / 4,
+            ),
+        ),
+      };
+    })
+    .deferred();
+}
+
+export class EmbeddingModelMismatchError extends Error {
+  override name = 'EmbeddingModelMismatchError';
+}
+
+/** Call inside the transaction that consumes the vectors. Never infer legacy provenance. */
+export function assertEmbeddingModelCompatible(modelName: string | null): void {
+  const storedModel = getStoredModel();
+  if (storedModel !== null && modelName === storedModel) return;
+  if (!hasVecTable() || !getDb().prepare('SELECT 1 FROM vec_chunks LIMIT 1').get()) return;
+  if (storedModel === null || modelName === null) {
+    throw new EmbeddingModelMismatchError(
+      'Embedding model is unknown for existing vectors or the similarity source. Existing index preserved; use full reindex --force to rebuild with the configured model.',
+    );
+  }
+  throw new EmbeddingModelMismatchError(
+    `Embedding model mismatch: index uses "${storedModel}", search uses "${modelName}". Existing index preserved; restore the indexed model configuration, or use full reindex --force for an intentional rebuild.`,
   );
 }
 
@@ -830,6 +870,11 @@ export function upsertNote(
         ? (db.prepare('SELECT vec_length(embedding) AS dim FROM vec_chunks LIMIT 1').get() as
             { dim: number } | undefined)
         : undefined;
+      if (actual && !storedModel && context) {
+        throw new Error(
+          'Embedding model is unknown for existing vectors. Update not committed; existing index preserved. Use full reindex --force to rebuild with the configured model.',
+        );
+      }
       const storedDim = getStoredEmbeddingDim();
       if (actual && storedDim !== null && actual.dim !== storedDim) {
         throw new Error(
@@ -848,12 +893,7 @@ export function upsertNote(
           );
         }
       }
-      const fresh =
-        !storedModel &&
-        context !== undefined &&
-        !actual &&
-        !db.prepare('SELECT 1 FROM notes LIMIT 1').get() &&
-        !db.prepare('SELECT 1 FROM chunks LIMIT 1').get();
+      const fresh = !storedModel && context !== undefined && !actual;
 
       const aliases =
         note.aliases?.filter((alias): alias is string => typeof alias === 'string') ?? [];

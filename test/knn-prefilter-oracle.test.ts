@@ -14,6 +14,7 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 // a stored source embedding, not a query embedding), but the fixture is 4-dim and
 // any accidental call into the real 384-dim embedder must not reach sqlite-vec.
 vi.mock('../src/inference/embedder.js', () => ({
+  activeModelName: () => 'fixture-model',
   embed: vi.fn((texts: string[]) =>
     Promise.resolve(texts.map(() => new Float32Array([0.1, 0.2, 0.3, 0.4]))),
   ),

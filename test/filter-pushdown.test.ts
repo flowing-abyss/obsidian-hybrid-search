@@ -14,6 +14,7 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 // what makes the semantic assertions below discriminate: a needle can only appear if
 // the filter reached sqlite-vec as a KNN PRE-filter.
 vi.mock('../src/inference/embedder.js', () => ({
+  activeModelName: () => 'fixture-model',
   embed: vi.fn((texts: string[]) =>
     Promise.resolve(texts.map(() => new Float32Array([0.1, 0.2, 0.3, 0.4]))),
   ),

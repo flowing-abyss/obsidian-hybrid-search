@@ -70,7 +70,7 @@ beforeEach(() => {
   lease = acquired;
   dbModule.cancelForegroundIndexRequest(request);
   initVecTable(lease, 4);
-  upsertNote(lease, note);
+  upsertNote(lease, note, { modelName: 'model-A' });
   upsertLinks(lease, note.path, ['target.md']);
   upsertMarkdownLinks(lease, note.path, ['target.md']);
   upsertNoteUrls(lease, note.path, ['https://example.com']);

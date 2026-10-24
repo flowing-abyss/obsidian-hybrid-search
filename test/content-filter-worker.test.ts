@@ -58,6 +58,17 @@ async function dispatched(): Promise<void> {
   }
 }
 
+function blockParentAfterDispatch<T>(work: () => Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    setImmediate(() => {
+      void work().then(resolve, reject);
+      void Promise.resolve().then(() => {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400);
+      });
+    });
+  });
+}
+
 describe('bounded content filtering', () => {
   it('keeps the empty policy on the main process without starting a child', async () => {
     const filter = client('');
@@ -214,6 +225,31 @@ describe('bounded content filtering', () => {
     } finally {
       clearInterval(timer);
     }
+  });
+
+  it('accepts a completed worker reply after synchronous parent work delays IPC', async () => {
+    const filter = client('/secret/g', { jobTimeoutMs: 100 });
+    const signal = new AbortController().signal;
+    await filter.project('Warm worker', { signal });
+    // Native inference runs in the check phase and can delay the parent past a
+    // filter deadline even though the independent child has already replied.
+    const result = await blockParentAfterDispatch(() =>
+      filter.project('secret visible', { signal }),
+    );
+    expect(result.text).toBe(' visible');
+    expect((await filter.project('still secret usable', { signal })).text).toBe('still   usable');
+    expect(workers()).toHaveLength(1);
+  });
+
+  it('still terminates a runaway expression after synchronous parent work finishes', async () => {
+    const filter = client('/(a+)+$/', { jobTimeoutMs: 100 });
+    const signal = new AbortController().signal;
+    await filter.project('Warm worker', { signal });
+    await expect(
+      blockParentAfterDispatch(() => filter.project('a'.repeat(32_000) + '!', { signal })),
+    ).rejects.toMatchObject({ name: 'ContentFilterError', scope: 'job' });
+    await filter.close();
+    expect(workers()).toHaveLength(1);
   });
 
   it('poisons a failed pass without respawning for queued or later work', async () => {
