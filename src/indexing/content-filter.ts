@@ -85,12 +85,16 @@ function workerNodeOptions(raw: string | undefined): string | undefined {
     const equals = token.value.indexOf('=');
     const name = (equals < 0 ? token.value : token.value.slice(0, equals)).replaceAll('_', '-');
     const size = equals < 0 ? tokens[index + 1]?.value : token.value.slice(equals + 1);
+    // The child owns these limits; do not duplicate Node's numeric grammar.
+    // A following option is not an operand for a missing space-separated value.
     if (
       /^--max-(?:old-space-size(?:-percentage)?|semi-space-size|heap-size)$/.test(name) &&
       size !== undefined &&
-      size.trim() !== '' &&
-      Number.isFinite(Number(size))
+      size !== '' &&
+      (equals >= 0 || !size.startsWith('-'))
     ) {
+      // Retain an option boundary so a preceding missing operand stays invalid.
+      retained.push('--max-old-space-size=256');
       if (equals < 0) index++;
     } else retained.push(token.raw);
   }

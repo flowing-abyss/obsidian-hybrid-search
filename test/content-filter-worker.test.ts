@@ -97,6 +97,10 @@ describe('bounded content filtering', () => {
     '--max-old-space-size-percentage=50',
     '--max_old_space_size_percentage "50"',
     '--max_old_space_size_percentage "" "50"',
+    '--max-old-space-size-percentage=0x1.9p+5',
+    '--max_old_space_size_percentage 0x1.9p+5',
+    '--max-old-space-size-percentage=nan',
+    '--max_old_space_size_percentage nan(payload)',
     '"--max_heap_size=1024"',
   ])('bounds the real child heap with inherited %s', async (options) => {
     vi.stubEnv('NODE_OPTIONS', options);
@@ -150,7 +154,10 @@ describe('bounded content filtering', () => {
   });
 
   it.each([
+    '--max-old-space-size-percentage=',
+    '--max-old-space-size-percentage',
     '--max-old-space-size-percentage --not-a-node-option',
+    '--permission --allow-fs-read=* --allow-worker --allow-fs-write --max-heap-size=1024 *',
     '--max-semi-space-size=64 --not-a-node-option',
     '--max-semi-space-size=64 --require "unterminated',
     '--max-semi-space-size=64 --require "invalid-escape\\',
