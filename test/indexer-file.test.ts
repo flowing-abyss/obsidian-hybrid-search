@@ -960,6 +960,7 @@ describe('typed SQLite recovery', () => {
   const oldFreshness = '2000-01-01T00:00:00.000Z';
   const targetPath = 'recovery-target.md';
   const siblingPath = 'completed-sibling.md';
+  const referencePath = 'retained-reference.md';
   let recoveryVault: string;
   let previousVault: string | undefined;
 
@@ -967,6 +968,12 @@ describe('typed SQLite recovery', () => {
     const note = getNoteByPath(siblingPath);
     assert.ok(note, 'the clean sibling must already have committed');
     const db = getDb();
+    const references = ['links', 'markdown_links', 'note_urls'].map((table) =>
+      db.prepare(`SELECT * FROM ${table} WHERE from_path=? ORDER BY rowid`).all(siblingPath),
+    );
+    const expectedLink = [{ from_path: siblingPath, to_path: referencePath }];
+    assert.deepEqual(references[0], expectedLink, 'the sibling must retain its wiki link');
+    assert.deepEqual(references[1], expectedLink, 'the sibling must retain its Markdown link');
     return {
       note,
       chunks: db
@@ -978,9 +985,7 @@ describe('typed SQLite recovery', () => {
       metadata: ['note_aliases', 'note_tags', 'note_frontmatter_fields'].map((table) =>
         db.prepare(`SELECT * FROM ${table} WHERE note_id=? ORDER BY rowid`).all(note.id),
       ),
-      references: ['links', 'markdown_links', 'note_urls'].map((table) =>
-        db.prepare(`SELECT * FROM ${table} WHERE from_path=? ORDER BY rowid`).all(siblingPath),
-      ),
+      references,
       fts: db
         .prepare("SELECT rowid FROM notes_fts_bm25 WHERE notes_fts_bm25 MATCH 'siblingneedle'")
         .all(),
@@ -992,7 +997,7 @@ describe('typed SQLite recovery', () => {
       string | undefined;
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     closeDb();
     previousVault = process.env.OBSIDIAN_VAULT_PATH;
     recoveryVault = mkdtempSync(path.join(tmpdir(), 'ohs-storage-recovery-'));
@@ -1001,11 +1006,14 @@ describe('typed SQLite recovery', () => {
     initVecTable(4);
     resetIndexingState();
     getDb().prepare("INSERT INTO settings(key,value) VALUES('last_indexed', ?)").run(oldFreshness);
+    writeFileSync(path.join(recoveryVault, referencePath), 'A retained relation destination.');
+    assert.equal(await indexFile(path.join(recoveryVault, referencePath), 512), 'indexed');
     writeFileSync(path.join(recoveryVault, targetPath), 'Target recoveryneedle body.');
     writeFileSync(
       path.join(recoveryVault, siblingPath),
       '---\ntitle: Completed sibling\ntags: [kept]\naliases: [Retained]\nstate: active\n---\n' +
-        'siblingneedle [source](https://example.com/recovery)',
+        'siblingneedle [[retained-reference]] [target](retained-reference.md) ' +
+        '[source](https://example.com/recovery)',
     );
     vi.mocked(embedder.embedDetailed).mockClear();
   });

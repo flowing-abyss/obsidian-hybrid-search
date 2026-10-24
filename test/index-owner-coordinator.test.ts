@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setImmediate as nextTurn } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { afterAll, afterEach, beforeEach, it } from 'vitest';
 import type { IndexRunContext } from '../src/indexing/index-owner.js';
 
@@ -11,6 +14,7 @@ process.env.OBSIDIAN_VAULT_PATH = vault;
 const db = await import('../src/storage/db.js');
 const { createIndexCoordinator } = await import('../src/indexing/index-owner.js');
 const coordinators: ReturnType<typeof createIndexCoordinator>[] = [];
+const execFileAsync = promisify(execFile);
 let errors: unknown[] = [];
 
 function deferred<T>() {
@@ -359,6 +363,40 @@ it('counts local queue time toward the deadline and registers its global ticket 
     await rejected;
   }
 });
+
+it.each(['background', 'cleanup', 'foreground'])(
+  'releases completed wait resources while local %s work remains pending',
+  async (barrier) => {
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [
+        '--expose-gc',
+        '--import',
+        'tsx',
+        fileURLToPath(new URL('./fixtures/index-owner-retention.ts', import.meta.url)),
+        barrier,
+      ],
+      { timeout: 20_000, killSignal: 'SIGKILL' },
+    );
+    const retained = JSON.parse(stdout) as {
+      sampled: number;
+      afterFirstBatch: number;
+      afterSecondBatch: number;
+      afterClose: number;
+      afterRelease: number;
+    };
+    const evidence = `${barrier}: ${JSON.stringify(retained)}`;
+    assert.ok(retained.sampled > 0, `the child must observe real waiting resources: ${evidence}`);
+    // A held cleanup may itself originate in the first request. Allow constant
+    // coordinator state, but no growing chains from completed request batches.
+    assert.ok(
+      retained.afterSecondBatch <= retained.afterFirstBatch + 8,
+      `timed-out calls must not accumulate retained promises: ${evidence}`,
+    );
+    assert.ok(retained.afterClose <= 8, `close must release completed waits: ${evidence}`);
+    assert.ok(retained.afterRelease <= 8, `normal drain must release wait resources: ${evidence}`);
+  },
+);
 
 it('does not let an aborted foreground response release its actual native work barrier', async () => {
   const entered = deferred<IndexRunContext>();

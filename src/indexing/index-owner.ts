@@ -84,6 +84,7 @@ export function createIndexCoordinator(options: {
   let backgroundWork: Promise<void> | undefined;
   let backgroundCleanup: Promise<void> | undefined;
   let foregroundWork: Promise<unknown> | undefined;
+  const localWorkWaiters = new Set<() => void>();
   const foregroundCalls = new Set<Promise<unknown>>();
   let closing: Promise<void> | undefined;
   let pendingForeground = 0;
@@ -92,6 +93,12 @@ export function createIndexCoordinator(options: {
 
   function report(error: unknown): void {
     options.onError(error);
+  }
+
+  function notifyLocalWorkSettled(): void {
+    if (backgroundWork || backgroundCleanup || foregroundWork) return;
+    for (const wake of localWorkWaiters) wake();
+    localWorkWaiters.clear();
   }
 
   function observe(snapshot: IndexOwnerSnapshot): StalledOwner | undefined {
@@ -138,6 +145,7 @@ export function createIndexCoordinator(options: {
         .catch(report)
         .finally(() => {
           if (backgroundCleanup === cleanup) backgroundCleanup = undefined;
+          notifyLocalWorkSettled();
           schedule();
         });
       backgroundCleanup = cleanup;
@@ -166,6 +174,7 @@ export function createIndexCoordinator(options: {
       })
       .finally(() => {
         if (backgroundWork === work) backgroundWork = undefined;
+        notifyLocalWorkSettled();
         schedule();
       });
     backgroundWork = work;
@@ -212,17 +221,24 @@ export function createIndexCoordinator(options: {
       return;
     }
     const poll = new AbortController();
+    let wake!: () => void;
+    const localCompletion = new Promise<void>((resolve) => {
+      wake = resolve;
+      localWorkWaiters.add(wake);
+    });
     try {
       // Local work can finish before the next database poll. Its completion only
       // wakes the claim loop; the drain barrier and global waiter order still apply.
+      // Remove losing subscriptions instead of retaining reactions on stuck work.
       await abortable(
         Promise.race([
-          Promise.allSettled([backgroundWork, backgroundCleanup, foregroundWork]),
+          localCompletion,
           delay(foregroundPollMs, undefined, { signal: poll.signal }),
         ]),
         lifetime.signal,
       );
     } finally {
+      localWorkWaiters.delete(wake);
       poll.abort();
     }
   }
@@ -286,6 +302,7 @@ export function createIndexCoordinator(options: {
       foregroundWork = operation;
       const settled = () => {
         if (foregroundWork === operation) foregroundWork = undefined;
+        notifyLocalWorkSettled();
         schedule();
       };
       void operation.then(settled, settled);
