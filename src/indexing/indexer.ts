@@ -201,14 +201,15 @@ function* walkDir(dir: string, policy: Pick<IgnorePolicy, 'isIgnored'>): Generat
 }
 
 export function scanVault(
-  policy: Pick<IgnorePolicy, 'isIgnored'> = createIgnorePolicy(),
+  policy?: Pick<IgnorePolicy, 'isIgnored'>,
   run?: IndexRunContext,
 ): string[] {
   const files: string[] = [];
   try {
-    for (const fullPath of walkDir(config.vaultPath, policy)) {
+    const activePolicy = policy ?? createIgnorePolicy();
+    for (const fullPath of walkDir(config.vaultPath, activePolicy)) {
       const rel = toVaultRelativePath(fullPath);
-      if (!policy.isIgnored(rel)) {
+      if (!activePolicy.isIgnored(rel)) {
         files.push(fullPath);
       }
     }
@@ -389,17 +390,18 @@ export async function indexFile(
   fullPath: string,
   contextLength?: number,
   force = false,
-  policy: Pick<IgnorePolicy, 'isIgnored'> = createIgnorePolicy(),
+  policy?: Pick<IgnorePolicy, 'isIgnored'>,
 ): Promise<'indexed' | 'skipped' | { error: string; cause?: unknown }> {
   let attemptedFingerprint = fileFingerprint(fullPath);
   try {
+    const preparationPolicy = policy ?? createIgnorePolicyForFiles([toVaultRelativePath(fullPath)]);
     for (let attempt = 0; attempt < 2; attempt++) {
       attemptedFingerprint = fileFingerprint(fullPath);
       const prepared = await prepareIndexFile(
         run,
         fullPath,
         contextLength ?? (await getContextLength()),
-        policy,
+        preparationPolicy,
         force,
       );
       assertIndexRun(run);
@@ -432,7 +434,7 @@ export async function indexFile(
             current.size !== prepared.fingerprint.size
           )
             return 'changed' as const;
-          if (createIgnorePolicy().isIgnored(prepared.note.path)) {
+          if (createIgnorePolicyForFiles([prepared.note.path]).isIgnored(prepared.note.path)) {
             deleteNote(run.lease, prepared.note.path, true);
             return 'skipped' as const;
           }

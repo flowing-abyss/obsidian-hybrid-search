@@ -165,6 +165,7 @@ function runCli(
   args: string[],
   model: string,
   executable = CLI,
+  overrides: NodeJS.ProcessEnv = {},
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   const env = {
     ...cleanProviderEnv(),
@@ -172,6 +173,7 @@ function runCli(
     OPENAI_API_KEY: 'synthetic-loopback-key',
     OPENAI_BASE_URL: endpoint,
     OPENAI_EMBEDDING_MODEL: model,
+    ...overrides,
   };
   return new Promise((resolve) => {
     execFile(
@@ -253,9 +255,13 @@ async function seedA(): Promise<void> {
   assert.ok(snapshot().vectors.length > 0);
 }
 
-it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
-  'preserves every indexed row after an unreadable subtree and reports both scan failures',
-  async () => {
+it.skipIf(process.platform === 'win32' || process.getuid?.() === 0).each([false, true])(
+  'preserves every indexed row after an unreadable subtree with respectGitignore=%s',
+  async (respectGitignore) => {
+    const run = (args: string[]) =>
+      runCli(args, 'model-A', CLI, {
+        OBSIDIAN_RESPECT_GITIGNORE: String(respectGitignore),
+      });
     const directory = path.join(vault, 'private');
     mkdirSync(directory);
     writeBody(
@@ -263,30 +269,60 @@ it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
       1_700_000_002,
       'private/note.md',
     );
-    assert.equal((await runCli(['reindex'], 'model-A')).code, 0);
+    assert.equal((await run(['reindex'])).code, 0);
     const before = snapshot();
     chmodSync(directory, 0);
     try {
-      for (const args of [['reindex', '--force'], ['reindex']]) {
-        const result = await runCli(args, 'model-A');
+      for (const args of [['reindex', '--force'], ['reindex'], ['reindex', 'private/note.md']]) {
+        const result = await run(args);
         assert.notEqual(result.code, 0, result.stdout + result.stderr);
-        assert.match(result.stderr, /EACCES|permission denied/i);
+        assert.match(result.stdout + result.stderr, /EACCES|permission denied/i);
         assert.deepEqual(snapshot(), before);
-        const status = await runCli(['status'], 'model-A');
+        const status = await run(['status']);
         const details = JSON.parse(status.stdout) as {
           failed_indexing: number;
           indexing_errors: Array<{ operation: string }>;
         };
         assert.ok(details.failed_indexing > 0);
-        assert.ok(details.indexing_errors.some((error) => error.operation === 'scan'));
+        const operation = args[1] === 'private/note.md' ? 'index' : 'scan';
+        assert.ok(details.indexing_errors.some((error) => error.operation === operation));
       }
     } finally {
       chmodSync(directory, 0o700);
     }
     rmSync(directory, { recursive: true });
-    const deleted = await runCli(['reindex'], 'model-A');
+    const deleted = await run(['reindex']);
     assert.equal(deleted.code, 0, deleted.stderr);
     assert.equal(snapshot().rows.notes!.length, 0, 'genuine deletion still reconciles');
+  },
+);
+
+it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+  'indexes a readable note without scanning an unrelated inaccessible subtree',
+  async () => {
+    const directory = path.join(vault, 'private');
+    mkdirSync(directory);
+    writeBody('Original inaccessible control.', 1_700_000_002, 'private/note.md');
+    writeBody('Original readable note.', 1_700_000_002, 'readable.md');
+    assert.equal((await runCli(['reindex'], 'model-A')).code, 0);
+    const before = snapshot().rows.notes!.find(
+      (note) => (note as { path: string }).path === 'private/note.md',
+    );
+    chmodSync(directory, 0);
+    try {
+      writeBody('Updated readable note.', 1_700_000_003, 'readable.md');
+      const result = await runCli(['reindex', 'readable.md'], 'model-A');
+      assert.equal(result.code, 0, result.stdout + result.stderr);
+      assert.equal((JSON.parse(result.stdout) as { indexed: number }).indexed, 1);
+      assert.deepEqual(
+        snapshot().rows.notes!.find(
+          (note) => (note as { path: string }).path === 'private/note.md',
+        ),
+        before,
+      );
+    } finally {
+      chmodSync(directory, 0o700);
+    }
   },
 );
 

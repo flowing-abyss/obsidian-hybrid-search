@@ -150,7 +150,11 @@ function readGitignoreLayer(
       (cause.code === 'ENOENT' || cause.code === 'ENOTDIR')
     )
       return null;
-    throw new Error('Cannot read Git ignore rules: ' + fullPath, { cause });
+    const code =
+      cause && typeof cause === 'object' && 'code' in cause && typeof cause.code === 'string'
+        ? ` (${cause.code})`
+        : '';
+    throw new Error('Cannot read Git ignore rules: ' + fullPath + code, { cause });
   }
 }
 
