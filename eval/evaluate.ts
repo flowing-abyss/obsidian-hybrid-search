@@ -119,9 +119,8 @@ async function main(): Promise<void> {
   console.log();
 
   // 2. Dynamic imports (after env is set)
-  const { openDb, initVecTable } = await import('../src/storage/db.js');
-  const { getEmbeddingDim, getContextLength } = await import('../src/inference/embedder.js');
-  const { indexVaultSync } = await import('../src/indexing/indexer.js');
+  const { openIndexDatabase, createIndexService } =
+    await import('../src/indexing/index-service.js');
   const { search } = await import('../src/search/searcher.js');
 
   // 3. Load golden set
@@ -132,18 +131,10 @@ async function main(): Promise<void> {
   const queries: GoldenQuery[] = JSON.parse(fs.readFileSync(goldenSet, 'utf-8')) as GoldenQuery[];
   console.log(`[eval] loaded ${queries.length} queries`);
 
-  // 4. Wipe DB to guarantee a clean index for this model, then re-index
-  const dbPath = path.join(vault, '.obsidian-hybrid-search.db');
-  for (const f of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
-    if (fs.existsSync(f)) fs.unlinkSync(f);
-  }
-  console.log('[eval] initialising database...');
-  openDb();
-  const [, embeddingDim] = await Promise.all([getContextLength(), getEmbeddingDim()]);
-  initVecTable(embeddingDim);
-
-  console.log('[eval] indexing vault (incremental)...');
-  const indexResult = await indexVaultSync();
+  // 4. Replace the evaluation index only after a complete model run succeeds.
+  await openIndexDatabase();
+  const indexing = createIndexService();
+  const indexResult = await indexing.reindex({ force: true }).finally(() => indexing.close());
   console.log(
     `[eval] indexed: ${String(indexResult.indexed)} new, ${String(indexResult.skipped)} skipped, ${String(indexResult.errors.length)} errors`,
   );

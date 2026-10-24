@@ -7,6 +7,7 @@ import { afterAll, describe, it, vi } from 'vitest';
 // Mock chokidar before importing indexer
 vi.mock('chokidar', () => ({
   watch: vi.fn().mockReturnValue({
+    close: vi.fn().mockResolvedValue(undefined),
     on: vi.fn().mockReturnThis(),
   }),
 }));
@@ -36,7 +37,7 @@ describe('watcher error resilience', () => {
     });
     vi.resetModules();
 
-    const { startWatcher } = await import('../src/indexing/indexer');
+    const { startWatcher } = await import('./helpers/owned-indexer');
 
     startWatcher(512);
     await new Promise((r) => setTimeout(r, 50));
@@ -58,6 +59,7 @@ describe('watcher error resilience', () => {
       unlinkHandler(path.join(vaultDir, 'nonexistent.md'));
     });
 
+    await new Promise((resolve) => setTimeout(resolve, 20));
     const { deleteNote } = await import('../src/storage/db.js');
     const deleteNoteMock = vi.mocked(deleteNote);
     assert.equal(deleteNoteMock.mock.calls.length, 1, 'deleteNote should have been called');

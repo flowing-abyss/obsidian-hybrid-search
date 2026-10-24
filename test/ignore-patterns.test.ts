@@ -1,10 +1,10 @@
 import { bumpIndexVersion } from '../src/storage/index-state.js';
 /**
- * Tests for the ignore-pattern lifecycle in getPathsToRemoveForIgnoreChange.
+ * Tests for the ignore-pattern lifecycle in cleanupIgnoredNotes.
  *
  * Two specific concerns:
  *
- *  I1 – Idempotency: calling getPathsToRemoveForIgnoreChange with the same
+ *  I1 – Idempotency: calling cleanupIgnoredNotes with the same
  *       patterns twice must return [] on the second call.  A localeCompare-based
  *       sort that differs across locales (or across orderings) could cause the
  *       stored JSON to never equal the new JSON, making the function delete
@@ -16,7 +16,7 @@ import { bumpIndexVersion } from '../src/storage/index-state.js';
  *       current patterns.  Only actually-ignored paths should be removed.
  *
  *  I3 – Valid notes (paths outside ignore patterns) survive repeated
- *       cleanupStaleNotes-equivalent calls (via getPathsToRemoveForIgnoreChange
+ *       cleanupStaleNotes-equivalent calls (via cleanupIgnoredNotes
  *       + the fsPaths-based deletion logic replicated here).
  *
  *  I4 – matchesIgnorePattern edge cases: verify the pattern-matching logic
@@ -36,15 +36,8 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 // Use default ignore patterns (same as production default in config.ts)
 delete process.env.OBSIDIAN_IGNORE_PATTERNS;
 
-const {
-  closeDb,
-  openDb,
-  initVecTable,
-  upsertNote,
-  getDb,
-  getPathsToRemoveForIgnoreChange,
-  deleteNote,
-} = await import('../src/storage/db.js');
+const { closeDb, openDb, initVecTable, upsertNote, getDb, cleanupIgnoredNotes, deleteNote } =
+  await import('./helpers/owned-storage.js');
 const { search } = await import('../src/search/searcher.js');
 const { isIgnored } = await import('../src/vault/ignore.js');
 
@@ -83,13 +76,13 @@ afterAll(() => {
 // I1 – Idempotency: repeated calls with the same patterns return [] after first
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('I1 – getPathsToRemoveForIgnoreChange is idempotent', () => {
+describe('I1 – cleanupIgnoredNotes is idempotent', () => {
   it('second call with same patterns returns [] (no localeCompare drift)', () => {
     // First call stores the patterns and may return paths to remove
-    const first = getPathsToRemoveForIgnoreChange(DEFAULT_PATTERNS);
+    const first = cleanupIgnoredNotes(DEFAULT_PATTERNS);
 
     // Second call must detect "no change" and return early
-    const second = getPathsToRemoveForIgnoreChange(DEFAULT_PATTERNS);
+    const second = cleanupIgnoredNotes(DEFAULT_PATTERNS);
     assert.deepEqual(
       second,
       [],
@@ -98,7 +91,7 @@ describe('I1 – getPathsToRemoveForIgnoreChange is idempotent', () => {
     );
 
     // Third call to confirm stability
-    const third = getPathsToRemoveForIgnoreChange(DEFAULT_PATTERNS);
+    const third = cleanupIgnoredNotes(DEFAULT_PATTERNS);
     assert.deepEqual(third, [], 'I1 FAILED: still non-empty on third call');
 
     // first call result is informational only
@@ -107,10 +100,10 @@ describe('I1 – getPathsToRemoveForIgnoreChange is idempotent', () => {
 
   it('patterns in a different input order still match stored value', () => {
     // Store with one order
-    getPathsToRemoveForIgnoreChange(['.obsidian/**', 'templates/**', '*.canvas']);
+    cleanupIgnoredNotes(['.obsidian/**', 'templates/**', '*.canvas']);
 
     // Call with reversed order — both sides sort, so comparison should pass
-    const result = getPathsToRemoveForIgnoreChange(['*.canvas', 'templates/**', '.obsidian/**']);
+    const result = cleanupIgnoredNotes(['*.canvas', 'templates/**', '.obsidian/**']);
     assert.deepEqual(
       result,
       [],
@@ -119,11 +112,11 @@ describe('I1 – getPathsToRemoveForIgnoreChange is idempotent', () => {
   });
 
   it('patterns with extra whitespace still match stored value', () => {
-    getPathsToRemoveForIgnoreChange(['.obsidian/**', 'templates/**', '*.canvas']);
+    cleanupIgnoredNotes(['.obsidian/**', 'templates/**', '*.canvas']);
 
     // config.ignorePatterns trims whitespace; the function itself does NOT.
     // Verify that pre-trimmed patterns still match the stored value.
-    const trimmedResult = getPathsToRemoveForIgnoreChange(
+    const trimmedResult = cleanupIgnoredNotes(
       [' .obsidian/**', 'templates/** ', ' *.canvas '].map((p) => p.trim()),
     );
     assert.deepEqual(
@@ -150,7 +143,7 @@ describe('I2 – first-run scenario: DB has notes, ignore_patterns not yet store
     db.prepare("DELETE FROM settings WHERE key = 'ignore_patterns'").run();
 
     // Now call as if it's the first time — noteCount > 0 but no stored patterns
-    const toRemove = getPathsToRemoveForIgnoreChange(DEFAULT_PATTERNS);
+    const toRemove = cleanupIgnoredNotes(DEFAULT_PATTERNS);
 
     assert.ok(
       !toRemove.includes('notes/valid-note.md'),
@@ -177,7 +170,7 @@ describe('I2 – first-run scenario: DB has notes, ignore_patterns not yet store
 // I3 – Valid notes survive repeated pattern evaluations
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('I3 – valid notes survive repeated getPathsToRemoveForIgnoreChange calls', () => {
+describe('I3 – valid notes survive repeated cleanupIgnoredNotes calls', () => {
   it('notes outside ignore paths are never returned across 5 consecutive calls', () => {
     insertNote('base/category.md', 'Category Note', 'category note survives repeated checks', [
       'system/category',
@@ -186,7 +179,7 @@ describe('I3 – valid notes survive repeated getPathsToRemoveForIgnoreChange ca
 
     // Simulate what happens on each server startup / reindex
     for (let i = 0; i < 5; i++) {
-      const toRemove = getPathsToRemoveForIgnoreChange(DEFAULT_PATTERNS);
+      const toRemove = cleanupIgnoredNotes(DEFAULT_PATTERNS);
       assert.ok(
         !toRemove.includes('base/category.md'),
         `I3 FAILED: valid note appeared in removal list on call ${i + 1}`,
@@ -196,7 +189,7 @@ describe('I3 – valid notes survive repeated getPathsToRemoveForIgnoreChange ca
 
   it('valid note remains findable after 5 consecutive pattern evaluations', async () => {
     for (let i = 0; i < 5; i++) {
-      getPathsToRemoveForIgnoreChange(DEFAULT_PATTERNS);
+      cleanupIgnoredNotes(DEFAULT_PATTERNS);
     }
     bumpIndexVersion();
 
@@ -283,11 +276,11 @@ describe('A – pattern added: previously-indexed note is removed from search', 
     delete process.env.OBSIDIAN_IGNORE_PATTERNS;
   });
 
-  it('A1 – getPathsToRemoveForIgnoreChange returns the path covered by the new pattern', () => {
+  it('A1 – cleanupIgnoredNotes returns the path covered by the new pattern', () => {
     // Bring DB to a known baseline: DEFAULT_PATTERNS stored, note absent.
     deleteNote(NOTE_PATH);
     process.env.OBSIDIAN_IGNORE_PATTERNS = DEFAULT_PATTERNS.join(',');
-    getPathsToRemoveForIgnoreChange(DEFAULT_PATTERNS); // stores DEFAULT_PATTERNS in settings
+    cleanupIgnoredNotes(DEFAULT_PATTERNS); // stores DEFAULT_PATTERNS in settings
 
     // Insert the note to simulate it having been indexed before the pattern change.
     insertNote(NOTE_PATH, 'knowledge base', 'knowledge base removal candidate xqz1');
@@ -295,10 +288,10 @@ describe('A – pattern added: previously-indexed note is removed from search', 
 
     // Simulate the user adding 'base/categories/**' to OBSIDIAN_IGNORE_PATTERNS and
     // restarting the server.  In production, config.ignorePatterns and the argument to
-    // getPathsToRemoveForIgnoreChange are always in sync because both come from the same
+    // cleanupIgnoredNotes are always in sync because both come from the same
     // env var — replicate that here so isIgnored() inside the function sees the new patterns.
     process.env.OBSIDIAN_IGNORE_PATTERNS = EXTENDED_PATTERNS.join(',');
-    const toRemove = getPathsToRemoveForIgnoreChange(EXTENDED_PATTERNS);
+    const toRemove = cleanupIgnoredNotes(EXTENDED_PATTERNS);
 
     assert.ok(
       toRemove.includes(NOTE_PATH),
@@ -310,7 +303,7 @@ describe('A – pattern added: previously-indexed note is removed from search', 
     // Reset to a clean baseline (A1 may have left EXTENDED_PATTERNS stored and the note in DB).
     deleteNote(NOTE_PATH);
     process.env.OBSIDIAN_IGNORE_PATTERNS = DEFAULT_PATTERNS.join(',');
-    getPathsToRemoveForIgnoreChange(DEFAULT_PATTERNS); // reset stored patterns to DEFAULT
+    cleanupIgnoredNotes(DEFAULT_PATTERNS); // reset stored patterns to DEFAULT
 
     // Re-insert the note with the same unique phrase.
     insertNote(NOTE_PATH, 'knowledge base', 'knowledge base removal candidate xqz1');
@@ -325,7 +318,7 @@ describe('A – pattern added: previously-indexed note is removed from search', 
 
     // Simulate server restart with the new patterns (user changed env, server restarted).
     process.env.OBSIDIAN_IGNORE_PATTERNS = EXTENDED_PATTERNS.join(',');
-    const toRemove = getPathsToRemoveForIgnoreChange(EXTENDED_PATTERNS);
+    const toRemove = cleanupIgnoredNotes(EXTENDED_PATTERNS);
 
     // Simulate cleanupStaleNotes: delete every path returned.
     for (const p of toRemove) deleteNote(p);

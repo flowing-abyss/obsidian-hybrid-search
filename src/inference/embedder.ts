@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   createEstimatedTokenCounter,
   createOpenAiTokenCounter,
@@ -196,9 +197,14 @@ export async function getContextLength(): Promise<number> {
   return cachedContextLength;
 }
 
-export async function getEmbeddingDim(options: { refresh?: boolean } = {}): Promise<number> {
+export async function getEmbeddingDim(
+  options: { refresh?: boolean; signal?: AbortSignal } = {},
+): Promise<number> {
   if (!options.refresh && cachedDim !== null) return cachedDim;
-  const [embedding] = await embed(['dimension probe']);
+  const [outcome] = await embedDetailed(['dimension probe'], 'document', {
+    signal: options.signal,
+  });
+  const embedding = outcome?.ok ? outcome.embedding : null;
   if (!embedding || embedding.length === 0 || !embedding.every(Number.isFinite)) {
     throw new Error('[embedder] dimension probe failed — no valid embedding returned');
   }
@@ -273,10 +279,6 @@ async function getLocalPipeline() {
     localPipelinePromise = null;
     throw error;
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Ollama queues requests internally — parallel batches don't help and can crash
@@ -372,21 +374,32 @@ const OLLAMA_MAX_CONCURRENCY = 1;
 let activeOllamaRequests = 0;
 const ollamaWaitQueue: Array<() => void> = [];
 
-function acquireOllamaSlot(): Promise<() => void> {
-  return new Promise((resolveRelease) => {
-    const tryAcquire = () => {
-      if (activeOllamaRequests < OLLAMA_MAX_CONCURRENCY) {
-        activeOllamaRequests++;
-        resolveRelease(() => {
-          activeOllamaRequests--;
-          const next = ollamaWaitQueue.shift();
-          if (next) next();
-        });
-      } else {
-        ollamaWaitQueue.push(tryAcquire);
-      }
+function acquireOllamaSlot(signal?: AbortSignal): Promise<() => void> {
+  signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      const index = ollamaWaitQueue.indexOf(acquire);
+      if (index >= 0) ollamaWaitQueue.splice(index, 1);
+      reject(signal?.reason instanceof Error ? signal.reason : new Error('Embedding cancelled'));
     };
-    tryAcquire();
+    const acquire = () => {
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
+      if (activeOllamaRequests >= OLLAMA_MAX_CONCURRENCY) {
+        ollamaWaitQueue.push(acquire);
+        return;
+      }
+      signal?.removeEventListener('abort', abort);
+      activeOllamaRequests++;
+      resolve(() => {
+        activeOllamaRequests--;
+        ollamaWaitQueue.shift()?.();
+      });
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    acquire();
   });
 }
 
@@ -402,32 +415,38 @@ export function clearOllamaSemaphore(): void {
 async function embedViaApiDetailed(
   texts: string[],
   type: 'query' | 'document',
+  signal?: AbortSignal,
 ): Promise<EmbeddingOutcome[]> {
   if (isOllamaEndpoint() && type === 'document') {
-    const release = await acquireOllamaSlot();
+    const release = await acquireOllamaSlot(signal);
     try {
-      return await embedViaApiRawDetailed(texts);
+      return await embedViaApiRawDetailed(texts, signal);
     } finally {
       release();
     }
   }
-  return embedViaApiRawDetailed(texts);
+  return embedViaApiRawDetailed(texts, signal);
 }
 
 export async function embedDetailed(
   texts: string[],
   type: 'query' | 'document' = 'document',
+  options: { signal?: AbortSignal } = {},
 ): Promise<EmbeddingOutcome[]> {
+  const { signal } = options;
+  signal?.throwIfAborted();
   const preparedTexts = texts.map((text) => prepareEmbeddingInput(text, type));
   if (useApiMode()) {
-    return embedViaApiDetailed(preparedTexts, type);
+    return embedViaApiDetailed(preparedTexts, type, signal);
   }
-  if (type === 'query') return localEmbeddingOutcomes(await embedLocal(preparedTexts));
+  if (type === 'query')
+    return localEmbeddingOutcomes(await embedLocal(preparedTexts, undefined, signal));
 
   // The feature-extraction pipeline silently truncates. Validate each final
   // document leaf once so the indexer can split oversized inputs before inference.
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- Hugging Face transformers pipeline has no types
   const pipeline = await getLocalPipeline();
+  signal?.throwIfAborted();
   const limit = effectiveTokenLimit(getLocalValidationContextLength(pipeline));
   const outcomes: Array<EmbeddingOutcome | undefined> = Array.from(
     { length: preparedTexts.length },
@@ -464,7 +483,7 @@ export async function embedDetailed(
     fittingIndexes.push(index);
   }
 
-  const fittingOutcomes = localEmbeddingOutcomes(await embedLocal(fittingTexts, pipeline));
+  const fittingOutcomes = localEmbeddingOutcomes(await embedLocal(fittingTexts, pipeline, signal));
   for (let index = 0; index < fittingIndexes.length; index++) {
     outcomes[fittingIndexes[index]!] = fittingOutcomes[index];
   }
@@ -487,11 +506,14 @@ export async function embed(
   return outcomes.map((outcome) => (outcome.ok ? outcome.embedding : null));
 }
 
-async function embedViaApiRawDetailed(texts: string[]): Promise<EmbeddingOutcome[]> {
+async function embedViaApiRawDetailed(
+  texts: string[],
+  signal?: AbortSignal,
+): Promise<EmbeddingOutcome[]> {
   const results: EmbeddingOutcome[] = [];
   const batchTransport = isOllamaEndpoint()
-    ? embedOllamaBatchWithCompatibleFallback
-    : embedApiBatch;
+    ? (batch: string[]) => embedOllamaBatchWithCompatibleFallback(batch, signal)
+    : (batch: string[]) => embedApiBatch(batch, undefined, signal);
 
   // Ollama: send one at a time to avoid the >2KB crash bug in v0.12.5+
   // and because Ollama queues internally anyway (batching gives no speedup)
@@ -499,7 +521,7 @@ async function embedViaApiRawDetailed(texts: string[]): Promise<EmbeddingOutcome
 
   for (let i = 0; i < texts.length; i += batchSize) {
     const batch = texts.slice(i, i + batchSize);
-    const batchResults = await embedApiBatchWithFallback(batch, batchTransport);
+    const batchResults = await embedApiBatchWithFallback(batch, batchTransport, signal);
     results.push(...batchResults);
   }
 
@@ -658,18 +680,22 @@ function parseErrorBody(raw: string): {
 async function embedApiBatch(
   texts: string[],
   url = `${stripTrailingSlashes(config.apiBaseUrl)}/embeddings`,
+  signal?: AbortSignal,
 ): Promise<EmbeddingBatchAttempt> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
 
   let res: Response;
   try {
+    signal?.throwIfAborted();
     res = await fetch(url, {
+      signal,
       method: 'POST',
       headers,
       body: JSON.stringify({ model: config.apiModel, input: texts }),
     });
   } catch (error) {
+    signal?.throwIfAborted();
     const message = error instanceof Error ? error.message : 'Embedding API network error';
     return { ok: false, failure: failureOutcome('transient', message), localize: false };
   }
@@ -679,6 +705,7 @@ async function embedApiBatch(
     try {
       raw = await res.text();
     } catch (error) {
+      signal?.throwIfAborted();
       const message =
         error instanceof Error ? error.message : 'Embedding API error body unreadable';
       return {
@@ -699,6 +726,7 @@ async function embedApiBatch(
   try {
     response = await res.json();
   } catch (error) {
+    signal?.throwIfAborted();
     const message = error instanceof Error ? error.message : 'Embedding API response unreadable';
     return {
       ok: false,
@@ -789,6 +817,7 @@ function parseOllamaError(raw: string): { message?: string } {
 
 async function embedOllamaBatchWithCompatibleFallback(
   texts: string[],
+  signal?: AbortSignal,
 ): Promise<EmbeddingBatchAttempt> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
@@ -796,18 +825,21 @@ async function embedOllamaBatchWithCompatibleFallback(
 
   let res: Response;
   try {
+    signal?.throwIfAborted();
     res = await fetch(urls.native, {
+      signal,
       method: 'POST',
       headers,
       body: JSON.stringify({ model: config.apiModel, input: texts, truncate: false }),
     });
   } catch (error) {
+    signal?.throwIfAborted();
     const message = error instanceof Error ? error.message : 'Ollama network error';
     return { ok: false, failure: failureOutcome('transient', message), localize: false };
   }
 
   if (res.status === 404 || res.status === 405) {
-    const compatible = await embedApiBatch(texts, urls.compatible);
+    const compatible = await embedApiBatch(texts, urls.compatible, signal);
     return compatible.ok ? compatible : { ...compatible, retryable: false };
   }
   if (!res.ok) {
@@ -815,6 +847,7 @@ async function embedOllamaBatchWithCompatibleFallback(
     try {
       raw = await res.text();
     } catch (error) {
+      signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : 'Ollama error body unreadable';
       return {
         ok: false,
@@ -834,6 +867,7 @@ async function embedOllamaBatchWithCompatibleFallback(
   try {
     response = await res.json();
   } catch (error) {
+    signal?.throwIfAborted();
     const message = error instanceof Error ? error.message : 'Ollama response unreadable';
     return {
       ok: false,
@@ -880,12 +914,14 @@ type EmbeddingBatchTransport = (texts: string[]) => Promise<EmbeddingBatchAttemp
 async function embedApiBatchWithRetries(
   texts: string[],
   transport: EmbeddingBatchTransport,
+  signal?: AbortSignal,
 ): Promise<EmbeddingBatchAttempt> {
+  signal?.throwIfAborted();
   let result = await transport(texts);
   if (result.ok || result.failure.kind !== 'transient' || result.retryable === false) return result;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
-    await sleep(Math.pow(2, attempt) * 1000); // 2s, 4s
+    await delay(Math.pow(2, attempt) * 1000, undefined, { signal }); // 2s, 4s
     result = await transport(texts);
     if (result.ok || result.failure.kind !== 'transient' || result.retryable === false)
       return result;
@@ -896,8 +932,9 @@ async function embedApiBatchWithRetries(
 async function embedApiBatchWithFallback(
   texts: string[],
   transport: EmbeddingBatchTransport,
+  signal?: AbortSignal,
 ): Promise<EmbeddingOutcome[]> {
-  const result = await embedApiBatchWithRetries(texts, transport);
+  const result = await embedApiBatchWithRetries(texts, transport, signal);
   if (result.ok) {
     return result.embeddings.map((embedding) => ({ ok: true, embedding }));
   }
@@ -907,7 +944,7 @@ async function embedApiBatchWithFallback(
 
   const outcomes: EmbeddingOutcome[] = [];
   for (const text of texts) {
-    const [outcome] = await embedApiBatchWithFallback([text], transport);
+    const [outcome] = await embedApiBatchWithFallback([text], transport, signal);
     if (outcome) {
       outcomes.push(outcome);
     } else {
@@ -921,12 +958,15 @@ async function embedLocal(
   texts: string[],
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @huggingface/transformers has no TypeScript types
   initializedPipeline?: any,
+  signal?: AbortSignal,
 ): Promise<(Float32Array | null)[]> {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- @huggingface/transformers has no TypeScript types
   const pipeline = initializedPipeline ?? (await getLocalPipeline());
   const results: (Float32Array | null)[] = [];
 
+  signal?.throwIfAborted();
   for (let i = 0; i < texts.length; i += config.batchSize) {
+    signal?.throwIfAborted();
     const batch = texts.slice(i, i + config.batchSize);
     const batchResults = await Promise.all(
       batch.map(async (text) => {
@@ -936,6 +976,7 @@ async function embedLocal(
         return new Float32Array(output.data);
       }),
     );
+    signal?.throwIfAborted();
     results.push(...batchResults);
   }
 

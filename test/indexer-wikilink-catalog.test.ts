@@ -8,7 +8,7 @@ const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-wikilink-catalog-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
 const { closeDb, getDb, initVecTable, openDb, upsertNote, wipeDatabaseFiles } =
-  await import('../src/storage/db.js');
+  await import('./helpers/owned-storage.js');
 const embedder = await import('../src/inference/embedder.js');
 vi.spyOn(embedder, 'embedDetailed').mockImplementation((texts: string[]) =>
   Promise.resolve(
@@ -22,7 +22,7 @@ vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
 });
 
 const { indexFile, indexVaultSync, resetIndexingState, resolveWikilinks } =
-  await import('../src/indexing/indexer.js');
+  await import('./helpers/owned-indexer.js');
 
 function writeNote(name: string, content: string): string {
   const file = path.join(vaultDir, name);
@@ -101,6 +101,13 @@ describe('final wiki-link repair catalog', () => {
 
     assert.equal(catalogExecutions, 1);
     for (const name of sources) assert.deepEqual(outgoing(`${name}.md`), ['target.md']);
+  });
+
+  it('does not load the wiki catalog while indexing notes without wiki links', async () => {
+    const executions = await countCatalogExecutions(async () => {
+      assert.equal(await indexFile(writeNote('plain-new.md', 'Plain new content'), 512), 'indexed');
+    });
+    assert.equal(executions, 0);
   });
 
   it('runs no catalog query when a no-op vault contains no wiki links', async () => {

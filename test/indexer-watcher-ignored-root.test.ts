@@ -8,6 +8,7 @@ import { afterAll, describe, it, vi } from 'vitest';
 // without spawning a real filesystem watcher.
 vi.mock('chokidar', () => ({
   watch: vi.fn().mockReturnValue({
+    close: vi.fn().mockResolvedValue(undefined),
     on: vi.fn().mockReturnThis(),
     add: vi.fn().mockReturnThis(),
   }),
@@ -25,7 +26,7 @@ describe('watcher ignored() contract', () => {
     writeFileSync(path.join(vaultDir, 'one.md'), '# One');
 
     vi.resetModules();
-    const { startWatcher } = await import('../src/indexing/indexer');
+    const { startWatcher } = await import('./helpers/owned-indexer');
     startWatcher(512);
     await new Promise((r) => setTimeout(r, 50));
 

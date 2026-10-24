@@ -7,10 +7,10 @@ import { afterAll, afterEach, beforeEach, describe, it, vi } from 'vitest';
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-link-migrations-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
-const { closeDb, getDb, initVecTable, openDb } = await import('../src/storage/db.js');
+const { closeDb, getDb, initVecTable, openDb } = await import('./helpers/owned-storage.js');
 const embedder = await import('../src/inference/embedder.js');
 const { indexFile, indexVaultSync, resetIndexingState } =
-  await import('../src/indexing/indexer.js');
+  await import('./helpers/owned-indexer.js');
 const { runHttpMcpServer } = await import('../src/transports/mcp-http-server.js');
 
 beforeEach(() => {

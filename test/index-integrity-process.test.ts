@@ -15,6 +15,7 @@ const LEGACY_CLI = process.env.OHS_INTEGRITY_LEGACY_CLI ?? CLI;
 let vault: string;
 let endpoint: string;
 let unavailable = false;
+let rejectDocuments = false;
 let bDim = 8;
 let requests: Array<{ model: string; input: string[] }> = [];
 let server: ReturnType<typeof createServer>;
@@ -23,6 +24,7 @@ let activeWriter: { child: ChildProcess; closed: Promise<void> } | undefined;
 beforeEach(async () => {
   vault = mkdtempSync(path.join(tmpdir(), 'ohs-integrity-process-'));
   unavailable = false;
+  rejectDocuments = false;
   bDim = 8;
   requests = [];
   server = createServer((request, response) => {
@@ -40,7 +42,10 @@ beforeEach(async () => {
       };
       const input = Array.isArray(payload.input) ? payload.input : [payload.input];
       requests.push({ model: payload.model, input });
-      if (unavailable) {
+      if (
+        unavailable ||
+        (rejectDocuments && !input.some((text) => text.includes('dimension probe')))
+      ) {
         // A permanent rejection avoids backoff sleeps while exercising failed readiness.
         response.statusCode = 400;
         response.end(JSON.stringify({ error: { message: 'synthetic provider unavailable' } }));
@@ -329,11 +334,12 @@ it.each([false, true])(
   },
 );
 
-it('ordinary fresh reindex retains provider-failure behavior without implicit force', async () => {
+it('ordinary fresh reindex reports failed provider readiness without an implicit rebuild', async () => {
   writeBody('First note is waiting for an embedding provider to become available.', 1_700_000_001);
   unavailable = true;
   const result = await runCli(['reindex'], 'model-A');
-  assert.equal(result.code, 0, result.stderr);
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /dimension probe failed/);
   const db = new Database(path.join(vault, '.obsidian-hybrid-search.db'), { readonly: true });
   try {
     assert.equal(
@@ -348,13 +354,16 @@ it('ordinary fresh reindex retains provider-failure behavior without implicit fo
 it('an already-open writer reads a changed model marker inside its write transaction', async () => {
   await seedA();
   const script = `
-    import { openDb, closeDb, upsertNote } from ${JSON.stringify(pathToFileURL(path.join(ROOT, 'dist/src/storage/db.js')).href)};
+    import { openDb, closeDb, upsertNote, requestForegroundIndex, claimIndexLease, cancelForegroundIndexRequest } from ${JSON.stringify(pathToFileURL(path.join(ROOT, 'dist/src/storage/db.js')).href)};
     openDb();
+    requestForegroundIndex('writer');
+    const lease = claimIndexLease('writer', 'foreground');
+    cancelForegroundIndexRequest('writer');
     process.send({ kind: 'ready' });
     process.on('message', (message) => {
       if (message !== 'write') return;
       try {
-        upsertNote({ path: 'race.md', title: 'Race', tags: [], content: 'race', mtime: 1,
+        upsertNote(lease, { path: 'race.md', title: 'Race', tags: [], content: 'race', mtime: 1,
           hash: 'race-hash', chunks: [{ text: 'race', embedding: new Float32Array([1, 0, 0, 0]) }] },
           { modelName: 'model-A' });
         process.send({ kind: 'written' });
@@ -409,5 +418,35 @@ it('an early child exit includes stderr in the IPC failure', async () => {
     );
   } finally {
     await stopWriter(writer);
+  }
+});
+
+it('late force provider failure preserves the prior snapshot and the open reader', async () => {
+  await seedA();
+  const before = snapshot();
+  const reader = new Database(path.join(vault, '.obsidian-hybrid-search.db'), { readonly: true });
+  sqliteVec.load(reader);
+  try {
+    rejectDocuments = true;
+    requests = [];
+    const result = await runCli(['reindex', '--force'], 'model-B');
+    assert.notEqual(result.code, 0);
+    assert.deepEqual(snapshot(), before);
+    assert.ok(
+      requests.some((request) => request.input.some((text) => text.includes('dimension probe'))),
+    );
+    assert.ok(
+      requests.some((request) => !request.input.some((text) => text.includes('dimension probe'))),
+    );
+    assert.equal(
+      reader
+        .prepare("SELECT count(*) FROM notes_fts_bm25 WHERE notes_fts_bm25 MATCH 'Original'")
+        .pluck()
+        .get(),
+      1,
+    );
+    assert.match(result.stderr, /embedding.*failed|existing index preserved/i);
+  } finally {
+    reader.close();
   }
 });

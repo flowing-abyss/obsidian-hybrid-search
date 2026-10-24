@@ -13,7 +13,7 @@ vi.mock('../src/inference/embedder.js', () => ({
 }));
 
 const { closeDb, openDb, initVecTable, upsertNote, upsertLinks } =
-  await import('../src/storage/db.js');
+  await import('./helpers/owned-storage.js');
 const { search, isAmbiguousNotePathError } = await import('../src/search/searcher.js');
 
 const fakeEmbedding = new Float32Array([0.1, 0.2, 0.3, 0.4]);

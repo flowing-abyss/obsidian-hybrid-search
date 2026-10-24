@@ -1,7 +1,7 @@
 import { getIndexingStatus } from '../indexing/indexer.js';
 import { activeModelName, useRemoteEmbeddings } from '../inference/embedder.js';
 import { config } from '../runtime/config.js';
-import { getStats } from '../storage/db.js';
+import { getIndexFailures, getStats } from '../storage/db.js';
 
 export interface StatusPayloadOptions {
   contextLength: number;
@@ -29,6 +29,8 @@ export function buildStatusPayload({
     chunks: stats.chunks,
     // Chunks the embedding provider rejected. Unlike the above, this is a failure.
     failed_chunks: stats.failedChunks,
+    failed_indexing: stats.failedIndexing,
+    indexing_errors: getIndexFailures(),
     links: stats.links,
     last_indexed: stats.lastIndexed,
     db_size_mb:

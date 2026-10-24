@@ -78,7 +78,7 @@ async function startRuntime(mode: GpuMode, transport: 'memory' | 'http') {
     ),
   );
   vi.spyOn(model, 'loadRerankerModel').mockResolvedValue(cpu);
-  const db = await import('../src/storage/db.js');
+  const db = await import('./helpers/owned-storage.js');
   const client = new Client({ name: 'reranker-regression', version: '1.0.0' });
   let closeServer = () => Promise.resolve();
   closeRuntime = async () => {

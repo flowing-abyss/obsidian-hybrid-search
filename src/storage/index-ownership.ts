@@ -1,25 +1,25 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 
-const INDEX_LEASE_MS = 30_000;
-type IndexOwnerMode = 'background' | 'foreground' | 'bootstrap';
-interface IndexLease {
+export const INDEX_LEASE_MS = 30_000;
+export type IndexOwnerMode = 'background' | 'foreground' | 'bootstrap';
+export interface IndexLease {
   readonly token: string;
   readonly mode: IndexOwnerMode;
 }
-interface IndexProgress {
+export interface IndexProgress {
   queued: number;
   total: number;
   processed: number;
   isRunning: boolean;
 }
-interface IndexOwnerSnapshot extends IndexProgress {
+export interface IndexOwnerSnapshot extends IndexProgress {
   token: string | null;
   mode: IndexOwnerMode | null;
   expiresAt: number;
   heartbeatSequence: number;
 }
-interface StalledOwner {
+export interface StalledOwner {
   token: string;
   heartbeatSequence: number;
 }

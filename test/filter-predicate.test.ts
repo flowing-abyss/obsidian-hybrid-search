@@ -15,7 +15,7 @@ const {
   getDb,
   filterNotePathsByTag,
   filterNotePathsByFrontmatter,
-} = await import('../src/storage/db.js');
+} = await import('./helpers/owned-storage.js');
 const { buildFilterPredicate, hasFilterValue } =
   await import('../src/contracts/filter-predicate.js');
 const { matchesScopeFilter } = await import('../src/search/searcher.js');

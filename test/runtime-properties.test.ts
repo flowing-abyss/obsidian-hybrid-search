@@ -8,7 +8,7 @@ import { afterAll, expect, it, vi } from 'vitest';
 
 const vault = mkdtempSync(path.join(tmpdir(), 'ohs-properties-'));
 process.env.OBSIDIAN_VAULT_PATH = vault;
-const db = await import('../src/storage/db.js');
+const db = await import('./helpers/owned-storage.js');
 const embedder = await import('../src/inference/embedder.js');
 function vector(text: string): Float32Array {
   const sum = Array.from(text).reduce((n, c) => n + c.codePointAt(0)!, 0);
@@ -25,7 +25,7 @@ vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
 });
 const { chunkNote, refineChunksToFit } = await import('../src/content/chunker.js');
 const { buildFilterPredicate } = await import('../src/contracts/filter-predicate.js');
-const { indexFile, indexVaultSync, cleanupStaleNotes } = await import('../src/indexing/indexer.js');
+const { indexFile, indexVaultSync, cleanupStaleNotes } = await import('./helpers/owned-indexer.js');
 const { search } = await import('../src/search/searcher.js');
 const { bumpIndexVersion } = await import('../src/storage/index-state.js');
 

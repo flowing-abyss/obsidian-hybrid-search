@@ -7,39 +7,21 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import pc from 'picocolors';
 import { parseCliIntegerOption, parseCliNumberOption } from '../contracts/boundary-validation.js';
-import {
-  formatDuration,
-  indexFileWithRecovery,
-  indexVaultSync,
-  populateMissingMarkdownReferences,
-  renderProgressLine,
-  startBackgroundIndexing,
-  startWatcher,
-} from '../indexing/indexer.js';
-import {
-  activeModelName,
-  getContextLength,
-  getEmbeddingDim,
-  primeEmbeddingDim,
-} from '../inference/embedder.js';
+import { createIndexService, openIndexDatabase } from '../indexing/index-service.js';
+import { formatDuration, renderProgressLine } from '../indexing/indexer.js';
+import { activeModelName, getContextLength, primeEmbeddingDim } from '../inference/embedder.js';
 import { MAX_CPU_THREADS, saveCpuThreads } from '../inference/inference-settings.js';
 import { enableModelDownloadProgress } from '../inference/model-download-progress.js';
 import { config } from '../runtime/config.js';
 import { isAmbiguousNotePathError, readNotes, search } from '../search/searcher.js';
 import {
   applyDbConfigDefaults,
+  closeDb,
   getFailedChunks,
   getNotesWithFailedChunks,
   getStats,
   getStoredEmbeddingDim,
   getStoredModel,
-  hasVecTable,
-  initVecTable,
-  isLikelyDatabaseCorruption,
-  openDb,
-  saveConfigMeta,
-  wipeDatabaseFiles,
-  wipeDatabaseSidecars,
 } from '../storage/db.js';
 import { discoverConfig } from '../vault/vault-config.js';
 import {
@@ -182,7 +164,7 @@ interface ReindexOpts {
  * the gaps would otherwise stay in the index indefinitely.
  */
 async function reindexFailedNotes(): Promise<void> {
-  const contextLength = await init();
+  await init();
   const paths = getNotesWithFailedChunks();
 
   if (paths.length === 0) {
@@ -193,20 +175,14 @@ async function reindexFailedNotes(): Promise<void> {
   const noun = paths.length === 1 ? 'note' : 'notes';
   process.stderr.write(`Repairing ${String(paths.length)} ${noun} with failed chunks...\n`);
 
-  const embeddingDim = getStoredEmbeddingDim();
   const isTTY = process.stderr.isTTY === true;
   const startTime = Date.now();
   const failures: Array<{ path: string; error: string }> = [];
 
   for (const [index, relPath] of paths.entries()) {
-    const status = await indexFileWithRecovery(
-      path.join(config.vaultPath, relPath),
-      contextLength,
-      // Forced: the note is unchanged on disk, which is exactly why it was skipped.
-      true,
-      () => recoverDbSidecarsForReindex(embeddingDim),
-    );
-    if (typeof status === 'object') {
+    const result = await cliIndexer.reindex({ path: relPath, force: true });
+    const status = result.errors[0];
+    if (status) {
       failures.push({ path: relPath, error: status.error });
     }
 
@@ -250,74 +226,22 @@ interface ServeOpts {
   foreground?: boolean;
 }
 
+const cliIndexer = createIndexService();
 async function init(): Promise<number> {
-  openDb();
+  await openIndexDatabase();
   applyDbConfigDefaults();
-
-  // Persist config metadata so the DB is self-describing (mirrors server.ts)
-  saveConfigMeta({
-    vaultPath: config.vaultPath,
-    apiBaseUrl: config.apiBaseUrl,
-    apiModel: config.apiModel,
-  });
-
   const modelName = currentModelName();
   const stored = getStoredModel();
-  if (stored && stored !== modelName) {
+  if (stored && stored !== modelName)
     process.stderr.write(
-      `[warn] Embedding model mismatch: DB has "${stored}", current env has "${modelName}". Semantic search may be degraded. Restore the recorded model/configuration, or intentionally rebuild with full reindex --force.\n`,
+      `[warn] Embedding model mismatch: DB has "${stored}", current env has "${modelName}". Restore the recorded model or use full reindex --force.\n`,
     );
-  }
-
-  // Read stored dim from DB first — avoids an API round-trip when the vault was
-  // already indexed.  This is the common case and ensures that fulltext / title
-  // searches (which never need the embedding API) keep working when offline.
-  // Only fall back to getEmbeddingDim() on a fresh install where no dim is stored yet.
-  const storedDim = getStoredEmbeddingDim();
-  const [contextLength, apiDim] = await Promise.all([
-    getContextLength(),
-    storedDim === null && !hasVecTable()
-      ? getEmbeddingDim().catch((err: unknown) => {
-          console.error(
-            '[cli] embedding API unavailable — semantic search and indexing disabled,' +
-              ' fulltext/title search still works:',
-            err instanceof Error ? err.message : String(err),
-          );
-          return null;
-        })
-      : Promise.resolve(null),
-  ]);
-  const embeddingDim = storedDim ?? apiDim;
-  if (embeddingDim !== null) {
-    // Seed in-memory dim cache so the zero-vector fallback in the indexer works
-    // even if getEmbeddingDim() was never called this session.
-    primeEmbeddingDim(embeddingDim);
-    initVecTable(embeddingDim);
-  }
-  await populateMissingMarkdownReferences();
-  return contextLength;
+  const dimension = getStoredEmbeddingDim();
+  if (dimension !== null) primeEmbeddingDim(dimension);
+  return getContextLength();
 }
-
 function currentModelName(): string {
   return activeModelName();
-}
-
-function restoreDbRuntimeMetadata(embeddingDim: number | null): void {
-  saveConfigMeta({
-    vaultPath: config.vaultPath,
-    apiBaseUrl: config.apiBaseUrl,
-    apiModel: config.apiModel,
-  });
-  if (embeddingDim !== null) {
-    initVecTable(embeddingDim);
-  }
-}
-
-function recoverDbSidecarsForReindex(embeddingDim: number | null): void {
-  wipeDatabaseSidecars();
-  openDb();
-  const recoveredDim = getStoredEmbeddingDim();
-  restoreDbRuntimeMetadata(recoveredDim ?? (hasVecTable() ? null : embeddingDim));
 }
 
 /** Color-code a score value based on relevance thresholds. */
@@ -699,62 +623,18 @@ program
         failCliValidation(error);
       }
     }
-    if (opts.errors) {
-      await reindexFailedNotes();
-      return;
-    }
-
-    if (filePath) {
-      const contextLength = await init();
-      const fullPath = path.join(config.vaultPath, filePath);
-      const embeddingDim = getStoredEmbeddingDim();
-      const status = await indexFileWithRecovery(fullPath, contextLength, opts.force, () =>
-        recoverDbSidecarsForReindex(embeddingDim),
-      );
-      console.log(
-        JSON.stringify(
-          status === 'indexed'
-            ? { indexed: 1, skipped: 0, errors: [] }
-            : status === 'skipped'
-              ? { indexed: 0, skipped: 1, errors: [] }
-              : {
-                  indexed: 0,
-                  skipped: 0,
-                  errors: [
-                    {
-                      path: filePath,
-                      error: typeof status === 'object' ? status.error : 'indexing failed',
-                    },
-                  ],
-                },
-          null,
-          2,
-        ),
-      );
-    } else {
-      const header = opts.force ? 'Recreating database and indexing vault...' : 'Indexing vault...';
-      try {
-        await init();
-      } catch (err) {
-        if (!isLikelyDatabaseCorruption(err)) {
-          throw err;
-        }
-        process.stderr.write(
-          '[auto-heal] SQLite index corruption detected during startup; removing WAL/SHM sidecars and retrying.\n',
-        );
-        wipeDatabaseSidecars();
-        await init();
+    try {
+      if (opts.errors) {
+        await reindexFailedNotes();
+        return;
       }
-      if (opts.force) {
-        const freshDim = await getEmbeddingDim({ refresh: true });
-        wipeDatabaseFiles();
-        openDb();
-        restoreDbRuntimeMetadata(freshDim);
-      }
-      const embeddingDim = getStoredEmbeddingDim();
-      await indexVaultSync(Boolean(opts.force), header, {
-        recoverDatabase: () => recoverDbSidecarsForReindex(embeddingDim),
-      });
+      await init();
+      const result = await cliIndexer.reindex({ path: filePath, force: opts.force });
+      if (filePath) console.log(JSON.stringify(result, null, 2));
+      if (result.errors.length > 0) process.exitCode = 1;
+    } finally {
+      await cliIndexer.close();
+      closeDb();
     }
   });
 
@@ -916,19 +796,24 @@ const serveCommand = program
       await init();
 
       const contextLength = await getContextLength();
-      startBackgroundIndexing(contextLength).catch((err) => {
-        process.stderr.write(`[serve] background indexing error: ${String(err)}\n`);
-      });
-      startWatcher(contextLength);
+      cliIndexer.start();
 
       process.stdout.write(JSON.stringify({ ready: true }) + '\n');
 
       const { createInterface } = await import('node:readline');
       const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
+      let closing = false;
       const cleanup = () => {
-        process.exit(0);
+        if (closing) return;
+        closing = true;
+        void cliIndexer.close().finally(() => {
+          closeDb();
+          process.exit(0);
+        });
       };
+      process.on('SIGTERM', cleanup);
+      process.on('SIGINT', cleanup);
 
       rl.on('close', cleanup);
       rl.on('end', cleanup);

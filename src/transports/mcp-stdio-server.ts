@@ -1,14 +1,26 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { registerProcessHandlers } from '../runtime/process-resilience.js';
-import { createMcpRuntime, createMcpServer, startMcpBackgroundServices } from './mcp-runtime.js';
+import { closeDb } from '../storage/db.js';
+import {
+  closeMcpRuntime,
+  createMcpRuntime,
+  createMcpServer,
+  startMcpBackgroundServices,
+} from './mcp-runtime.js';
 
 export async function runStdioMcpServer(): Promise<void> {
   const runtime = await createMcpRuntime();
   const server = createMcpServer(runtime);
   const transport = new StdioServerTransport();
 
+  let closing = false;
   const cleanup = () => {
-    process.exit(0);
+    if (closing) return;
+    closing = true;
+    void closeMcpRuntime(runtime).finally(() => {
+      closeDb();
+      process.exit(0);
+    });
   };
 
   transport.onclose = cleanup;
@@ -19,8 +31,8 @@ export async function runStdioMcpServer(): Promise<void> {
     cleanup();
   }
 
-  process.on('SIGTERM', () => process.exit(0));
-  process.on('SIGINT', () => process.exit(0));
+  process.on('SIGTERM', cleanup);
+  process.on('SIGINT', cleanup);
 
   registerProcessHandlers();
 

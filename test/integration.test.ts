@@ -8,9 +8,9 @@ const FIXTURE_VAULT = path.join(__dirname, 'fixtures/vault');
 
 process.env.OBSIDIAN_VAULT_PATH = FIXTURE_VAULT;
 
-const { openDb, initVecTable } = await import('../src/storage/db.js');
+const { openDb, initVecTable } = await import('./helpers/owned-storage.js');
 const { getEmbeddingDim, getContextLength } = await import('../src/inference/embedder.js');
-const { indexVaultSync } = await import('../src/indexing/indexer.js');
+const { indexVaultSync } = await import('./helpers/owned-indexer.js');
 const { search } = await import('../src/search/searcher.js');
 
 beforeAll(async () => {
@@ -45,7 +45,7 @@ describe('search', () => {
   });
 
   it('empty sections note is indexed without errors', async () => {
-    const { getDb } = await import('../src/storage/db.js');
+    const { getDb } = await import('./helpers/owned-storage.js');
     const db = getDb();
     const note = db.prepare("SELECT * FROM notes WHERE path LIKE '%empty-sections%'").get();
     assert.ok(note);

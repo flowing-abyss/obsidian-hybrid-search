@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, it, vi } from 'vitest';
 let root: string;
 let a: string;
 let b: string;
-let db: typeof import('../src/storage/db.js');
+let db: typeof import('./helpers/owned-storage.js');
 
 beforeEach(async () => {
   vi.resetModules();
@@ -27,7 +27,7 @@ beforeEach(async () => {
   ]) {
     vi.stubEnv(key, undefined);
   }
-  db = await import('../src/storage/db.js');
+  db = await import('./helpers/owned-storage.js');
 });
 
 afterEach(() => {

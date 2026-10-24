@@ -19,7 +19,7 @@ class TestWatcher extends EventEmitter {
 let watcher: TestWatcher;
 let watch: ReturnType<typeof vi.fn>;
 let created: Promise<void>;
-let indexer: typeof import('../src/indexing/indexer.js');
+let indexer: typeof import('./helpers/owned-indexer.js');
 let handle: ReturnType<typeof indexer.startWatcher> | undefined;
 
 beforeEach(async () => {
@@ -35,7 +35,7 @@ beforeEach(async () => {
     return watcher;
   });
   vi.doMock('chokidar', () => ({ watch }));
-  indexer = await import('../src/indexing/indexer.js');
+  indexer = await import('./helpers/owned-indexer.js');
 });
 
 afterEach(async () => {

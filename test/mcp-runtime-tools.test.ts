@@ -27,7 +27,7 @@ const {
   getStoredModel,
   getStoredEmbeddingDim,
   getNoteByPath,
-} = await import('../src/storage/db.js');
+} = await import('./helpers/owned-storage.js');
 const { createMcpRuntime, createMcpServer, checkForUpdates, packageVersion } =
   await import('../src/transports/mcp-runtime.js');
 

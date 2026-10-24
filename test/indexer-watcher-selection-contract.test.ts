@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, it, vi } from 'vitest';
 // to exercise the exact function chokidar v5 calls.
 vi.mock('chokidar', () => ({
   watch: vi.fn().mockReturnValue({
+    close: vi.fn().mockResolvedValue(undefined),
     on: vi.fn().mockReturnThis(),
     add: vi.fn().mockReturnThis(),
   }),
@@ -80,7 +81,7 @@ beforeAll(async () => {
   for (const rel of NON_MD) writeFileSync(abs(rel), 'x');
 
   vi.resetModules();
-  const { startWatcher, scanVault } = await import('../src/indexing/indexer');
+  const { startWatcher, scanVault } = await import('./helpers/owned-indexer');
   startWatcher(512);
   await new Promise((r) => setTimeout(r, 50));
 

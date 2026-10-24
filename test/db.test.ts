@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, it, vi } from 'vitest';
+import * as dbOwnership from './helpers/owned-storage.js';
 
 // ─── Vault setup (before any imports that read OBSIDIAN_VAULT_PATH) ──────────
 
@@ -48,19 +49,18 @@ const {
   getDb,
   deleteNote,
   getStats,
-  getPathsToRemoveForIgnoreChange,
+  cleanupIgnoredNotes,
   saveConfigMeta,
   applyDbConfigDefaults,
   filterNotePathsByTag,
   filterNotePathsByFrontmatter,
   getStoredModel,
   wipeDatabaseFiles,
-  wipeDatabaseSidecars,
   isLikelyDatabaseCorruption,
   closeDb,
   getChunkEmbeddingsByPath,
   PATH_BATCH_SIZE,
-} = await import('../src/storage/db.js');
+} = await import('./helpers/owned-storage.js');
 const { searchBm25, searchFuzzyTitle, search } = await import('../src/search/searcher.js');
 const { isIgnored } = await import('../src/vault/ignore.js');
 
@@ -137,40 +137,6 @@ describe('database corruption helpers', () => {
     assert.equal(isLikelyDatabaseCorruption({ code: 'SQLITE_BUSY' }), false);
     assert.equal(isLikelyDatabaseCorruption({ code: 'SQLITE_LOCKED' }), false);
     assert.equal(isLikelyDatabaseCorruption('disk I/O error'), false);
-  });
-
-  it('wipes WAL and SHM sidecars without deleting the main database file', () => {
-    assert.equal(typeof wipeDatabaseSidecars, 'function');
-    const dbPath = path.join(vaultDir, '.obsidian-hybrid-search.db');
-    getDb().pragma('wal_checkpoint(TRUNCATE)');
-    closeDb();
-
-    assert.equal(existsSync(dbPath), true);
-    writeFileSync(`${dbPath}-wal`, 'wal marker');
-    writeFileSync(`${dbPath}-shm`, 'shm marker');
-
-    wipeDatabaseSidecars();
-
-    assert.equal(existsSync(dbPath), true);
-    assert.equal(existsSync(`${dbPath}-wal`), false);
-    assert.equal(existsSync(`${dbPath}-shm`), false);
-
-    openDb();
-    initVecTable(4);
-  });
-
-  it('surfaces sidecar deletion failures instead of continuing recovery', () => {
-    assert.equal(typeof wipeDatabaseSidecars, 'function');
-    const dbPath = path.join(vaultDir, '.obsidian-hybrid-search.db');
-    getDb().pragma('wal_checkpoint(TRUNCATE)');
-    closeDb();
-    mkdirSync(`${dbPath}-wal`);
-
-    assert.throws(() => wipeDatabaseSidecars());
-
-    rmSync(`${dbPath}-wal`, { recursive: true, force: true });
-    openDb();
-    initVecTable(4);
   });
 
   it('closes a partially opened database handle when openDb fails', () => {
@@ -852,9 +818,9 @@ describe('ignore patterns (isIgnored)', () => {
   });
 });
 
-// ─── getPathsToRemoveForIgnoreChange ─────────────────────────────────────────
+// ─── cleanupIgnoredNotes ─────────────────────────────────────────
 
-describe('getPathsToRemoveForIgnoreChange', () => {
+describe('cleanupIgnoredNotes', () => {
   const fakeEmb = new Float32Array([0.1, 0.2, 0.3, 0.4]);
   const noteBase = {
     tags: [] as string[],
@@ -865,7 +831,7 @@ describe('getPathsToRemoveForIgnoreChange', () => {
 
   it('returns only paths matching new ignore patterns', () => {
     process.env.OBSIDIAN_IGNORE_PATTERNS = '';
-    getPathsToRemoveForIgnoreChange([]);
+    cleanupIgnoredNotes([]);
 
     initVecTable(4);
     upsertNote({ ...noteBase, path: 'notes/keep-me.md', title: 'Keep', hash: 'h1' });
@@ -873,7 +839,7 @@ describe('getPathsToRemoveForIgnoreChange', () => {
     upsertNote({ ...noteBase, path: 'drafts/wip.md', title: 'Draft', hash: 'h3' });
 
     process.env.OBSIDIAN_IGNORE_PATTERNS = 'templates/**,drafts/**';
-    const toRemove = getPathsToRemoveForIgnoreChange(['templates/**', 'drafts/**']);
+    const toRemove = cleanupIgnoredNotes(['templates/**', 'drafts/**']);
 
     assert.ok(toRemove.includes('drafts/wip.md'), 'drafts/wip.md should be removed');
     assert.ok(toRemove.includes('templates/daily.md'), 'templates/daily.md should be removed');
@@ -1015,7 +981,7 @@ describe('aliases', () => {
 
 describe('indexFile error handling', () => {
   it('error result includes actual error message', async () => {
-    const { indexFile } = await import('../src/indexing/indexer.js');
+    const { indexFile } = await import('./helpers/owned-indexer.js');
     const status = await indexFile('/nonexistent/path/note.md', 512);
     assert.ok(typeof status === 'object', 'error should be an object');
     assert.ok('error' in status, 'error object should have error property');
@@ -1029,7 +995,7 @@ describe('indexFile error handling', () => {
 describe('frontmatter-only note indexing', () => {
   it('indexes notes with no body content so tag/frontmatter filters can find them', async () => {
     const { writeFileSync, mkdirSync } = await import('node:fs');
-    const { indexFile } = await import('../src/indexing/indexer.js');
+    const { indexFile } = await import('./helpers/owned-indexer.js');
 
     // Write a note with only frontmatter and no body
     const vaultPath = process.env.OBSIDIAN_VAULT_PATH!;
@@ -1292,12 +1258,12 @@ describe('getStoredModel', () => {
   });
 });
 
-// ─── getPathsToRemoveForIgnoreChange ─────────────────────────────────────────
+// ─── cleanupIgnoredNotes ─────────────────────────────────────────
 
-describe('getPathsToRemoveForIgnoreChange', () => {
+describe('cleanupIgnoredNotes', () => {
   it('returns empty array when patterns unchanged', () => {
-    const first = getPathsToRemoveForIgnoreChange(['.obsidian/**', 'templates/**']);
-    const second = getPathsToRemoveForIgnoreChange(['.obsidian/**', 'templates/**']);
+    const first = cleanupIgnoredNotes(['.obsidian/**', 'templates/**']);
+    const second = cleanupIgnoredNotes(['.obsidian/**', 'templates/**']);
     assert.deepEqual(second, []);
     // Use first to silence unused warning and validate initial store
     assert.ok(Array.isArray(first));
@@ -1317,7 +1283,7 @@ describe('getPathsToRemoveForIgnoreChange', () => {
       hash: 'h-template',
       chunks: [{ text: 'Template content', embedding: fakeEmbedding }],
     });
-    const paths = getPathsToRemoveForIgnoreChange(['.obsidian/**', 'templates/**', 'archive/**']);
+    const paths = cleanupIgnoredNotes(['.obsidian/**', 'templates/**', 'archive/**']);
     assert.ok(paths.includes('templates/starter.md'));
   });
 });
@@ -1358,6 +1324,7 @@ describe('cleanupNfcPaths migration', () => {
     // Re-opening the DB triggers cleanupNfcPaths
     wipeDatabaseFiles();
     openDb();
+    dbOwnership.withTestIndexLease((lease) => dbOwnership.cleanupLegacyPaths(lease));
     initVecTable(4);
 
     const after = getNoteByPath(nfcPath);
@@ -1525,6 +1492,7 @@ describe('markdown link and URL storage', () => {
   it('cleanupNfcPaths removes markdown and URL rows involving NFC paths', () => {
     wipeDatabaseFiles();
     openDb();
+    dbOwnership.withTestIndexLease((lease) => dbOwnership.cleanupLegacyPaths(lease));
     initVecTable(4);
 
     const nfcPath = 'caf\u00e9.md';
@@ -1547,6 +1515,7 @@ describe('markdown link and URL storage', () => {
     );
 
     openDb();
+    dbOwnership.withTestIndexLease((lease) => dbOwnership.cleanupLegacyPaths(lease));
     initVecTable(4);
     const dbAfter = getDb();
     const markdownCount = dbAfter
@@ -1567,6 +1536,7 @@ describe('initVecTable', () => {
   it('preserves vec table, chunks, and dimension setting when dimension changes', () => {
     wipeDatabaseFiles();
     openDb();
+    dbOwnership.withTestIndexLease((lease) => dbOwnership.cleanupLegacyPaths(lease));
     initVecTable(4);
 
     upsertNote({
@@ -1605,6 +1575,7 @@ describe('path-batched note filters', () => {
   beforeAll(() => {
     wipeDatabaseFiles();
     openDb();
+    dbOwnership.withTestIndexLease((lease) => dbOwnership.cleanupLegacyPaths(lease));
     initVecTable(4);
     upsertNote({
       path: 'target.md',
