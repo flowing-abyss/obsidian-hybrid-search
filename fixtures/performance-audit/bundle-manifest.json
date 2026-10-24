@@ -3,7 +3,7 @@
   "temporaryBranch": "verify-release-performance",
   "sourceCommits": {
     "base": "8109080ae62abb60504cf14a118dd75a464cf9d3",
-    "candidate": "d9dc8f9ce873eed9d3b74f7056c56c3c70ac2a7b"
+    "candidate": "308437b01ead87a95d91cc193ebe73c408e6f815"
   },
   "frozenHelperEquivalence": [
     {
@@ -21,15 +21,15 @@
     {
       "file": "measure-initial-quiet-migration.mjs",
       "frozenSha256": "4c75fa31f91342a7f478cd96198e3b49d324692ca0e6d161b8a4e760140c8104",
-      "preparedSha256": "6124391b5efa68fd1c31ba060a95e35d46561e059c910df6955bc13069027206",
-      "equivalence": "Exact after Prettier normalization, removing scoped lint comments/global declaration, and reverting the two helper SHA literals in the collector."
+      "preparedSha256": "38eae5301efac64b46c910892a754eb5ff2e699f03e30589ae35a6431c2445e7",
+      "equivalence": "Exact after Prettier normalization, removing scoped lint/global comments, reverting the two helper SHA literals, and reverting the final candidate package SHA literal from a8066d4 to f69cab4."
     }
   ],
   "files": [
     {
       "path": ".github/workflows/initial-index-performance.yml",
       "bytes": 2925,
-      "sha256": "4786a561f16aadc964112e33db02d65adb7355273cdb701a3342e41755477965"
+      "sha256": "9b4faed857372400ed0fb11016256cad2852e8bc8095b44b514dec5f135a2df3"
     },
     {
       "path": "fixtures/performance-audit/corpus-manifest.json",
@@ -64,12 +64,12 @@
     {
       "path": "fixtures/performance-audit/runtime-manifest.json",
       "bytes": 12618,
-      "sha256": "df86910783dcce422073953501adee89c0c1496e46612faa112d13c6f48ab5ec"
+      "sha256": "40e2580f2b8e9f18e24b2ad4518f360c85f8f627e57f470c74aa4c7837570196"
     },
     {
       "path": "fixtures/performance-audit/runtime-source-commit.json",
-      "bytes": 840,
-      "sha256": "100b6d9ad757dfa93771de31c463d02ba108e012fdbc2244aa6d7d6b0110a84d"
+      "bytes": 971,
+      "sha256": "d99313f13ebec62e085647e4985abff203cdd9a3e7ebc0fe431ffe108cc21519"
     },
     {
       "path": "scripts/performance-audit/harness-safe-cleanup.mjs",
@@ -79,12 +79,12 @@
     {
       "path": "scripts/performance-audit/measure-initial-quiet-migration.mjs",
       "bytes": 22936,
-      "sha256": "6124391b5efa68fd1c31ba060a95e35d46561e059c910df6955bc13069027206"
+      "sha256": "38eae5301efac64b46c910892a754eb5ff2e699f03e30589ae35a6431c2445e7"
     },
     {
       "path": "scripts/performance-audit/prepare.mjs",
       "bytes": 22116,
-      "sha256": "2b068134af1bc016832beba0592fa6254d5e5a099cca8e786096412c7b904482"
+      "sha256": "2feb55498068b13c2178f03d38b847d1ceadd27831bea036a12103382905c0e5"
     },
     {
       "path": "scripts/performance-audit/telemetry.mjs",

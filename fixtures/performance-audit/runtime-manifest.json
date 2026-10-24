@@ -1,7 +1,7 @@
 {
   "candidate_base": "bc55696c8ebd5a02e599a2c983e5415cab4964a7",
   "original": "8109080ae62abb60504cf14a118dd75a464cf9d3",
-  "candidate_diff_sha256": "ab32120c40be6bbca9d60a871739bedaed806b53de13ccad2073907929ae2714",
+  "candidate_diff_sha256": "887558546c9de298b190ea904e06b86decf3ece3f4781455f133e5fb5fd46e6d",
   "node": "26.12.0",
   "development_node": "22.23.3",
   "npm": "12.2.0",
@@ -60,7 +60,7 @@
     "candidate": {
       "package.json": "fda18c7be8b7cc6c3cb929bbb399ac32df98da7034156bb4463e07dd3e093f07",
       "package-lock.json": "1b4a0903adb87ee93412af2c98792590a77524a3392643ac5fc95ba8c18b64e5",
-      "obsidian-hybrid-search-0.16.4.tgz": "f69cab4310e870caa31cbdc685fe49272865be0dcdfb5d526470c339400a7143",
+      "obsidian-hybrid-search-0.16.4.tgz": "a8066d4d93a05a18d94f9969caab919814c705c5a36e2ecc861ed0f9f025b52b",
       "compiled_files": {
         "dist/src/cli.js": "c78281391c365712ce14c59ff72b0f487c4bffb5508304926d2a395fa5f5adc7",
         "dist/src/content/chunker.js": "cd0df72eef3d8712783dc79177c93082ed6bf27d357ae328b1ec6ce097afbe5a",
@@ -75,7 +75,7 @@
         "dist/src/indexing/content-filter-protocol.js": "10e0114133fd8c922c98f7ca047083d76ca4850f240af85a81ea483c997352de",
         "dist/src/indexing/content-filter-worker.js": "ee7b50ff4683e868ff82fa33bd57ad65474ece0de3e4adde16aa4b76f90d4d74",
         "dist/src/indexing/content-filter.js": "fdccbeb24c21c3c97fca3ceada17db28495b6351d94eba7a2bbc5d4c810f18ce",
-        "dist/src/indexing/index-owner.js": "d8c8b29c8411c73d4efd715e253021361bcf9cc8c096247508c3cc06a10ee034",
+        "dist/src/indexing/index-owner.js": "c6eb6374b1e5fc91950b3031535d68e57e33fdd294c36eef187a07ccb19f8adb",
         "dist/src/indexing/index-service.js": "e7cf86a669d061f2d9b1bd6f30b937432543100ebc38132bd67bb459ebd6bd29",
         "dist/src/indexing/index-write.js": "b41f5e5b415cc28849a24103f5b80b8db0755f90b00e5621cab13aee7ff70282",
         "dist/src/indexing/indexer.js": "ccbe798da5a5a192a18fe78ca20f2a4fa8fb0a520b6bb4645b354371a4479965",
@@ -125,7 +125,7 @@
   "changedCompiledSinceQualityRun": [
     "dist/src/indexing/content-filter.js"
   ],
-  "candidate_head": "d9dc8f9ce873eed9d3b74f7056c56c3c70ac2a7b",
+  "candidate_head": "308437b01ead87a95d91cc193ebe73c408e6f815",
   "changedCompiledSinceLastAcceptance": [
     "dist/src/storage/db.js"
   ]

@@ -16,9 +16,9 @@ const revisions = {
     package: '9c4ef2a4dbcd5875603def83c35f48638c20cc3707f1df471515e8e6960de3c8',
   },
   candidate: {
-    commit: 'd9dc8f9ce873eed9d3b74f7056c56c3c70ac2a7b',
+    commit: '308437b01ead87a95d91cc193ebe73c408e6f815',
     lock: '1b4a0903adb87ee93412af2c98792590a77524a3392643ac5fc95ba8c18b64e5',
-    package: 'f69cab4310e870caa31cbdc685fe49272865be0dcdfb5d526470c339400a7143',
+    package: 'a8066d4d93a05a18d94f9969caab919814c705c5a36e2ecc861ed0f9f025b52b',
   },
 };
 const inputHashes = {
@@ -26,8 +26,8 @@ const inputHashes = {
   'ohs-acceptance-corpus.json': '71a47fca70d51528d7e3816fd7bef6c78c79352a5386ab13e84f35cb21cc93a6',
   'queries.json': '5ebdaf38950df0520fc4cf9f811bb70a83c7908cede97dc9f42e2e75c591c4e0',
   'required-facts.json': 'e08ffb5491cca3804b867033b0a7156727573f4365eb54bae158e2ebe86541c0',
-  'runtime-manifest.json': 'df86910783dcce422073953501adee89c0c1496e46612faa112d13c6f48ab5ec',
-  'runtime-source-commit.json': '100b6d9ad757dfa93771de31c463d02ba108e012fdbc2244aa6d7d6b0110a84d',
+  'runtime-manifest.json': '40e2580f2b8e9f18e24b2ad4518f360c85f8f627e57f470c74aa4c7837570196',
+  'runtime-source-commit.json': 'd99313f13ebec62e085647e4985abff203cdd9a3e7ebc0fe431ffe108cc21519',
   'model-artifacts.json': '2c84d230c7019739412becfbfa9a394ddbdfa4216d9fc84e62aad174e3ecab54',
 };
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');

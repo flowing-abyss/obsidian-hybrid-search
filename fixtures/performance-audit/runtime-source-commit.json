@@ -1,18 +1,20 @@
 {
-  "commit": "d9dc8f9ce873eed9d3b74f7056c56c3c70ac2a7b",
+  "commit": "308437b01ead87a95d91cc193ebe73c408e6f815",
   "base": "bc55696c8ebd5a02e599a2c983e5415cab4964a7",
-  "packageSha256": "f69cab4310e870caa31cbdc685fe49272865be0dcdfb5d526470c339400a7143",
-  "committedDiffSha256": "ab32120c40be6bbca9d60a871739bedaed806b53de13ccad2073907929ae2714",
-  "sourcePatch": "migration-committed-source.diff",
-  "previousPackageSha256": "3fe924de6ad482abc607d0991ca797479dbb6582103b5fd0fe3bbce99027240c",
+  "packageSha256": "a8066d4d93a05a18d94f9969caab919814c705c5a36e2ecc861ed0f9f025b52b",
+  "committedDiffSha256": "887558546c9de298b190ea904e06b86decf3ece3f4781455f133e5fb5fd46e6d",
+  "sourcePatch": "retention-committed-source.diff",
+  "previousPackageSha256": "f69cab4310e870caa31cbdc685fe49272865be0dcdfb5d526470c339400a7143",
   "changedCompiledSincePreviousPackage": [
-    "dist/src/storage/db.js"
+    "dist/src/indexing/index-owner.js"
   ],
   "checks": {
-    "verifyTask": "exit0,109files,1958passed,1unchangedconditional skip",
-    "evalQuality": "exit0,both modes,original failing fixture retained",
+    "verifyTask": "exit0,109files,1961passed,1unchangedconditional skip",
+    "independentReview": "owner-wait-retention-review.md PASS/PASS",
     "commitHooks": "normal lint-staged and commitlint passed",
-    "packageFileList": "73 allowed files"
+    "packageFileList": "73 allowed files",
+    "fullVerify": "pending final candidate verification",
+    "installedAcceptance": "pending repeat on this exact package"
   },
-  "recordedAt": "2026-10-24T20:06:40.126209+00:00"
+  "recordedAt": "2026-10-24T22:24:46.551041+00:00"
 }

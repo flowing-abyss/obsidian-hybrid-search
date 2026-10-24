@@ -308,7 +308,7 @@ async function main() {
       lock: 'f2bb72442a1ae33fe3cf4f4c1bbad080074d57d9c78615e79cc940a64e21cada',
     },
     candidate: {
-      package: 'f69cab4310e870caa31cbdc685fe49272865be0dcdfb5d526470c339400a7143',
+      package: 'a8066d4d93a05a18d94f9969caab919814c705c5a36e2ecc861ed0f9f025b52b',
       lock: '1b4a0903adb87ee93412af2c98792590a77524a3392643ac5fc95ba8c18b64e5',
     },
   };

@@ -32,7 +32,7 @@ jobs:
         timeout-minutes: 3
         uses: actions/checkout@v6
         with:
-          ref: d9dc8f9ce873eed9d3b74f7056c56c3c70ac2a7b
+          ref: 308437b01ead87a95d91cc193ebe73c408e6f815
           path: sources/candidate
           persist-credentials: false
       - uses: actions/setup-node@v6
