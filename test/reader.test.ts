@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { inspect } from 'node:util';
 import { afterAll, beforeAll, describe, it } from 'vitest';
 
 const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-reader-test-'));
@@ -14,6 +15,12 @@ const { readNotes } = await import('../src/search/searcher.js');
 const fakeEmb = new Float32Array([0.1, 0.2, 0.3, 0.4]);
 
 beforeAll(() => {
+  mkdirSync(path.join(vaultDir, 'notes'));
+  writeFileSync(
+    path.join(vaultDir, 'notes/alpha.md'),
+    'Alpha content with enough text to test truncation if needed.',
+  );
+  writeFileSync(path.join(vaultDir, 'notes/beta.md'), 'Beta content.');
   openDb();
   initVecTable(4);
 
@@ -46,6 +53,52 @@ afterAll(() => {
 });
 
 describe('readNotes() — hit', () => {
+  it('returns current original body instead of filtered database content', () => {
+    const original = 'Original %%knowledge%% body';
+    writeFileSync(path.join(vaultDir, 'source.md'), `---\ntitle: Metadata\n---\n${original}`);
+    upsertNote({
+      path: 'source.md',
+      title: 'Indexed metadata',
+      tags: [],
+      content: 'Filtered database body',
+      mtime: 1,
+      hash: 'source',
+      chunks: [],
+    });
+    const [result] = readNotes(['source.md']);
+    assert.ok(result?.found);
+    assert.equal(result.content, original);
+    assert.equal(result.title, 'Indexed metadata');
+    assert.deepEqual(readNotes(['source.md'], { snippetLength: 8 })[0], {
+      ...result,
+      content: 'Original',
+    });
+    writeFileSync(path.join(vaultDir, 'source.md'), 'New original body');
+    const [edited] = readNotes(['source.md']);
+    assert.ok(edited?.found);
+    assert.equal(edited.content, 'New original body');
+    unlinkSync(path.join(vaultDir, 'source.md'));
+    const [missing] = readNotes(['source.md']);
+    assert.ok(missing && !missing.found);
+    assert.ok(!missing.suggestions.includes('source.md'));
+  });
+
+  it('returns an empty source body rather than the older indexed content', () => {
+    writeFileSync(path.join(vaultDir, 'empty.md'), '');
+    upsertNote({
+      path: 'empty.md',
+      title: 'Empty',
+      tags: [],
+      content: 'Older indexed content',
+      mtime: 1,
+      hash: 'empty',
+      chunks: [],
+    });
+    const [result] = readNotes(['empty.md']);
+    assert.ok(result?.found);
+    assert.equal(result.content, '');
+  });
+
   it('returns found:true with all enriched fields', () => {
     const [result] = readNotes(['notes/alpha.md']);
     assert.ok(result, 'should return a result');
@@ -97,6 +150,64 @@ describe('readNotes() — hit', () => {
 });
 
 describe('readNotes() — miss', () => {
+  it('reports malformed frontmatter without printing private source excerpts', () => {
+    writeFileSync(path.join(vaultDir, 'invalid.md'), '---\nkey: [PRIVATE_SENTINEL\n---\nBody');
+    upsertNote({
+      path: 'invalid.md',
+      title: 'Invalid',
+      tags: [],
+      content: 'Indexed body',
+      mtime: 1,
+      hash: 'invalid',
+      chunks: [],
+    });
+    assert.throws(
+      () => readNotes(['invalid.md']),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /invalid\.md.*frontmatter/i);
+        assert.ok(!inspect(error).includes('PRIVATE_SENTINEL'));
+        return true;
+      },
+    );
+  });
+
+  it('returns a miss for an indexed note whose source has disappeared', () => {
+    upsertNote({
+      path: 'deleted.md',
+      title: 'Deleted',
+      tags: [],
+      content: 'Indexed older body',
+      mtime: 1,
+      hash: 'deleted',
+      chunks: [],
+    });
+    const [result] = readNotes(['deleted.md']);
+    assert.ok(result && !result.found);
+    assert.equal(result.path, 'deleted.md');
+    assert.ok(!result.suggestions.includes('deleted.md'));
+  });
+
+  it('does not silently fall back to indexed text after a source read error', () => {
+    mkdirSync(path.join(vaultDir, 'unreadable.md'));
+    upsertNote({
+      path: 'unreadable.md',
+      title: 'Unreadable',
+      tags: [],
+      content: 'Filtered text',
+      mtime: 1,
+      hash: 'unreadable',
+      chunks: [],
+    });
+    assert.throws(() => readNotes(['unreadable.md']), /read.*unreadable\.md/i);
+  });
+
+  it('keeps unindexed source files as enriched read misses', () => {
+    writeFileSync(path.join(vaultDir, 'unindexed.md'), 'Original unindexed body');
+    const [result] = readNotes(['unindexed.md']);
+    assert.ok(result && !result.found);
+  });
+
   it('returns found:false for non-existent path', () => {
     const [result] = readNotes(['notes/nonexistent.md']);
     assert.ok(result, 'should return a result even on miss');

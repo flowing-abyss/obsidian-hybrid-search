@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, it, vi } from 'vitest';
@@ -1577,6 +1577,7 @@ describe('rerank option', () => {
 
 describe('readNotes', () => {
   it('returns note data for existing path', () => {
+    writeFileSync(path.join(vaultDir, 'note-a.md'), 'Content of note A.');
     const results = readNotes(['note-a.md']);
     assert.equal(results.length, 1);
     const r = results[0]!;
@@ -1593,6 +1594,7 @@ describe('readNotes', () => {
   });
 
   it('handles malformed JSON tags gracefully', () => {
+    writeFileSync(path.join(vaultDir, 'bad-tags.md'), 'Content.');
     // Insert a note with invalid JSON in the tags column directly
     const db = getDb();
     db.prepare(

@@ -5,7 +5,7 @@
  * If `search()` changes its return type or parameter names, these tests catch it.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, it } from 'vitest';
@@ -24,6 +24,14 @@ const { readNotes, search } = await import('../src/search/searcher.js');
 const fakeEmbedding = new Float32Array([0.5, 0.5, 0.5, 0.5]);
 
 beforeAll(() => {
+  writeFileSync(
+    path.join(vaultDir, 'alpha.md'),
+    'Alpha note content with enough words to generate a meaningful snippet.',
+  );
+  writeFileSync(
+    path.join(vaultDir, 'beta.md'),
+    'Beta note content with some text for searching and retrieval.',
+  );
   openDb();
   initVecTable(4);
   upsertNote({

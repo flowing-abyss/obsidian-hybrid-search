@@ -8,6 +8,7 @@ import {
   extractMarkdownReferenceOccurrences,
   resolveMarkdownNoteLinks,
 } from '../content/markdown-references.js';
+import { extractMarkdownNote } from '../content/note-extractor.js';
 import { normalizeNotePath } from '../content/text-normalization.js';
 import {
   buildFilterPredicate,
@@ -48,6 +49,7 @@ import {
   readNoteIdentity,
   readSnippetContents,
 } from '../storage/search-queries.js';
+import { createNoteSourceReader } from '../vault/note-source.js';
 import { measureSearchStage, measureSearchStageSync } from './search-profile.js';
 
 interface NoteReadResult {
@@ -1615,10 +1617,20 @@ async function searchSimilar(
   return [...byPath.values()].sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
+function extractOriginalBody(raw: string, notePath: string): string {
+  try {
+    return extractMarkdownNote(raw, path.basename(notePath, '.md')).content;
+  } catch (error) {
+    throw new Error(`Cannot read note ${notePath}: invalid Markdown frontmatter`, {
+      // eslint-disable-next-line preserve-caught-error -- The original YAML cause contains note text.
+      cause: { name: error instanceof Error ? error.name : 'ParseError' },
+    });
+  }
+}
+
 /**
- * Fetch one or more notes by vault-relative path.
- * Returns enriched note data (title, aliases, tags, content, links, backlinks).
- * On path miss: returns found:false with top-3 fuzzy title suggestions.
+ * Fetch current source bodies and indexed metadata by vault-relative path.
+ * On path/source miss: returns found:false with top-3 fuzzy title suggestions.
  * Results are returned in the same order as the input paths array.
  */
 export function readNotes(
@@ -1627,14 +1639,18 @@ export function readNotes(
 ): ReadResult[] {
   const { snippetLength, related = true } = options;
   const results: ReadResult[] = [];
+  const sourceReader = createNoteSourceReader(config.vaultPath);
 
   for (const inputPath of paths) {
     const normalizedPath = normalizeNotePath(inputPath);
     const note = getNoteByPath(normalizedPath);
+    const sourceContent = note ? sourceReader.read(note.path) : null;
 
-    if (!note) {
+    if (!note || sourceContent === null) {
       const basename = path.basename(inputPath, '.md');
-      const suggestions = searchFuzzyTitle(basename, 3).map((r) => r.path);
+      const suggestions = searchFuzzyTitle(basename, 3)
+        .map((r) => r.path)
+        .filter((suggestion) => suggestion !== normalizedPath);
       results.push({ path: inputPath, found: false, suggestions });
       continue;
     }
@@ -1647,7 +1663,7 @@ export function readNotes(
     }
 
     const aliases = parseAliases(note.aliases);
-    let content = note.content ?? '';
+    let content = extractOriginalBody(sourceContent, note.path);
     if (snippetLength !== undefined && content.length > snippetLength) {
       content = content.slice(0, snippetLength);
     }
