@@ -66,6 +66,35 @@ function snapshot() {
     ),
   );
 }
+function deferWorkerExit(pid: number) {
+  // Windows can expose a broken IPC pipe before delivering the child's exit.
+  // Keep the real kill and send failure, but make that event order deterministic.
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- forwarded with its original receiver
+  const original = ChildProcess.prototype.emit;
+  const notifications: Array<() => void> = [];
+  let closed = false;
+  const emit = vi.spyOn(ChildProcess.prototype, 'emit').mockImplementation(function (
+    this: ChildProcess,
+    event,
+    ...args: unknown[]
+  ) {
+    if (this.pid === pid && (event === 'exit' || event === 'close')) {
+      notifications.push(() => original.call(this, event, ...args));
+      if (event === 'close') closed = true;
+      return true;
+    }
+    return original.call(this, event, ...args);
+  });
+  return {
+    get closed() {
+      return closed;
+    },
+    release() {
+      emit.mockRestore();
+      for (const notify of notifications.splice(0)) notify();
+    },
+  };
+}
 beforeEach(() => {
   watchers.length = 0;
   config.debounce = 1;
@@ -397,7 +426,7 @@ it('releases a watcher owner after failed OS spawn and allows a healthy follower
   assert.equal(db.getStats().failedIndexing, 0);
 });
 
-it('releases an owner after its idle worker dies and lets a healthy follower finish untouched work', async () => {
+it('releases an owner when idle-worker IPC fails before exit notification and a healthy follower finishes untouched work', async () => {
   write('note.md', 'Original body.');
   const current = service('/secret/g');
   await current.reindex();
@@ -418,6 +447,7 @@ it('releases an owner after its idle worker dies and lets a healthy follower fin
       workerUrl: new URL('./fixtures/content-filter-worker.ts', import.meta.url),
     }),
   );
+  let delayedExit: ReturnType<typeof deferWorkerExit> | undefined;
   try {
     write('first.md', 'First healthy public source.');
     originalWatcher.emit('change', path.join(vault, 'first.md'));
@@ -425,10 +455,19 @@ it('releases an owner after its idle worker dies and lets a healthy follower fin
       timeout: 3000,
     });
     const pid = (JSON.parse(readFileSync(pidFile, 'utf8').trim()) as { pid: number }).pid;
+    delayedExit = deferWorkerExit(pid);
     process.kill(pid, 'SIGKILL');
-    await vi.waitFor(() => assert.throws(() => process.kill(pid, 0)), { timeout: 3000 });
+    await vi.waitFor(
+      () => {
+        assert.throws(() => process.kill(pid, 0));
+        assert.equal(delayedExit!.closed, true);
+      },
+      { timeout: 3000 },
+    );
     write('second.md', 'Second healthy public source.');
     originalWatcher.emit('change', path.join(vault, 'second.md'));
+    await vi.waitFor(() => assert.equal(db.getStats().failedIndexing, 1), { timeout: 3000 });
+    delayedExit.release();
     await vi.waitFor(
       () => {
         assert.equal(db.getStats().failedIndexing, 1);
@@ -452,6 +491,7 @@ it('releases an owner after its idle worker dies and lets a healthy follower fin
     });
     assert.equal(db.getStats().failedIndexing, 0);
   } finally {
+    delayedExit?.release();
     factory.mockRestore();
     for (const [key, value] of previous) vi.stubEnv(key, value);
   }

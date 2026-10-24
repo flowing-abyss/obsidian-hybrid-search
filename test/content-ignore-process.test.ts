@@ -58,7 +58,7 @@ afterEach(async () => {
   held.forEach((reply) => reply());
   await Promise.all(
     children.map(async ({ child, closed }) => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+      if (child.exitCode === null && child.signalCode === null) child.stdin?.end();
       const timeout = setTimeout(() => child.kill('SIGKILL'), 2000);
       try {
         await closed;
@@ -112,8 +112,10 @@ async function runCli(args: string[], patterns = '') {
   return process.stdout();
 }
 async function stop(process: ReturnType<typeof launch>) {
-  process.child.kill('SIGTERM');
+  // EOF drains the MCP transport and releases its lease on Windows too.
+  process.child.stdin.end();
   await process.closed;
+  assert.equal(process.child.exitCode, 0, process.stderr());
 }
 async function waitUntil(predicate: () => boolean, timeout = 12000) {
   const deadline = Date.now() + timeout;
