@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeEach, it, vi, type MockInstance } from 'vitest';
@@ -395,4 +395,64 @@ it('releases a watcher owner after failed OS spawn and allows a healthy follower
   healthy.start();
   await vi.waitFor(() => assert.equal(body('new.md'), 'New public body.'), { timeout: 3000 });
   assert.equal(db.getStats().failedIndexing, 0);
+});
+
+it('releases an owner after its idle worker dies and lets a healthy follower finish untouched work', async () => {
+  write('note.md', 'Original body.');
+  const current = service('/secret/g');
+  await current.reindex();
+  current.start();
+  await vi.waitFor(() => assert.equal(watchers.length, 1));
+  const originalWatcher = watchers[0]!;
+  const pidFile = path.join(vault, 'worker-pids');
+  const variables = {
+    OHS_CONTENT_FILTER_PID_FILE: pidFile,
+    OHS_CONTENT_FILTER_MESSAGE_FILE: path.join(vault, 'worker-messages'),
+    OHS_CONTENT_FILTER_MODE: 'healthy',
+  };
+  const previous = Object.keys(variables).map((key) => [key, process.env[key]] as const);
+  for (const [key, value] of Object.entries(variables)) vi.stubEnv(key, value);
+  const create = filters.createContentFilter;
+  const factory = vi.spyOn(filters, 'createContentFilter').mockImplementation((patterns) =>
+    create(patterns, {
+      workerUrl: new URL('./fixtures/content-filter-worker.ts', import.meta.url),
+    }),
+  );
+  try {
+    write('first.md', 'First healthy public source.');
+    originalWatcher.emit('change', path.join(vault, 'first.md'));
+    await vi.waitFor(() => assert.equal(body('first.md'), 'First healthy public source.'), {
+      timeout: 3000,
+    });
+    const pid = (JSON.parse(readFileSync(pidFile, 'utf8').trim()) as { pid: number }).pid;
+    process.kill(pid, 'SIGKILL');
+    await vi.waitFor(() => assert.throws(() => process.kill(pid, 0)), { timeout: 3000 });
+    write('second.md', 'Second healthy public source.');
+    originalWatcher.emit('change', path.join(vault, 'second.md'));
+    await vi.waitFor(
+      () => {
+        assert.equal(db.getStats().failedIndexing, 1);
+        assert.equal(db.readIndexOwner().token, null);
+      },
+      { timeout: 3000 },
+    );
+    const failed = db.getIndexFailures();
+    assert.equal(failed[0]?.operation, 'content-filter');
+    const calls = factory.mock.calls.length;
+    for (let index = 0; index < 10; index++)
+      originalWatcher.emit('change', path.join(vault, 'second.md'));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(factory.mock.calls.length, calls);
+    assert.deepEqual(db.getIndexFailures(), failed);
+    factory.mockRestore();
+    const healthy = service('/secret/g');
+    healthy.start();
+    await vi.waitFor(() => assert.equal(body('second.md'), 'Second healthy public source.'), {
+      timeout: 3000,
+    });
+    assert.equal(db.getStats().failedIndexing, 0);
+  } finally {
+    factory.mockRestore();
+    for (const [key, value] of previous) vi.stubEnv(key, value);
+  }
 });

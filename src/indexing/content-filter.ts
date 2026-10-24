@@ -76,7 +76,7 @@ class WorkerContentFilter implements ContentFilter {
   private initialized = false;
   private running = false;
   private closed = false;
-  private failure: Error | null = null;
+  private failure: ContentFilterError | null = null;
   private cleanup: Promise<void> | null = null;
   private sequence = 0;
   private readonly onExit = () => {
@@ -92,7 +92,12 @@ class WorkerContentFilter implements ContentFilter {
 
   project(body: string, { signal }: { signal: AbortSignal }): Promise<ContentProjection> {
     if (this.closed) return Promise.reject(new Error('Content filtering is closed'));
-    if (this.failure) return Promise.reject(new ContentFilterBatchCancelledError(this.failure));
+    if (this.failure)
+      return Promise.reject(
+        this.failure.scope === 'worker'
+          ? this.failure
+          : new ContentFilterBatchCancelledError(this.failure),
+      );
     if (signal.aborted) return Promise.reject(asError(signal.reason));
     if (!this.patterns.length) return Promise.resolve({ text: body, segments: null });
     if (this.queue.length + (this.active ? 1 : 0) >= config.batchSize) {
