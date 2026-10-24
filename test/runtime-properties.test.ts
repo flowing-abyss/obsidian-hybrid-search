@@ -223,24 +223,27 @@ it('incremental edits, renames and deletes equal a fresh index of final files', 
         resetDb();
         const body = (value: string) =>
           `---\ntitle: alpha ${value}\ntags: [alpha, café]\naliases: [identity]\nstate: open\n---\n# alpha\n${value}\n[[anchor]] [anchor](anchor.md) https://example.com/alpha\n`;
-        writeFileSync(path.join(vault, 'anchor.md'), '# anchor\nalpha anchor');
-        await indexFile(path.join(vault, 'anchor.md'), 64, true);
-        for (const operation of operations) {
-          const file = path.join(vault, `note-${operation.slot}.md`);
-          if (operation.kind === 'write') {
-            writeFileSync(file, body(operation.text));
-            expect(await indexFile(file, 64, true)).toBe('indexed');
-          } else if (operation.kind === 'delete') rmSync(file, { force: true });
-          else if (readdirSync(vault).includes(path.basename(file)))
-            renameSync(file, path.join(vault, `renamed-${operation.slot}.md`));
-          const paths = new Set(
-            readdirSync(vault)
-              .filter((name) => name.endsWith('.md'))
-              .map((name) => name.normalize('NFD')),
-          );
-          cleanupStaleNotes(paths);
-        }
-        expect((await indexVaultSync(false)).errors).toEqual([]);
+        // A running watcher keeps one owner across an incremental sequence.
+        await db.withTestIndexRun(async () => {
+          writeFileSync(path.join(vault, 'anchor.md'), '# anchor\nalpha anchor');
+          await indexFile(path.join(vault, 'anchor.md'), 64, true);
+          for (const operation of operations) {
+            const file = path.join(vault, `note-${operation.slot}.md`);
+            if (operation.kind === 'write') {
+              writeFileSync(file, body(operation.text));
+              expect(await indexFile(file, 64, true)).toBe('indexed');
+            } else if (operation.kind === 'delete') rmSync(file, { force: true });
+            else if (readdirSync(vault).includes(path.basename(file)))
+              renameSync(file, path.join(vault, `renamed-${operation.slot}.md`));
+            const paths = new Set(
+              readdirSync(vault)
+                .filter((name) => name.endsWith('.md'))
+                .map((name) => name.normalize('NFD')),
+            );
+            cleanupStaleNotes(paths);
+          }
+          expect((await indexVaultSync(false)).errors).toEqual([]);
+        });
         const incremental = snapshot();
         const incrementalSearch = await searchSnapshot();
         resetDb();
