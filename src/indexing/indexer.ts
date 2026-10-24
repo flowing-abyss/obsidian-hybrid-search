@@ -29,6 +29,7 @@ import {
   renewIndexLease,
   reopenDatabaseForRecovery,
   updateLastIndexed,
+  withIndexMutation,
   type NoteReferences,
   type PreparedIndexNote,
 } from '../storage/db.js';
@@ -53,7 +54,7 @@ import {
   embedChunksWithRecovery,
   type EmbeddedChunk,
 } from './chunk-embedding.js';
-import type { IndexRunContext } from './index-owner.js';
+import { reportIndexProgress, type IndexRunContext } from './index-owner.js';
 import { retryIndexWrite } from './index-write.js';
 
 export interface IndexResult {
@@ -107,7 +108,7 @@ async function indexBatch(
 ): Promise<IndexBatchResult> {
   const result: IndexBatchResult = { indexed: 0, skipped: 0, errors: [] };
   const policy = createIgnorePolicyForFiles(files.map(toVaultRelativePath));
-  await Promise.all(
+  const outcomes = await Promise.allSettled(
     files.map(async (file) => {
       assertIndexRun(run);
       const status = await indexFile(run, file, contextLength, force, policy);
@@ -119,6 +120,8 @@ async function indexBatch(
       }
     }),
   );
+  const failure = outcomes.find((outcome) => outcome.status === 'rejected');
+  if (failure?.status === 'rejected') throw failure.reason;
   return result;
 }
 
@@ -407,37 +410,41 @@ export async function indexFile(
         if (prepared.updateMtime) updateNoteMtime(run.lease, prepared.mtime, prepared.path);
         return 'skipped';
       }
-      let current: Stats;
-      try {
-        current = statSync(fullPath);
-      } catch (error) {
-        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-          deleteNote(run.lease, prepared.note.path);
-          bumpIndexVersion();
-          return 'skipped';
-        }
-        throw error;
-      }
-      if (
-        current.mtimeMs !== prepared.fingerprint.mtimeMs ||
-        current.size !== prepared.fingerprint.size
-      )
-        continue;
-      if (createIgnorePolicy().isIgnored(prepared.note.path)) {
-        deleteNote(run.lease, prepared.note.path, true);
-        bumpIndexVersion();
-        return 'skipped';
-      }
-      await retryIndexWrite(run, () =>
-        commitIndexedNote(
-          run.lease,
-          prepared.note,
-          { modelName: prepared.modelName },
-          resolvePreparedReferences(prepared.note, prepared.frontmatterRaw),
-        ),
+      const published = await retryIndexWrite(run, () =>
+        withIndexMutation(run.lease, () => {
+          // Recheck only after SQLite admits this attempt. A busy wait may have
+          // allowed another process or editor to replace/delete the source.
+          let current: Stats;
+          try {
+            current = statSync(fullPath);
+          } catch (error) {
+            if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+              deleteNote(run.lease, prepared.note.path);
+              return 'skipped' as const;
+            }
+            throw error;
+          }
+          if (
+            current.mtimeMs !== prepared.fingerprint.mtimeMs ||
+            current.size !== prepared.fingerprint.size
+          )
+            return 'changed' as const;
+          if (createIgnorePolicy().isIgnored(prepared.note.path)) {
+            deleteNote(run.lease, prepared.note.path, true);
+            return 'skipped' as const;
+          }
+          commitIndexedNote(
+            run.lease,
+            prepared.note,
+            { modelName: prepared.modelName },
+            resolvePreparedReferences(prepared.note, prepared.frontmatterRaw),
+          );
+          return 'indexed' as const;
+        }),
       );
+      if (published === 'changed') continue;
       bumpIndexVersion();
-      return 'indexed';
+      return published;
     }
     throw new Error(
       'The file kept changing during indexing; it will be retried after the next change.',
@@ -527,7 +534,7 @@ async function resolveAllMarkdownReferences(run: IndexRunContext): Promise<void>
  */
 export function cleanupStaleNotes(run: IndexRunContext, fsPaths?: Set<string>): void {
   try {
-    assertIndexRun(run);
+    run.signal.throwIfAborted();
     const policy = createIgnorePolicy();
     let deleted = cleanupIgnoredNotes(run.lease, config.ignorePatterns, policy.signature(), (p) =>
       policy.isIgnored(p),
@@ -548,6 +555,36 @@ export function cleanupStaleNotes(run: IndexRunContext, fsPaths?: Set<string>): 
     } catch (failure) {
       if (failure instanceof IndexLeaseLostError) throw failure;
       console.error('[indexer] could not record cleanup failure:', failure);
+    }
+    throw error;
+  }
+}
+
+function scanAndCleanup(run: IndexRunContext): string[] {
+  let operation = 'scan';
+  try {
+    return withIndexMutation(run.lease, () => {
+      // A retry must scan after admission instead of deleting against an old
+      // directory snapshot. No asynchronous work runs under this write lock.
+      const files = scanVault();
+      operation = 'cleanup';
+      cleanupStaleNotes(run, new Set(files.map(toVaultRelativePath)));
+      clearIndexFailures(run.lease, '', 'scan');
+      return files;
+    });
+  } catch (error) {
+    const busy =
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error.code === 'SQLITE_BUSY' || error.code === 'SQLITE_LOCKED');
+    if (!busy && !run.signal.aborted && !(error instanceof IndexLeaseLostError)) {
+      try {
+        recordIndexFailure(run.lease, '', operation, fileFingerprint(config.vaultPath), error);
+      } catch (failure) {
+        if (!(failure instanceof IndexLeaseLostError))
+          console.error('[indexer] could not record reconciliation failure:', failure);
+      }
     }
     throw error;
   }
@@ -579,14 +616,13 @@ export async function indexVaultSync(
   header = 'Indexing vault...',
   options: { requireClean?: boolean; recoverDatabase?: () => void } = {},
 ): Promise<IndexResult> {
-  const files = scanVault(run);
-  const fsPaths = new Set(files.map(toVaultRelativePath));
-  await runWithDatabaseRecovery(
+  const files = await runWithDatabaseRecovery(
     run,
     'stale-note cleanup',
-    () => cleanupStaleNotes(run, fsPaths),
+    () => scanAndCleanup(run),
     options.recoverDatabase,
   );
+  reportIndexProgress(run, files.length, 0);
 
   const contextLength = await getContextLength();
   const result: IndexResult = { indexed: 0, skipped: 0, errors: [] };
@@ -637,6 +673,7 @@ export async function indexVaultSync(
     result.errors.push(...batchResult.errors);
 
     const processed = Math.min(i + config.batchSize, files.length);
+    reportIndexProgress(run, files.length, processed);
     const completedBatches = Math.floor(i / config.batchSize) + 1;
     const elapsedSec = (Date.now() - startTime) / 1000;
     const rate = elapsedSec > 0 ? processed / elapsedSec : 0;
@@ -834,9 +871,8 @@ export async function startBackgroundIndexing(
   run: IndexRunContext,
   contextLength: number,
 ): Promise<void> {
-  const files = scanVault(run);
-  await runWithDatabaseRecovery(run, 'background stale-note cleanup', () =>
-    cleanupStaleNotes(run, new Set(files.map(toVaultRelativePath))),
+  const files = await runWithDatabaseRecovery(run, 'background stale-note cleanup', () =>
+    scanAndCleanup(run),
   );
   enqueue(run, files);
   await processQueue(run, contextLength);
@@ -904,11 +940,16 @@ export function startWatcher(contextLength: number, run: IndexRunContext): Watch
         const timer = setTimeout(() => {
           fileDelays.delete(filePath);
           if (closed || run.signal.aborted) return;
-          enqueue(run, [filePath]);
-          processQueue(run, contextLength).catch((err) => {
-            if (!run.signal.aborted && !(err instanceof IndexLeaseLostError))
-              console.warn('[watcher] queue processing error:', err);
-          });
+          void Promise.resolve()
+            .then(() => {
+              if (closed || run.signal.aborted) return;
+              enqueue(run, [filePath]);
+              return processQueue(run, contextLength);
+            })
+            .catch((err) => {
+              if (!run.signal.aborted && !(err instanceof IndexLeaseLostError))
+                console.warn('[watcher] queue processing error:', err);
+            });
         }, config.debounce);
         fileDelays.set(filePath, timer);
       };
@@ -918,10 +959,8 @@ export function startWatcher(contextLength: number, run: IndexRunContext): Watch
           if (closed || run.signal.aborted) return;
           try {
             watcherPolicy = createIgnorePolicy();
-            const files = scanVault(run);
-            const fsPaths = new Set(files.map(toVaultRelativePath));
-            await runWithDatabaseRecovery(run, 'watcher gitignore cleanup', () =>
-              cleanupStaleNotes(run, fsPaths),
+            const files = await runWithDatabaseRecovery(run, 'watcher gitignore cleanup', () =>
+              scanAndCleanup(run),
             );
             if (closed || run.signal.aborted) return;
             enqueue(run, files);
@@ -971,10 +1010,26 @@ export function startWatcher(contextLength: number, run: IndexRunContext): Watch
               clearTimeout(existing);
               fileDelays.delete(filePath);
             }
-            await runWithDatabaseRecovery(run, 'watcher unlink', () => {
-              deleteNote(run.lease, rel);
-              bumpIndexVersion();
-            });
+            const deleted = await runWithDatabaseRecovery(run, 'watcher unlink', () =>
+              withIndexMutation(run.lease, () => {
+                try {
+                  statSync(filePath);
+                  return false;
+                } catch (error) {
+                  if (!(
+                    error &&
+                    typeof error === 'object' &&
+                    'code' in error &&
+                    error.code === 'ENOENT'
+                  ))
+                    throw error;
+                }
+                deleteNote(run.lease, rel);
+                bumpIndexVersion();
+                return true;
+              }),
+            );
+            if (!deleted && !closed && !run.signal.aborted) handleFileChange(filePath);
           } catch (err) {
             if (run.signal.aborted || err instanceof IndexLeaseLostError) return;
             const msg = err instanceof Error ? err.message : String(err);

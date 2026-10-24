@@ -205,7 +205,9 @@ async function callReindexTool(
     return validationErrorResult(formatValidationError('reindex arguments', parsed.error));
   }
   const result = await handleReindex(parsed.data, runtime);
-  return textResult(JSON.stringify(result, null, 2));
+  const response = textResult(JSON.stringify(result, null, 2));
+  if (result.errors.length > 0) response.isError = true;
+  return response;
 }
 
 function callStatusTool(a: Record<string, unknown>, runtime: McpRuntime): McpToolResult {

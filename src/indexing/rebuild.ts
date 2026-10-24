@@ -3,7 +3,7 @@ import path from 'node:path';
 import { normalizeNotePath } from '../content/text-normalization.js';
 import { activeModelName, getEmbeddingDim, primeEmbeddingDim } from '../inference/embedder.js';
 import { config } from '../runtime/config.js';
-import { getStoredEmbeddingDim } from '../storage/db.js';
+import { getStoredEmbeddingDim, withIndexMutation } from '../storage/db.js';
 import { IndexLeaseLostError } from '../storage/index-ownership.js';
 import {
   beginRebuild,
@@ -16,7 +16,7 @@ import {
 } from '../storage/index-rebuild.js';
 import { bumpIndexVersion } from '../storage/index-state.js';
 import { createIgnorePolicy } from '../vault/ignore.js';
-import type { IndexRunContext } from './index-owner.js';
+import { reportIndexProgress, type IndexRunContext } from './index-owner.js';
 import { retryIndexWrite } from './index-write.js';
 import {
   createPreparedReferenceResolver,
@@ -47,11 +47,12 @@ export async function rebuildIndex(
     for (let pass = 0; pass < 3; pass++) {
       run.signal.throwIfAborted();
       const files = scanVault(run);
+      reportIndexProgress(run, files.length, 0);
       const policy = createIgnorePolicy();
       const prior = new Map(readRebuildNotes(id).map((row) => [row.note.path, row]));
       const present = new Set<string>();
       for (let i = 0; i < files.length; i += config.batchSize) {
-        await Promise.all(
+        const outcomes = await Promise.allSettled(
           files.slice(i, i + config.batchSize).map(async (file) => {
             run.signal.throwIfAborted();
             const relative = normalizeNotePath(
@@ -79,27 +80,14 @@ export async function rebuildIndex(
             else if (prepared.kind === 'missing') removeRebuildNote(run.lease, id, prepared.path);
           }),
         );
+        const failure = outcomes.find((outcome) => outcome.status === 'rejected');
+        if (failure?.status === 'rejected') throw failure.reason;
+        reportIndexProgress(run, files.length, Math.min(i + config.batchSize, files.length));
       }
       for (const relative of prior.keys())
         if (!present.has(relative)) removeRebuildNote(run.lease, id, relative);
       const rows = readRebuildNotes(id);
-      const finalFiles = scanVault(run);
       const byPath = new Map(rows.map((row) => [row.note.path, row]));
-      const stable =
-        finalFiles.length === rows.length &&
-        finalFiles.every((file) => {
-          const relative = normalizeNotePath(
-            path.relative(config.vaultPath, file).split(path.sep).join('/'),
-          );
-          const row = byPath.get(relative);
-          try {
-            const stat = statSync(file);
-            return row && row.mtime === stat.mtimeMs && row.size === stat.size;
-          } catch {
-            return false;
-          }
-        });
-      if (!stable) continue;
       const catalog = rows.map(({ note }) => ({
         path: note.path,
         title: note.title,
@@ -113,7 +101,36 @@ export async function rebuildIndex(
           row.note.path,
           resolveReferences(row.note, row.frontmatterRaw),
         );
-      await retryIndexWrite(run, () => publishRebuild(run.lease, id));
+      const published = await retryIndexWrite(run, () =>
+        withIndexMutation(run.lease, () => {
+          const finalFiles = scanVault(run);
+          const stable =
+            finalFiles.length === rows.length &&
+            finalFiles.every((file) => {
+              const relative = normalizeNotePath(
+                path.relative(config.vaultPath, file).split(path.sep).join('/'),
+              );
+              const row = byPath.get(relative);
+              try {
+                const stat = statSync(file);
+                return row && row.mtime === stat.mtimeMs && row.size === stat.size;
+              } catch (error) {
+                if (
+                  error &&
+                  typeof error === 'object' &&
+                  'code' in error &&
+                  error.code === 'ENOENT'
+                )
+                  return false;
+                throw error;
+              }
+            });
+          if (!stable) return false;
+          publishRebuild(run.lease, id);
+          return true;
+        }),
+      );
+      if (!published) continue;
       staged = false;
       bumpIndexVersion();
       process.stderr.write(`Done. ${rows.length} notes indexed.\n`);

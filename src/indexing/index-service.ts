@@ -21,7 +21,11 @@ import {
 } from '../storage/db.js';
 import { IndexLeaseLostError } from '../storage/index-ownership.js';
 import { discardRebuilds } from '../storage/index-rebuild.js';
-import { createIndexCoordinator, type IndexRunContext } from './index-owner.js';
+import {
+  createIndexCoordinator,
+  reportIndexProgress,
+  type IndexRunContext,
+} from './index-owner.js';
 import {
   drainIndexingRun,
   indexFileWithRecovery,
@@ -155,6 +159,7 @@ export function createIndexService(): IndexService {
       return coordinator.foreground(async (run) => {
         const contextLength = await prepareOwner(run);
         const result: IndexResult = { indexed: 0, skipped: 0, errors: [] };
+        reportIndexProgress(run, paths.length, 0);
         for (const [index, notePath] of paths.entries()) {
           const status = await indexFileWithRecovery(
             run,
@@ -165,6 +170,7 @@ export function createIndexService(): IndexService {
           if (status === 'indexed') result.indexed++;
           else if (status === 'skipped') result.skipped++;
           else result.errors.push({ path: notePath, error: status.error });
+          reportIndexProgress(run, paths.length, index + 1);
           onProgress?.(index + 1, paths.length);
         }
         return result;
@@ -183,6 +189,7 @@ export function createIndexService(): IndexService {
         const contextLength = await prepareOwner(run);
         if (!options.path)
           return indexVaultSync(run, false, 'Indexing vault...', { requireClean: true });
+        reportIndexProgress(run, 1, 0);
         const status = await indexFileWithRecovery(
           run,
           path.join(config.vaultPath, options.path),

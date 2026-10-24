@@ -968,7 +968,7 @@ async function embedLocal(
   for (let i = 0; i < texts.length; i += config.batchSize) {
     signal?.throwIfAborted();
     const batch = texts.slice(i, i + config.batchSize);
-    const batchResults = await Promise.all(
+    const batchResults = await Promise.allSettled(
       batch.map(async (text) => {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call -- @huggingface/transformers has no TypeScript types for pipeline output
         const output = await pipeline(text, { pooling: 'mean', normalize: true });
@@ -977,7 +977,10 @@ async function embedLocal(
       }),
     );
     signal?.throwIfAborted();
-    results.push(...batchResults);
+    for (const result of batchResults) {
+      if (result.status === 'rejected') throw result.reason;
+      results.push(result.value);
+    }
   }
 
   return results;

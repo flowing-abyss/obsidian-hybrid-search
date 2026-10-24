@@ -186,6 +186,30 @@ describe('createMcpServer — tool dispatch', () => {
           .all(),
       );
     }
+    it('marks a missing selective path as an MCP tool error while retaining its structured result', async () => {
+      seedKnownIndex();
+      const model = vi.spyOn(embedder, 'activeModelName').mockReturnValue('model-A');
+      const runtime = await createMcpRuntime();
+      try {
+        const result = (await getHandler(createMcpServer(runtime), 'tools/call')(
+          {
+            method: 'tools/call',
+            params: { name: 'reindex', arguments: { path: 'missing.md' } },
+          },
+          {},
+        )) as { isError?: boolean; content: Array<{ text: string }> };
+        assert.equal(result.isError, true);
+        assert.match(result.content[0]!.text, /ENOENT/);
+        assert.equal(
+          (JSON.parse(result.content[0]!.text) as { errors: unknown[] }).errors.length,
+          1,
+        );
+      } finally {
+        const { closeMcpRuntime } = await import('../src/transports/mcp-runtime.js');
+        await closeMcpRuntime(runtime);
+        model.mockRestore();
+      }
+    });
     for (const mode of ['force', 'unavailable', 'path', 'recovery'] as const) {
       it(`preserves provenance and routes ${mode} reindex safely`, async () => {
         seedKnownIndex();
