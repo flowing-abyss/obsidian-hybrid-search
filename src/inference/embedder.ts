@@ -343,7 +343,7 @@ function useApiMode(): boolean {
 }
 
 // E5 model family (intfloat/Xenova e5-*) uses asymmetric prefixes ("query:"/"passage:").
-// BGE, GTE, Nomic, Gemma, and most other models do NOT — adding prefixes corrupts their embeddings.
+// Other families must not inherit E5's query/passage format.
 function needsE5Prefix(model: string): boolean {
   return /\/e5|e5[-_]/i.test(model);
 }
@@ -373,8 +373,11 @@ function getLocalValidationContextLength(pipeline: any): number {
 
 export function prepareEmbeddingInput(text: string, type: 'query' | 'document'): string {
   const model = useApiMode() ? config.apiModel : config.localModel;
-  if (!needsE5Prefix(model)) return text;
-  return `${type === 'query' ? 'query: ' : 'passage: '}${text}`;
+  if (needsE5Prefix(model)) return `${type === 'query' ? 'query: ' : 'passage: '}${text}`;
+  if (type === 'query' && /(?:^|\/|text-embedding-)qwen3-embedding(?:$|[-:])/i.test(model)) {
+    return `Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:${text}`;
+  }
+  return text;
 }
 
 export async function getDocumentTokenPolicy(): Promise<{
