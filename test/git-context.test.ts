@@ -4,9 +4,22 @@ import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import { afterEach, describe, it, vi } from 'vitest';
 import { resolveGitContext } from '../src/vault/git-context.js';
+import { createIgnorePolicy } from '../src/vault/ignore.js';
 import { createGitFixture } from './helpers/git-fixture.js';
 
 let fixture: ReturnType<typeof createGitFixture> | undefined;
+
+function preserveLegacyAliasSpelling() {
+  // Node's non-native Windows resolver preserves 8.3 aliases. Use a real
+  // directory alias on every platform to exercise the same boundary.
+  const native = fs.realpathSync.native;
+  const legacy = vi
+    .spyOn(fs, 'realpathSync')
+    .mockImplementation((file) => path.resolve(String(file)));
+  Object.assign(legacy, { native });
+  syncBuiltinESMExports();
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   syncBuiltinESMExports();
@@ -24,7 +37,7 @@ describe('containing Git repository context', () => {
       if (String(file) === vault || String(file) === path.join(root, '.git')) return directoryStats;
       throw Object.assign(new Error('missing fixture path'), { code: 'ENOENT' });
     });
-    vi.spyOn(fs, 'realpathSync').mockImplementation((file) => String(file));
+    vi.spyOn(fs.realpathSync, 'native').mockImplementation((file) => String(file));
     syncBuiltinESMExports();
     assert.deepEqual(resolveGitContext(vault)?.ancestorGitignorePaths, [
       path.join(root, '.gitignore'),
@@ -41,11 +54,11 @@ describe('containing Git repository context', () => {
           assert.ok(context);
           assert.equal(
             context.worktreePath,
-            fs.realpathSync(fixture.git(['rev-parse', '--show-toplevel'])),
+            fs.realpathSync.native(fixture.git(['rev-parse', '--show-toplevel'])),
           );
           assert.equal(
             context.gitDirPath,
-            fs.realpathSync(fixture.git(['rev-parse', '--absolute-git-dir'])),
+            fs.realpathSync.native(fixture.git(['rev-parse', '--absolute-git-dir'])),
           );
           assert.equal(context.commonDirPath, fixture.commonDir);
           assert.equal(context.excludePath, fixture.exclude);
@@ -80,10 +93,7 @@ describe('containing Git repository context', () => {
     fixture = createGitFixture();
     const separate = path.join(fixture.root, 'separate metadata');
     fixture.git(['init', '--quiet', '--separate-git-dir', separate]);
-    writeFileSync(
-      path.join(fixture.repo, '.git'),
-      'gitdir: ' + path.relative(fixture.repo, separate) + '\r\n',
-    );
+    fixture.write('.git', 'gitdir: ' + path.relative(fixture.repo, separate) + '\r\n');
     assert.equal(resolveGitContext(fixture.vault)?.gitDirPath, separate);
   });
   it('resolves a vault symlink to the physical containing repository', () => {
@@ -93,11 +103,58 @@ describe('containing Git repository context', () => {
     assert.equal(resolveGitContext(alias)?.vaultPrefix, 'projects/notes');
     assert.equal(resolveGitContext(alias)?.excludePath, fixture.exclude);
   });
+  it('keeps repository coordinates independent of a legacy physical-path alias', () => {
+    fixture = createGitFixture({ vaultPrefix: 'projects/notes' });
+    const expected = resolveGitContext(fixture.vault);
+    const alias = path.join(fixture.root, 'repository alias');
+    symlinkSync(fixture.repo, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    preserveLegacyAliasSpelling();
+    assert.deepEqual(resolveGitContext(path.join(alias, 'projects/notes')), expected);
+  });
+  for (const pointerKind of ['gitdir', 'commondir']) {
+    it('keeps rules, signature and watch targets stable across a ' + pointerKind + ' alias', () => {
+      fixture = createGitFixture({ linked: true, vaultPrefix: 'projects/notes' });
+      fixture.write('projects/notes/Café/note.md', '# Note');
+      writeFileSync(fixture.exclude, '/projects/notes/Café/note.md\n');
+      const policy = () =>
+        createIgnorePolicy({
+          vaultPath: fixture!.vault,
+          ignorePatterns: [],
+          includePatterns: [],
+          respectGitignore: true,
+        });
+      const context = resolveGitContext(fixture.vault)!;
+      if (pointerKind === 'gitdir') {
+        // Git treats Windows junctions as directories when resolving ../..;
+        // keep this relocated alias valid before comparing its metadata identity.
+        writeFileSync(path.join(context.gitDirPath, 'commondir'), fixture.commonDir + '\n');
+      }
+      const before = policy();
+      const alias = path.join(fixture.root, 'Café metadata alias');
+      const target = pointerKind === 'gitdir' ? context.gitDirPath : context.commonDirPath;
+      symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir');
+      if (pointerKind === 'gitdir') {
+        fixture.write('.git', 'gitdir: ' + path.relative(fixture.repo, alias) + '\n');
+      } else {
+        writeFileSync(
+          path.join(context.gitDirPath, 'commondir'),
+          path.relative(context.gitDirPath, alias) + '\n',
+        );
+      }
+      assert.equal(fixture.ignored('Café/note.md'), true);
+      preserveLegacyAliasSpelling();
+      const after = policy();
+      assert.equal(after.isIgnored('Café/note.md'), true);
+      assert.deepEqual(resolveGitContext(fixture.vault), context);
+      assert.deepEqual(after.controlWatchFiles, before.controlWatchFiles);
+      assert.equal(after.signature(), before.signature());
+    });
+  }
   for (const content of ['', 'not a gitfile\n', 'gitdir: \n', 'gitdir: \0bad\n']) {
     it('reports malformed gitfiles with their source path ' + JSON.stringify(content), () => {
       fixture = createGitFixture({ linked: true });
       const gitfile = path.join(fixture.repo, '.git');
-      writeFileSync(gitfile, content);
+      fixture.write('.git', content);
       assert.throws(
         () => resolveGitContext(fixture!.vault),
         (error: unknown) => error instanceof Error && error.message.includes(gitfile),

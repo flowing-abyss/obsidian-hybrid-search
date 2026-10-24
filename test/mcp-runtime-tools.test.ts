@@ -1,4 +1,11 @@
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import {
+  CallToolResultSchema,
+  ListToolsResultSchema,
+  type Request,
+} from '@modelcontextprotocol/sdk/types.js';
+import type { Server } from '@modelcontextprotocol/server';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -141,22 +148,25 @@ describe('createMcpServer — tool dispatch', () => {
     assert.ok(server);
   });
 
-  // The MCP SDK stores handlers in a private Map keyed by method name. Access
-  // it directly to invoke the handler without a full transport round-trip. The
-  // SDK wraps each handler so it first parses the incoming request against the
-  // request schema (which requires `method` to match the literal, e.g.
-  // 'tools/list' / 'tools/call'). Construct minimal valid requests accordingly.
+  // Exercise the public transport with a v1 client instead of SDK internals.
   function getHandler(
     server: Server,
     method: string,
-  ): (req: unknown, extra: unknown) => Promise<unknown> {
-    // The MCP SDK keeps registered handlers in a private Map. Reach in via a
-    // minimal structural cast — the SDK exposes no public accessor for this.
-    const handlers = (server as unknown as { _requestHandlers: Map<string, unknown> })
-      ._requestHandlers;
-    const handler = handlers.get(method);
-    assert.ok(typeof handler === 'function', `${method} handler registered`);
-    return handler as (req: unknown, extra: unknown) => Promise<unknown>;
+  ): (req: Request, extra: unknown) => Promise<unknown> {
+    return async (request) => {
+      const client = new Client({ name: 'runtime-regression', version: '1' });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      try {
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+        return method === 'tools/list'
+          ? await client.request(request, ListToolsResultSchema)
+          : await client.request(request, CallToolResultSchema);
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    };
   }
 
   describe('reindex integrity routing', () => {
