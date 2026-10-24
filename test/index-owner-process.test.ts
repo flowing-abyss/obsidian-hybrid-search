@@ -62,7 +62,8 @@ afterEach(async () => {
   held.forEach((reply) => reply());
   await Promise.all(
     children.map(async ({ child, closed }) => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGCONT');
+      if (process.platform !== 'win32' && child.exitCode === null && child.signalCode === null)
+        child.kill('SIGCONT');
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
       const kill = setTimeout(() => child.kill('SIGKILL'), 1000);
       try {
@@ -163,12 +164,31 @@ it('serializes eight simultaneous schema openings and background claims', async 
     import { claimIndexLease, releaseIndexLease, closeDb } from ${JSON.stringify(dbModule)};
     import { randomUUID } from 'node:crypto';
     await openIndexDatabase(); const lease=claimIndexLease(randomUUID(),'background');
-    process.on('message',()=>{});process.send({won:!!lease});
+    process.on('message',()=>process.send({cpu:process.cpuUsage()}));process.send({won:!!lease});
     process.on('SIGTERM',()=>{if(lease)releaseIndexLease(lease);closeDb();process.exit(0)});
   `),
   );
   const results = await Promise.all(workers.map(firstMessage));
   assert.equal(results.filter((result) => result.won).length, 1);
+  const sampleCpu = () =>
+    Promise.all(
+      workers.map((worker) => {
+        const reply = firstMessage(worker);
+        worker.child.send('cpu');
+        return reply;
+      }),
+    );
+  const beforeCpu = await sampleCpu();
+  await delay(1500);
+  const afterCpu = await sampleCpu();
+  for (let index = 0; index < workers.length; index++) {
+    const before = beforeCpu[index]!.cpu as { user: number; system: number };
+    const after = afterCpu[index]!.cpu as { user: number; system: number };
+    assert.ok(
+      after.user + after.system - before.user - before.system < 200_000,
+      'idle claimants must not spin',
+    );
+  }
   assert.equal(requests.length, 0);
   assert.equal(
     inspect((db) => db.prepare('PRAGMA integrity_check').pluck().get()),
@@ -252,6 +272,25 @@ it('five MCP servers and CLI readers share one indexing pass and remain idle aft
   await delay(5500);
   assert.equal(requests.length, count);
   assert.equal(createHash('sha256').update(readFileSync(source)).digest('hex'), hash);
+  assert.deepEqual(
+    inspect((db) => db.prepare('PRAGMA foreign_key_check').all()),
+    [],
+  );
+  assert.equal(
+    inspect((db) =>
+      db
+        .prepare(
+          "SELECT count(*) FROM chunks c LEFT JOIN vec_chunks v ON v.chunk_id=c.id WHERE c.embedding_status='ok' AND v.chunk_id IS NULL",
+        )
+        .pluck()
+        .get(),
+    ),
+    0,
+  );
+  assert.deepEqual(
+    inspect((db) => db.prepare('SELECT path FROM notes ORDER BY path').pluck().all()),
+    ['café.md'.normalize('NFD'), 'second.md'],
+  );
   assert.equal(
     inspect((db) => db.prepare('PRAGMA integrity_check').pluck().get()),
     'ok',
@@ -334,3 +373,13 @@ it('a follower takes over after SIGKILL without manual cleanup', async () => {
     1,
   );
 }, 60_000);
+
+it('preserves an unreadable main database and reports the error', async () => {
+  const filename = path.join(vault, '.obsidian-hybrid-search.db');
+  const bytes = Buffer.from('This is deliberately not a SQLite database.');
+  writeFileSync(filename, bytes);
+  const result = await runCli(['search', 'test', '--mode', 'fulltext', '--json']);
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /not a database|malformed/i);
+  assert.deepEqual(readFileSync(filename), bytes);
+});

@@ -154,3 +154,106 @@ it('closing aborts a queued foreground operation without leaving a ticket', asyn
 });
 
 afterAll(() => rmSync(vault, { recursive: true, force: true }));
+
+it('waits for cancelled native background work before starting local foreground work', async () => {
+  const entered = deferred<IndexRunContext>();
+  const native = deferred<void>();
+  let settled = false;
+  let foregroundEntered = false;
+  const owner = coordinator(async (run) => {
+    entered.resolve(run);
+    await native.promise;
+    settled = true;
+  });
+  owner.start();
+  const run = await entered.promise;
+  const foreground = owner.foreground(() => {
+    foregroundEntered = true;
+    assert.equal(settled, true);
+    return Promise.resolve();
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(run.signal.aborted, true);
+    assert.equal(foregroundEntered, false);
+  } finally {
+    native.resolve();
+    await foreground;
+  }
+});
+
+it('keeps close pending until its aborted background callback settles', async () => {
+  const entered = deferred<void>();
+  const native = deferred<void>();
+  const owner = coordinator(async () => {
+    entered.resolve();
+    await native.promise;
+  });
+  owner.start();
+  await entered.promise;
+  let closed = false;
+  const closing = owner.close().then(() => {
+    closed = true;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(closed, false);
+  } finally {
+    native.resolve();
+    await closing;
+  }
+});
+
+it('counts local queue time toward the deadline and registers its global ticket immediately', async () => {
+  const entered = deferred<void>();
+  const native = deferred<void>();
+  const owner = coordinator();
+  const first = owner.foreground(async () => {
+    entered.resolve();
+    await native.promise;
+  });
+  await entered.promise;
+  const second = owner.foreground(() => Promise.reject(new Error('must not enter')));
+  const rejected = assert.rejects(second, /timed out.*indexing/i);
+  let timedOut = false;
+  void rejected.then(() => {
+    timedOut = true;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(db.getDb().prepare('SELECT count(*) FROM index_waiters').pluck().get(), 1);
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    assert.equal(timedOut, true);
+    assert.deepEqual(db.getDb().prepare('SELECT * FROM index_waiters').all(), []);
+  } finally {
+    native.resolve();
+    await first;
+    await rejected;
+  }
+});
+
+it('does not let an aborted foreground response release its actual native work barrier', async () => {
+  const entered = deferred<IndexRunContext>();
+  const native = deferred<void>();
+  const owner = coordinator();
+  const first = owner.foreground(async (run) => {
+    entered.resolve(run);
+    await native.promise;
+  });
+  const rejected = assert.rejects(first, /ownership/i);
+  const run = await entered.promise;
+  db.releaseIndexLease(run.lease);
+  await rejected;
+  let secondEntered = false;
+  const second = owner.foreground(() => {
+    secondEntered = true;
+    return Promise.resolve();
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(secondEntered, false);
+  } finally {
+    native.resolve();
+    await second;
+  }
+});

@@ -205,7 +205,9 @@ async function callReindexTool(
     return validationErrorResult(formatValidationError('reindex arguments', parsed.error));
   }
   const result = await handleReindex(parsed.data, runtime);
-  return textResult(JSON.stringify(result, null, 2));
+  const response = textResult(JSON.stringify(result, null, 2));
+  if (result.errors.length > 0) response.isError = true;
+  return response;
 }
 
 function callStatusTool(a: Record<string, unknown>, runtime: McpRuntime): McpToolResult {
@@ -425,7 +427,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
       {
         name: toolName('reindex'),
         description:
-          'Reindex a specific file or the vault. Use only when the index is stale/missing or the user asks. Incremental by default. For accidental model mismatch restore the recorded configuration. Only intentional full-vault force:true with no path recreates the database after a successful fresh embedding probe.',
+          'Reindex a specific file or the vault. Use only when the index is stale/missing or the user asks. Incremental by default. For accidental model mismatch restore the recorded configuration. Use force:true without a path for an intentional full rebuild. The previous index stays available until the rebuild succeeds.',
         inputSchema: {
           type: 'object',
           properties: {

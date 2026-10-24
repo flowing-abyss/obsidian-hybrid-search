@@ -22,6 +22,19 @@ export interface IndexRunContext {
   lease: IndexLease;
   signal: AbortSignal;
 }
+
+export function reportIndexProgress(run: IndexRunContext, total: number, processed: number): void {
+  run.signal.throwIfAborted();
+  if (
+    !renewIndexLease(run.lease, {
+      total,
+      processed,
+      queued: Math.max(0, total - processed),
+      isRunning: true,
+    })
+  )
+    throw new IndexLeaseLostError();
+}
 export interface IndexCoordinator {
   start(): void;
   foreground<T>(work: (run: IndexRunContext) => Promise<T>): Promise<T>;
@@ -70,7 +83,9 @@ export function createIndexCoordinator(options: {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let backgroundWork: Promise<void> | undefined;
   let backgroundCleanup: Promise<void> | undefined;
-  let foregroundTail: Promise<unknown> = Promise.resolve();
+  let foregroundWork: Promise<unknown> | undefined;
+  const foregroundCalls = new Set<Promise<unknown>>();
+  let closing: Promise<void> | undefined;
   let pendingForeground = 0;
   let observation: { token: string | null; sequence: number; since: number } | undefined;
   let reportedBusy = false;
@@ -97,6 +112,10 @@ export function createIndexCoordinator(options: {
   }
 
   function schedule(immediate = false): void {
+    if (immediate && timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
     if (timer || lifetime.signal.aborted || (!owned && !backgroundEnabled)) return;
     const jitter = options.timing ? 0 : randomInt(1_000);
     timer = setTimeout(tick, immediate ? 0 : owned ? heartbeatMs : pollMs + jitter);
@@ -161,6 +180,7 @@ export function createIndexCoordinator(options: {
       } else if (
         backgroundEnabled &&
         pendingForeground === 0 &&
+        !foregroundWork &&
         !backgroundWork &&
         !backgroundCleanup
       ) {
@@ -186,10 +206,12 @@ export function createIndexCoordinator(options: {
     }
   }
 
-  async function runForeground<T>(work: (run: IndexRunContext) => Promise<T>): Promise<T> {
+  async function runForeground<T>(
+    work: (run: IndexRunContext) => Promise<T>,
+    deadline: number,
+  ): Promise<T> {
     lifetime.signal.throwIfAborted();
     const request = randomUUID();
-    const deadline = performance.now() + waitMs;
     let ticketRegistered = false;
     let ticketRenewal = 0;
     let failures = 0;
@@ -212,7 +234,12 @@ export function createIndexCoordinator(options: {
           }
           if (owned?.background) void stopOwned();
           const snapshot = readIndexOwner();
-          const lease = claimIndexLease(request, 'foreground', observe(snapshot));
+          // Cancellation revokes the capability immediately, while admitted native
+          // work must settle before this process starts another batch.
+          const lease =
+            backgroundWork || backgroundCleanup || foregroundWork
+              ? null
+              : claimIndexLease(request, 'foreground', observe(snapshot));
           if (lease) {
             const controller = new AbortController();
             current = { run: { lease, signal: controller.signal }, controller, background: false };
@@ -231,10 +258,17 @@ export function createIndexCoordinator(options: {
         await delay(foregroundPollMs, undefined, { signal: lifetime.signal });
       }
       const run = current.run;
-      return await abortable(
-        Promise.resolve().then(() => work(run)),
-        run.signal,
-      );
+      const operation = Promise.resolve().then(() => {
+        reportIndexProgress(run, 0, 0);
+        return work(run);
+      });
+      foregroundWork = operation;
+      const settled = () => {
+        if (foregroundWork === operation) foregroundWork = undefined;
+        schedule();
+      };
+      void operation.then(settled, settled);
+      return await abortable(operation, run.signal);
     } finally {
       if (ticketRegistered) {
         try {
@@ -256,21 +290,28 @@ export function createIndexCoordinator(options: {
     },
     foreground<T>(work: (run: IndexRunContext) => Promise<T>): Promise<T> {
       pendingForeground++;
-      const task = foregroundTail.then(() => runForeground(work));
-      foregroundTail = task.catch(() => undefined);
-      return task.finally(() => {
+      // Register every caller now so its deadline and FIFO position include local waiting.
+      const task = runForeground(work, performance.now() + waitMs).finally(() => {
         pendingForeground--;
+        foregroundCalls.delete(task);
         schedule();
       });
+      foregroundCalls.add(task);
+      return task;
     },
-    async close() {
-      if (lifetime.signal.aborted) return;
-      lifetime.abort(new Error('Indexing service is closed'));
-      backgroundEnabled = false;
-      clearTimeout(timer);
-      timer = undefined;
-      await stopOwned(new Error('Indexing service is closed'));
-      await foregroundTail;
+    close() {
+      closing ??= (async () => {
+        lifetime.abort(new Error('Indexing service is closed'));
+        backgroundEnabled = false;
+        clearTimeout(timer);
+        timer = undefined;
+        await stopOwned(new Error('Indexing service is closed'));
+        await Promise.allSettled([...foregroundCalls]);
+        await foregroundWork?.catch(() => undefined);
+        await backgroundWork;
+        await backgroundCleanup;
+      })();
+      return closing;
     },
   };
 }

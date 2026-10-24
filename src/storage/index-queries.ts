@@ -7,6 +7,14 @@ import {
 } from './db.js';
 import type { IndexLease } from './index-ownership.js';
 
+function bumpGraphVersion(): void {
+  getDb()
+    .prepare(
+      "INSERT OR REPLACE INTO settings(key, value) VALUES('db_version', CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'db_version'), 0) + 1 AS TEXT))",
+    )
+    .run();
+}
+
 export function getExistingNotePathSet(): Set<string> {
   const rows = getDb().prepare('SELECT path FROM notes').all() as { path: string }[];
   return new Set(rows.map((row) => row.path));
@@ -37,11 +45,13 @@ export function storePopulateMissingLinks(
       content: string;
       frontmatter: string;
     }[];
+    let changed = false;
     for (const note of notes) {
       const links = resolveWikilinks((note.frontmatter || '') + '\n' + note.content, note.path);
-      upsertLinks(lease, note.path, links);
+      changed = upsertLinks(lease, note.path, links) || changed;
     }
 
+    if (changed) bumpGraphVersion();
     db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('links_v1', '1')").run();
   });
 }
@@ -68,17 +78,16 @@ export function storePopulateMissingMarkdownReferences(
     }[];
     const existingPaths = new Set(notes.map((note) => note.path));
     const tx = db.transaction(() => {
+      let changed = false;
       for (const note of notes) {
         const references = resolveMarkdownReferencesForNote(note.path, note.content, existingPaths);
-        upsertMarkdownLinks(lease, note.path, references.links);
-        upsertNoteUrls(lease, note.path, references.urls);
+        changed = upsertMarkdownLinks(lease, note.path, references.links) || changed;
+        changed = upsertNoteUrls(lease, note.path, references.urls) || changed;
       }
       db.prepare(
         "INSERT OR REPLACE INTO settings(key, value) VALUES('markdown_links_v1', '1')",
       ).run();
-      db.prepare(
-        "INSERT OR REPLACE INTO settings(key, value) VALUES('db_version', CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'db_version'), 0) + 1 AS TEXT))",
-      ).run();
+      if (changed) bumpGraphVersion();
     });
     tx();
   });
@@ -98,11 +107,13 @@ export function storeResolveAllLinks(
       frontmatter: string;
     }[];
     const resolve = createWikilinkResolver();
+    let changed = false;
     for (const note of notes) {
       const links = resolve((note.frontmatter || '') + '\n' + note.content, note.path);
-      upsertLinks(lease, note.path, links);
+      changed = upsertLinks(lease, note.path, links) || changed;
     }
     // Startup migrations must not repeat a completed full-vault repair.
+    if (changed) bumpGraphVersion();
     db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('links_v1', '1')").run();
   });
 }
@@ -122,11 +133,13 @@ export function storeResolveAllMarkdownReferences(
       content: string;
     }[];
     const existingPaths = new Set(notes.map((note) => note.path));
+    let changed = false;
     for (const note of notes) {
       const references = resolveMarkdownReferencesForNote(note.path, note.content, existingPaths);
-      upsertMarkdownLinks(lease, note.path, references.links);
-      upsertNoteUrls(lease, note.path, references.urls);
+      changed = upsertMarkdownLinks(lease, note.path, references.links) || changed;
+      changed = upsertNoteUrls(lease, note.path, references.urls) || changed;
     }
+    if (changed) bumpGraphVersion();
     db.prepare(
       "INSERT OR REPLACE INTO settings(key, value) VALUES('markdown_links_v1', '1')",
     ).run();

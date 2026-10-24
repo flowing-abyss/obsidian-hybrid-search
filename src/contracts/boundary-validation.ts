@@ -76,7 +76,7 @@ export const EmbeddingApiResponseSchema = z.union([
       data: z.array(
         z.object({
           embedding: z.array(FiniteNumberSchema),
-          index: z.number().int(),
+          index: z.number().int().optional(),
         }),
       ),
     })

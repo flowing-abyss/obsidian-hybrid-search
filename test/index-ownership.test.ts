@@ -95,19 +95,41 @@ it('rolls back every nested mutation when the outer operation fails', () => {
 it('does not expire a large atomic publication while its write lock is held', () => {
   const lease = a.claim('writer', 'background');
   assert.ok(lease);
+  const initial = a.read();
   a.write(lease, () => {
     first.exec("INSERT INTO evidence VALUES('first')");
     now += 101;
     a.write(lease, () => first.exec("INSERT INTO evidence VALUES('second')"));
+    assert.equal(a.read().expiresAt, initial.expiresAt, 'nested helpers must not renew');
   });
   assert.deepEqual(second.prepare('SELECT * FROM evidence').all(), [
     { value: 'first' },
     { value: 'second' },
   ]);
+  assert.equal(a.read().expiresAt, now + 100);
+  assert.equal(a.read().heartbeatSequence, initial.heartbeatSequence + 1);
+  a.write(lease, () => first.exec("INSERT INTO evidence VALUES('next batch')"));
+});
+
+it('does not renew short writes or persist renewal from a rolled-back long transaction', () => {
+  const lease = a.claim('writer', 'background');
+  assert.ok(lease);
+  const initial = a.read();
+  a.write(lease, () => first.exec("INSERT INTO evidence VALUES('short')"));
+  assert.deepEqual(a.read(), initial);
   assert.throws(
-    () => a.write(lease, () => first.exec("INSERT INTO evidence VALUES('late')")),
-    IndexLeaseLostError,
+    () =>
+      a.write(lease, () => {
+        now += 101;
+        first.exec("INSERT INTO evidence VALUES('rolled back')");
+        throw new Error('late failure');
+      }),
+    /late failure/,
   );
+  assert.deepEqual(a.read(), initial);
+  assert.deepEqual(first.prepare('SELECT value FROM evidence').all(), [{ value: 'short' }]);
+  assert.ok(b.claim('successor', 'background'));
+  assert.throws(() => a.write(lease, () => undefined), IndexLeaseLostError);
 });
 
 it('rejects asynchronous transaction callbacks before they start writing', () => {

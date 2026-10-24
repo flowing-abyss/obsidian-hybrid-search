@@ -141,6 +141,11 @@ describe('link migration completion after full vault reindex', () => {
     }
     assert.equal(await indexFile(path.join(vaultDir, 'a-source.md'), 512, true), 'indexed');
     assertReferences();
+    // A no-op repair no longer rewrites references. Corrupt an actual edge so
+    // this guard exercises rollback of a required repair rather than a no-op.
+    getDb()
+      .prepare(`UPDATE ${table} SET to_path = 'obsolete.md' WHERE from_path = 'a-source.md'`)
+      .run();
     getDb().exec(`
       CREATE TRIGGER fail_repair BEFORE DELETE ON ${table}
       BEGIN SELECT RAISE(ABORT, 'link repair failed'); END;
