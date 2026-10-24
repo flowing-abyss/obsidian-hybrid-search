@@ -454,7 +454,7 @@ async function embedViaApiDetailed(
   signal?: AbortSignal,
 ): Promise<EmbeddingOutcome[]> {
   if (isOllamaEndpoint() && type === 'document') {
-    const release = await acquireOllamaSlot(signal);
+    const release = await withEmbeddingSignal(signal, acquireOllamaSlot);
     try {
       return await embedViaApiRawDetailed(texts, signal);
     } finally {
@@ -542,14 +542,53 @@ export async function embed(
   return outcomes.map((outcome) => (outcome.ok ? outcome.embedding : null));
 }
 
+const embeddingAbortGroups = new WeakMap<
+  AbortSignal,
+  { controllers: Set<AbortController>; abort: () => void }
+>();
+
+async function withEmbeddingSignal<T>(
+  signal: AbortSignal | undefined,
+  operation: (requestSignal?: AbortSignal) => Promise<T>,
+): Promise<T> {
+  if (!signal) return operation();
+  signal.throwIfAborted();
+  let group = embeddingAbortGroups.get(signal);
+  if (!group) {
+    const controllers = new Set<AbortController>();
+    const abort = () => {
+      for (const controller of controllers) controller.abort(signal.reason);
+    };
+    group = { controllers, abort };
+    embeddingAbortGroups.set(signal, group);
+    signal.addEventListener('abort', abort, { once: true });
+  }
+  const controller = new AbortController();
+  group.controllers.add(controller);
+  try {
+    return await operation(controller.signal);
+  } finally {
+    group.controllers.delete(controller);
+    if (group.controllers.size === 0) {
+      signal.removeEventListener('abort', group.abort);
+      embeddingAbortGroups.delete(signal);
+    }
+    // Retire fetch followers and unread fallback bodies without waiting for GC.
+    controller.abort();
+  }
+}
+
 async function embedViaApiRawDetailed(
   texts: string[],
   signal?: AbortSignal,
 ): Promise<EmbeddingOutcome[]> {
   const results: EmbeddingOutcome[] = [];
-  const batchTransport = isOllamaEndpoint()
-    ? (batch: string[]) => embedOllamaBatchWithCompatibleFallback(batch, signal)
-    : (batch: string[]) => embedApiBatch(batch, undefined, signal);
+  const batchTransport = (batch: string[]) =>
+    withEmbeddingSignal(signal, (requestSignal) =>
+      isOllamaEndpoint()
+        ? embedOllamaBatchWithCompatibleFallback(batch, requestSignal)
+        : embedApiBatch(batch, undefined, requestSignal),
+    );
 
   // Ollama: send one at a time to avoid the >2KB crash bug in v0.12.5+
   // and because Ollama queues internally anyway (batching gives no speedup)
@@ -960,7 +999,9 @@ async function embedApiBatchWithRetries(
   if (result.ok || result.failure.kind !== 'transient' || result.retryable === false) return result;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
-    await delay(Math.pow(2, attempt) * 1000, undefined, { signal }); // 2s, 4s
+    await withEmbeddingSignal(signal, (waitSignal) =>
+      delay(Math.pow(2, attempt) * 1000, undefined, { signal: waitSignal }),
+    ); // 2s, 4s
     result = await transport(texts);
     if (result.ok || result.failure.kind !== 'transient' || result.retryable === false)
       return result;
