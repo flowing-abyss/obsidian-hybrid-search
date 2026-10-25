@@ -14,6 +14,7 @@ const realSetTimeout = globalThis.setTimeout;
 const realClearTimeout = globalThis.clearTimeout;
 
 function alive(pid) {
+  assert.ok(Number.isSafeInteger(pid) && pid > 0, `Invalid fixture PID: ${pid}`);
   try {
     process.kill(pid, 0);
     return true;
@@ -22,6 +23,14 @@ function alive(pid) {
     throw error;
   }
 }
+
+test('fixture liveness checks reject process groups and invalid PIDs before signaling', (t) => {
+  const kill = t.mock.method(process, 'kill', () => true);
+  for (const pid of [0, -1, 1.5, NaN, Infinity]) {
+    assert.throws(() => alive(pid), /Invalid fixture PID/);
+  }
+  assert.equal(kill.mock.callCount(), 0);
+});
 
 async function waitFor(predicate, timeout = 1500) {
   const until = performance.now() + timeout;
@@ -76,18 +85,20 @@ function fixture(t, harness, stalledLauncher = false) {
   nativePackage(
     root,
     `const { spawnSync } = require('node:child_process');
-const { writeFileSync } = require('node:fs');
-writeFileSync(${JSON.stringify(shimPids)}, JSON.stringify([process.ppid, process.pid]));
+const { renameSync, writeFileSync } = require('node:fs');
+writeFileSync(${JSON.stringify(shimPids + '.tmp')}, JSON.stringify([process.ppid, process.pid]));
+renameSync(${JSON.stringify(shimPids + '.tmp')}, ${JSON.stringify(shimPids)});
 spawnSync(process.execPath, [${JSON.stringify(path.join(packageRoot, 'worker.cjs'))}], { stdio: 'inherit' });
 `,
   );
   writeFileSync(
     path.join(packageRoot, 'worker.cjs'),
-    `const { writeFileSync } = require('node:fs');
-writeFileSync(${JSON.stringify(workerPid)}, String(process.pid));
+    `const { renameSync, writeFileSync } = require('node:fs');
 process.stdout.write('<codegraph_context>unfinished');
 process.on('SIGTERM', () => {});
 setTimeout(() => process.exit(0), 5000);
+writeFileSync(${JSON.stringify(workerPid + '.tmp')}, String(process.pid));
+renameSync(${JSON.stringify(workerPid + '.tmp')}, ${JSON.stringify(workerPid)});
 `,
   );
   const suffix = harness === 'opencode' ? 'js' : 'ts';
@@ -101,12 +112,14 @@ setTimeout(() => process.exit(0), 5000);
   if (stalledLauncher) {
     writeFileSync(
       path.join(ai, 'codegraph.mjs'),
-      `import { writeFileSync } from 'node:fs';
-writeFileSync(${JSON.stringify(shimPids)}, JSON.stringify([process.pid]));
-writeFileSync(${JSON.stringify(workerPid)}, String(process.pid));
+      `import { renameSync, writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(shimPids + '.tmp')}, JSON.stringify([process.pid]));
+renameSync(${JSON.stringify(shimPids + '.tmp')}, ${JSON.stringify(shimPids)});
 process.stdout.write('<codegraph_context>unfinished');
 process.on('SIGTERM', () => {});
 setTimeout(() => process.exit(0), 5000);
+writeFileSync(${JSON.stringify(workerPid + '.tmp')}, String(process.pid));
+renameSync(${JSON.stringify(workerPid + '.tmp')}, ${JSON.stringify(workerPid)});
 `,
     );
   }
@@ -206,9 +219,10 @@ for (const harness of ['opencode', 'pi']) {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const pending = prompt(f, harness);
     assert.ok(await waitFor(() => existsSync(f.workerPid), 5000), 'fixture descendant started');
-    t.mock.timers.tick(deadline);
     const pids = f.pids();
     assert.equal(pids.length, 3);
+    assert.ok(pids.every(alive), 'fixture process chain is ready');
+    t.mock.timers.tick(deadline);
     assert.ok(
       await waitFor(() => pids.every((pid) => !alive(pid))),
       `process chain was not reaped: ${pids.filter(alive)}`,
