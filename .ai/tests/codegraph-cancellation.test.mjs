@@ -2,7 +2,14 @@
 // holds stdout open. Advance the real adapter deadline only after process readiness.
 import { strict as assert } from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -30,6 +37,72 @@ test('fixture liveness checks reject process groups and invalid PIDs before sign
     assert.throws(() => alive(pid), /Invalid fixture PID/);
   }
   assert.equal(kill.mock.callCount(), 0);
+});
+
+test('the prompt launcher waits for delayed and chunked input', async (t) => {
+  const root = checkout(t);
+  mainPackage(root);
+  index(root);
+  nativePackage(
+    root,
+    `let payload = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => { payload += chunk; });
+process.stdin.on('end', () => process.stdout.write(payload));
+`,
+  );
+  const child = spawn(process.execPath, [path.join(root, '.ai/codegraph.mjs'), 'prompt-hook'], {
+    cwd: root,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => (stdout += chunk));
+  child.stderr.on('data', (chunk) => (stderr += chunk));
+  child.stdin.on('error', () => {});
+  let closed = false;
+  child.once('close', () => (closed = true));
+  const prompt = 'Find заметки and cafe\u0301';
+  const payload = Buffer.from(JSON.stringify({ cwd: root, prompt }));
+  const split = payload.indexOf(Buffer.from('заметки')) + 1;
+  try {
+    await new Promise((resolve) => realSetTimeout(resolve, 150));
+    assert.equal(child.exitCode, null, `launcher exited before input arrived: ${stderr}`);
+    child.stdin.write(payload.slice(0, split));
+    await new Promise((resolve) => realSetTimeout(resolve, 150));
+    assert.equal(child.exitCode, null, `launcher exited before input ended: ${stderr}`);
+    assert.equal(stdout, '', 'the fixture must not start before the complete payload');
+    child.stdin.end(payload.slice(split));
+    assert.ok(await waitFor(() => closed, 5000), `launcher did not finish: ${stderr}`);
+    assert.equal(child.exitCode, 0, stderr);
+    assert.deepEqual(JSON.parse(stdout), { cwd: realpathSync.native(root), prompt });
+  } finally {
+    child.stdin.destroy();
+    if (!closed) {
+      let treeKill;
+      if (process.platform === 'win32' && child.exitCode === null && child.signalCode === null) {
+        // eslint-disable-next-line sonarjs/no-os-command-from-path
+        treeKill = spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+          stdio: 'ignore',
+          timeout: 5000,
+        });
+      } else {
+        child.kill('SIGTERM');
+      }
+      if (!(await waitFor(() => closed))) {
+        child.kill('SIGKILL');
+        child.stdout.destroy();
+        child.stderr.destroy();
+        assert.ok(await waitFor(() => closed), 'launcher survived fixture cleanup');
+      }
+      if (treeKill) {
+        assert.ifError(treeKill.error);
+        assert.equal(treeKill.status, 0, 'fixture process tree could not be terminated');
+      }
+    }
+  }
 });
 
 async function waitFor(predicate, timeout = 1500) {

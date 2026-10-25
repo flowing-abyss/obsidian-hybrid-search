@@ -45,7 +45,7 @@ if (!entry) {
 
 let hookPayload;
 if (isPromptHook) {
-  hookPayload = await localHookPayload(readHookPayload());
+  hookPayload = await localHookPayload(await readHookPayload());
   if (hookPayload === null) {
     process.exit(0);
   }
@@ -119,12 +119,15 @@ function runPromptHook() {
 }
 
 /** The hook's JSON payload from stdin, or null when there is none to read. */
-function readHookPayload() {
+async function readHookPayload() {
   if (process.stdin.isTTY) {
     return null; // run by hand, nothing piped in
   }
   try {
-    return readFileSync(0, 'utf8');
+    process.stdin.setEncoding('utf8');
+    let payload = '';
+    for await (const chunk of process.stdin) payload += chunk;
+    return payload;
   } catch {
     return null;
   }
