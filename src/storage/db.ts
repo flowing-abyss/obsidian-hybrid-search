@@ -232,6 +232,9 @@ function rebuildFrontmatterLookup(db: DB): void {
   }
 }
 
+// Advance this revision for schema changes, independently of ownership table setup.
+const INDEX_SCHEMA_VERSION = '1';
+
 function runMigrations(db: DB): void {
   // Base schema — no FTS tables here; they are managed by the versioned migration below
   db.exec(`
@@ -551,7 +554,11 @@ export function openDb(): DB {
       ? (db.prepare("SELECT value FROM settings WHERE key='index_ownership_schema'").get() as
           { value: string } | undefined)
       : undefined;
-    if (revision?.value !== '1') {
+    const schemaRevision = settingsExist
+      ? (db.prepare("SELECT value FROM settings WHERE key='index_schema_version'").get() as
+          { value: string } | undefined)
+      : undefined;
+    if (revision?.value !== '1' || schemaRevision?.value !== INDEX_SCHEMA_VERSION) {
       const lease = _ownership.claim(randomUUID(), 'bootstrap');
       if (!lease) throw new IndexInitializationBusyError();
       try {
@@ -568,6 +575,9 @@ export function openDb(): DB {
           db.prepare(
             "INSERT OR REPLACE INTO settings(key,value) VALUES('index_ownership_schema','1')",
           ).run();
+          db.prepare(
+            "INSERT OR REPLACE INTO settings(key,value) VALUES('index_schema_version',?)",
+          ).run(INDEX_SCHEMA_VERSION);
         });
       } finally {
         _ownership.release(lease);
@@ -695,20 +705,60 @@ export function hasVecTable(): boolean {
  * Results are ordered by chunk_index. Returns [] if the note has no indexed chunks.
  */
 export function getChunkEmbeddingsByPath(notePath: string): Float32Array[] {
-  if (!hasVecTable()) return [];
+  return getChunkEmbeddingSourceByPath(notePath).embeddings;
+}
+
+/** Capture source vectors and their provenance from the same SQLite snapshot. */
+export function getChunkEmbeddingSourceByPath(notePath: string): {
+  embeddings: Float32Array[];
+  modelName: string | null;
+} {
   const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT vc.embedding
-       FROM vec_chunks vc
-       JOIN chunks c ON c.id = vc.chunk_id
-       JOIN notes n ON n.id = c.note_id
-       WHERE n.path = ?
-       ORDER BY c.chunk_index`,
-    )
-    .all(notePath) as { embedding: Buffer }[];
-  return rows.map(
-    (r) => new Float32Array(r.embedding.buffer, r.embedding.byteOffset, r.embedding.byteLength / 4),
+  return db
+    .transaction(() => {
+      const modelName = getStoredModel();
+      if (!hasVecTable()) return { embeddings: [], modelName };
+      const rows = db
+        .prepare(
+          `SELECT vc.embedding
+         FROM vec_chunks vc
+         JOIN chunks c ON c.id = vc.chunk_id
+         JOIN notes n ON n.id = c.note_id
+         WHERE n.path = ?
+         ORDER BY c.chunk_index`,
+        )
+        .all(notePath) as { embedding: Buffer }[];
+      return {
+        modelName,
+        embeddings: rows.map(
+          (r) =>
+            new Float32Array(
+              r.embedding.buffer,
+              r.embedding.byteOffset,
+              r.embedding.byteLength / 4,
+            ),
+        ),
+      };
+    })
+    .deferred();
+}
+
+export class EmbeddingModelMismatchError extends Error {
+  override name = 'EmbeddingModelMismatchError';
+}
+
+/** Call inside the transaction that consumes the vectors. Never infer legacy provenance. */
+export function assertEmbeddingModelCompatible(modelName: string | null): void {
+  const storedModel = getStoredModel();
+  if (storedModel !== null && modelName === storedModel) return;
+  if (!hasVecTable() || !getDb().prepare('SELECT 1 FROM vec_chunks LIMIT 1').get()) return;
+  if (storedModel === null || modelName === null) {
+    throw new EmbeddingModelMismatchError(
+      'Embedding model is unknown for existing vectors or the similarity source. Existing index preserved; use full reindex --force to rebuild with the configured model.',
+    );
+  }
+  throw new EmbeddingModelMismatchError(
+    `Embedding model mismatch: index uses "${storedModel}", search uses "${modelName}". Existing index preserved; restore the indexed model configuration, or use full reindex --force for an intentional rebuild.`,
   );
 }
 
@@ -830,6 +880,11 @@ export function upsertNote(
         ? (db.prepare('SELECT vec_length(embedding) AS dim FROM vec_chunks LIMIT 1').get() as
             { dim: number } | undefined)
         : undefined;
+      if (actual && !storedModel && context) {
+        throw new Error(
+          'Embedding model is unknown for existing vectors. Update not committed; existing index preserved. Use full reindex --force to rebuild with the configured model.',
+        );
+      }
       const storedDim = getStoredEmbeddingDim();
       if (actual && storedDim !== null && actual.dim !== storedDim) {
         throw new Error(
@@ -848,12 +903,7 @@ export function upsertNote(
           );
         }
       }
-      const fresh =
-        !storedModel &&
-        context !== undefined &&
-        !actual &&
-        !db.prepare('SELECT 1 FROM notes LIMIT 1').get() &&
-        !db.prepare('SELECT 1 FROM chunks LIMIT 1').get();
+      const fresh = !storedModel && context !== undefined && !actual;
 
       const aliases =
         note.aliases?.filter((alias): alias is string => typeof alias === 'string') ?? [];
@@ -1726,11 +1776,12 @@ export function repairIndexIntegrity(lease: IndexLease): {
   }
   const repairPaths = withIndexMutation(lease, () => {
     const db = getDb();
+    // Read vector IDs once instead of repeating a virtual-table lookup for every chunk.
     db.prepare(
       `INSERT OR IGNORE INTO index_repair_notes(path)
       SELECT DISTINCT n.path FROM chunks c JOIN notes n ON n.id=c.note_id
-      LEFT JOIN vec_chunks v ON v.chunk_id=c.id
-      WHERE c.embedding_status='ok' AND v.chunk_id IS NULL`,
+      WHERE c.embedding_status='ok'
+        AND c.id NOT IN (SELECT chunk_id FROM vec_chunks WHERE chunk_id IS NOT NULL)`,
     ).run();
     return (
       db.prepare('SELECT path FROM index_repair_notes ORDER BY path').all() as Array<{

@@ -15,8 +15,10 @@ class Watcher extends EventEmitter {
   }
 }
 let watcher: Watcher;
+let watcherStartupError: Error | undefined;
 vi.doMock('chokidar', () => ({
   watch: () => {
+    if (watcherStartupError) throw watcherStartupError;
     watcher = new Watcher();
     setTimeout(() => watcher.emit('ready'), 0);
     return watcher;
@@ -30,6 +32,7 @@ const { getIndexingStatus } = await import('../src/indexing/indexer.js');
 let service: ReturnType<typeof createIndexService>;
 let embeddings: MockInstance<typeof embedder.embedDetailed>;
 beforeEach(() => {
+  watcherStartupError = undefined;
   mkdirSync(vault, { recursive: true });
   db.openDb();
   db.initVecTable(4);
@@ -314,3 +317,111 @@ it.each(['full', 'force', 'files', 'path'])(
     assert.equal(getIndexingStatus().isRunning, false);
   },
 );
+
+it.each(['startup', 'running'] as const)(
+  'releases ownership and records a fatal %s watcher failure without retrying',
+  async (phase) => {
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    write('Original searchable body');
+    await service.reindex();
+    const before = body();
+    const version = db.getDbVersion();
+    if (phase === 'startup') watcherStartupError = new Error('EACCES watcher unavailable');
+    service.start();
+    if (phase === 'running') {
+      await vi.waitFor(() => assert.equal(db.readIndexOwner().mode, 'background'));
+      await vi.waitFor(() => assert.equal(watcher.listenerCount('error'), 1));
+      await vi.waitFor(() => assert.equal(getIndexingStatus().isRunning, false));
+      watcher.emit('error', new Error('EMFILE watcher unavailable'));
+    }
+    await vi.waitFor(() => assert.equal(db.getStats().failedIndexing, 1));
+    await vi.waitFor(() => assert.equal(db.readIndexOwner().token, null));
+    assert.equal(body(), before);
+    assert.equal(db.getDbVersion(), version);
+    assert.equal(db.getStats().failedIndexing, 1);
+    assert.equal(db.getIndexFailures()[0]?.operation, 'watcher');
+    assert.match(db.getIndexFailures()[0]!.message, /watcher unavailable/);
+    assert.match(report.mock.calls.flat().join(' '), /indexing stopped/);
+    const embeddingCalls = embeddings.mock.calls.length;
+    write('A change after the watcher failed');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(embeddings.mock.calls.length, embeddingCalls);
+    assert.equal(db.readIndexOwner().token, null);
+    // An explicit retry is the recovery path for this process.
+    watcherStartupError = undefined;
+    await service.reindex();
+    await vi.waitFor(() => assert.equal(db.readIndexOwner().mode, 'background'));
+    await vi.waitFor(() => assert.equal(db.getStats().failedIndexing, 0));
+    assert.equal(body(), 'A change after the watcher failed');
+  },
+);
+
+it('cancels and drains an admitted indexing batch when its watcher fails', async () => {
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  write('A source being embedded when its watcher fails');
+  let complete!: (outcomes: Awaited<ReturnType<typeof embedder.embedDetailed>>) => void;
+  embeddings.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+  );
+  service.start();
+  try {
+    await vi.waitFor(() => assert.equal(embeddings.mock.calls.length, 1));
+    const signal = embeddings.mock.calls[0]?.[2]?.signal;
+    assert.ok(signal);
+    watcher.emit('error', new Error('EMFILE while embedding'));
+    await vi.waitFor(() => assert.equal(signal.aborted, true));
+    assert.ok(db.readIndexOwner().token, 'native work still has to drain before handoff');
+  } finally {
+    complete?.([{ ok: true, embedding: new Float32Array([1, 0, 0, 0]) }]);
+  }
+  await vi.waitFor(() => assert.equal(db.readIndexOwner().token, null));
+  assert.equal(body(), undefined, 'cancelled inference cannot commit after the watcher failed');
+  assert.equal(db.getStats().chunks, 0);
+  assert.equal(db.getIndexFailures()[0]?.operation, 'watcher');
+});
+
+it('preserves an unknown-model legacy snapshot until an explicit force rebuild succeeds', async () => {
+  write('Original searchable body');
+  await service.reindex();
+  db.getDb().prepare("DELETE FROM settings WHERE key='embedding_model'").run();
+  const snapshot = () => ({
+    note: db.getNoteByPath('note.md'),
+    chunks: db.getDb().prepare('SELECT * FROM chunks ORDER BY id').all(),
+    vectors: db
+      .getDb()
+      .prepare('SELECT chunk_id,hex(embedding) bytes FROM vec_chunks ORDER BY chunk_id')
+      .all(),
+    version: db.getDbVersion(),
+    model: db.getStoredModel(),
+    metadata: db
+      .getDb()
+      .prepare(
+        "SELECT key,value FROM settings WHERE key IN ('api_model','embedding_dim','last_indexed') ORDER BY key",
+      )
+      .all(),
+  });
+  const before = snapshot();
+  await assert.rejects(service.reindex(), /unknown.*reindex.*--force/i);
+  assert.deepEqual(snapshot(), before);
+  write('Replacement searchable body');
+  embeddings.mockResolvedValue([{ ok: false, kind: 'permanent', message: 'rejected' }]);
+  await assert.rejects(service.reindex({ force: true }), /embedding.*failed/i);
+  assert.deepEqual(snapshot(), before);
+  embeddings.mockImplementation((texts) =>
+    Promise.resolve(
+      texts.map(() => ({
+        ok: true as const,
+        embedding: new Float32Array([0, 1, 0, 0]),
+      })),
+    ),
+  );
+  await service.reindex({ force: true });
+  assert.equal(db.getStoredModel(), 'model-A');
+  assert.equal(body(), 'Replacement searchable body');
+  assert.deepEqual([...db.getChunkEmbeddingsByPath('note.md')[0]!], [0, 1, 0, 0]);
+});

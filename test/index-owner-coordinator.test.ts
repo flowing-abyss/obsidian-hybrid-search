@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { setImmediate as nextTurn } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { afterAll, afterEach, beforeEach, it } from 'vitest';
 import type { IndexRunContext } from '../src/indexing/index-owner.js';
 
@@ -10,6 +14,7 @@ process.env.OBSIDIAN_VAULT_PATH = vault;
 const db = await import('../src/storage/db.js');
 const { createIndexCoordinator } = await import('../src/indexing/index-owner.js');
 const coordinators: ReturnType<typeof createIndexCoordinator>[] = [];
+const execFileAsync = promisify(execFile);
 let errors: unknown[] = [];
 
 function deferred<T>() {
@@ -182,6 +187,133 @@ it('waits for cancelled native background work before starting local foreground 
   }
 });
 
+it.each(['native', 'cleanup'] as const)(
+  'wakes local foreground work after %s settles first and both finish',
+  async (first) => {
+    const entered = deferred<IndexRunContext>();
+    const native = deferred<void>();
+    const cleanup = deferred<void>();
+    let foregroundEntered = false;
+    const owner = createIndexCoordinator({
+      acquireBackground: async (run) => {
+        entered.resolve(run);
+        await native.promise;
+      },
+      releaseBackground: () => cleanup.promise,
+      onError: (error) => errors.push(error),
+      // The local handoff must not depend on the remote-owner polling interval.
+      timing: { heartbeatMs: 10, pollMs: 60_000, waitMs: 120_000 },
+    });
+    coordinators.push(owner);
+    owner.start();
+    const run = await entered.promise;
+    const foreground = owner.foreground(() => {
+      foregroundEntered = true;
+      return Promise.resolve();
+    });
+    void foreground.catch(() => undefined);
+    try {
+      await nextTurn();
+      assert.equal(run.signal.aborted, true);
+      assert.equal(foregroundEntered, false);
+      (first === 'native' ? native : cleanup).resolve();
+      await nextTurn();
+      assert.equal(
+        foregroundEntered,
+        false,
+        'the remaining work still owns the local drain barrier',
+      );
+      (first === 'native' ? cleanup : native).resolve();
+      await nextTurn();
+      assert.equal(foregroundEntered, true, 'completed local work must wake the queued operation');
+      await foreground;
+      assert.deepEqual(db.getDb().prepare('SELECT * FROM index_waiters').all(), []);
+      assert.deepEqual(errors, []);
+    } finally {
+      native.resolve();
+      cleanup.resolve();
+      await owner.close();
+      await foreground.catch(() => undefined);
+    }
+  },
+);
+
+it('cancels the local foreground wait immediately while close drains native work and cleanup', async () => {
+  const entered = deferred<void>();
+  const native = deferred<void>();
+  const cleanup = deferred<void>();
+  const owner = createIndexCoordinator({
+    acquireBackground: async () => {
+      entered.resolve();
+      await native.promise;
+    },
+    releaseBackground: () => cleanup.promise,
+    onError: (error) => errors.push(error),
+    timing: { heartbeatMs: 10, pollMs: 60_000, waitMs: 120_000 },
+  });
+  coordinators.push(owner);
+  owner.start();
+  await entered.promise;
+  const foreground = owner.foreground(() => Promise.reject(new Error('must not start')));
+  let rejected = false;
+  const rejection = assert.rejects(foreground, /closed|abort/i).then(() => {
+    rejected = true;
+  });
+  void rejection.catch(() => undefined);
+  let closed = false;
+  const closing = owner.close().then(() => {
+    closed = true;
+  });
+  try {
+    await nextTurn();
+    assert.equal(rejected, true);
+    assert.equal(closed, false);
+    assert.deepEqual(db.getDb().prepare('SELECT * FROM index_waiters').all(), []);
+  } finally {
+    native.resolve();
+    cleanup.resolve();
+    await Promise.all([closing, rejection]);
+  }
+  assert.deepEqual(errors, []);
+});
+
+it('wakes the next local foreground caller when the current operation finishes', async () => {
+  const entered = deferred<void>();
+  const native = deferred<void>();
+  let secondEntered = false;
+  const owner = createIndexCoordinator({
+    acquireBackground: async () => {},
+    releaseBackground: async () => {},
+    onError: (error) => errors.push(error),
+    timing: { heartbeatMs: 10, pollMs: 60_000, waitMs: 120_000 },
+  });
+  coordinators.push(owner);
+  const first = owner.foreground(async () => {
+    entered.resolve();
+    await native.promise;
+  });
+  await entered.promise;
+  const second = owner.foreground(() => {
+    secondEntered = true;
+    return Promise.resolve();
+  });
+  void second.catch(() => undefined);
+  try {
+    await nextTurn();
+    assert.equal(secondEntered, false);
+    native.resolve();
+    await nextTurn();
+    assert.equal(secondEntered, true, 'the next local caller must not wait for a polling tick');
+    await Promise.all([first, second]);
+    assert.deepEqual(db.getDb().prepare('SELECT * FROM index_waiters').all(), []);
+    assert.deepEqual(errors, []);
+  } finally {
+    native.resolve();
+    await owner.close();
+    await Promise.allSettled([first, second]);
+  }
+});
+
 it('keeps close pending until its aborted background callback settles', async () => {
   const entered = deferred<void>();
   const native = deferred<void>();
@@ -231,6 +363,40 @@ it('counts local queue time toward the deadline and registers its global ticket 
     await rejected;
   }
 });
+
+it.each(['background', 'cleanup', 'foreground'])(
+  'releases completed wait resources while local %s work remains pending',
+  async (barrier) => {
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [
+        '--expose-gc',
+        '--import',
+        'tsx',
+        fileURLToPath(new URL('./fixtures/index-owner-retention.ts', import.meta.url)),
+        barrier,
+      ],
+      { timeout: 20_000, killSignal: 'SIGKILL' },
+    );
+    const retained = JSON.parse(stdout) as {
+      sampled: number;
+      afterFirstBatch: number;
+      afterSecondBatch: number;
+      afterClose: number;
+      afterRelease: number;
+    };
+    const evidence = `${barrier}: ${JSON.stringify(retained)}`;
+    assert.ok(retained.sampled > 0, `the child must observe real waiting resources: ${evidence}`);
+    // A held cleanup may itself originate in the first request. Allow constant
+    // coordinator state, but no growing chains from completed request batches.
+    assert.ok(
+      retained.afterSecondBatch <= retained.afterFirstBatch + 8,
+      `timed-out calls must not accumulate retained promises: ${evidence}`,
+    );
+    assert.ok(retained.afterClose <= 8, `close must release completed waits: ${evidence}`);
+    assert.ok(retained.afterRelease <= 8, `normal drain must release wait resources: ${evidence}`);
+  },
+);
 
 it('does not let an aborted foreground response release its actual native work barrier', async () => {
   const entered = deferred<IndexRunContext>();

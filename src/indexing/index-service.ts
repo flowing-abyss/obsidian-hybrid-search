@@ -13,6 +13,7 @@ import {
 } from '../inference/embedder.js';
 import { config } from '../runtime/config.js';
 import {
+  assertEmbeddingModelCompatible,
   cleanupLegacyPaths,
   clearIndexFailures,
   getActiveContentPolicySignature,
@@ -103,6 +104,7 @@ async function initializeOwner(run: IndexRunContext): Promise<number> {
     throw new Error(
       `Embedding model mismatch. Restore the indexed model or use full reindex --force. Existing index preserved.`,
     );
+  assertEmbeddingModelCompatible(activeModelName());
   const dimension = getStoredEmbeddingDim() ?? (await getEmbeddingDim({ signal: run.signal }));
   run.signal.throwIfAborted();
   primeEmbeddingDim(dimension);
@@ -155,7 +157,7 @@ export function createIndexService(): IndexService {
 
   async function withContentRun<T>(
     owner: OwnerRunContext,
-    work: (run: IndexRunContext) => Promise<T>,
+    work: (run: IndexRunContext, fail: (operation: string, error: unknown) => void) => Promise<T>,
   ): Promise<T> {
     if (unreapedFilter) {
       await unreapedFilter.close();
@@ -163,15 +165,17 @@ export function createIndexService(): IndexService {
     }
     let filter: ContentFilter | undefined;
     let clearedWorkerFailure = false;
-    const controller = patterns.length ? new AbortController() : undefined;
-    const abortFromOwner = () => controller?.abort(owner.signal.reason);
-    if (controller) {
-      owner.signal.addEventListener('abort', abortFromOwner, { once: true });
-      if (owner.signal.aborted) abortFromOwner();
+    const controller = new AbortController();
+    const abortFromOwner = () => controller.abort(owner.signal.reason);
+    owner.signal.addEventListener('abort', abortFromOwner, { once: true });
+    if (owner.signal.aborted) abortFromOwner();
+    function fail(operation: string, error: unknown): void {
+      reportRunFailure(run, operation, error);
+      controller.abort(error);
     }
     const run: IndexRunContext = {
       ...owner,
-      signal: controller?.signal ?? owner.signal,
+      signal: controller.signal,
       contentPolicySignature: desired,
       get contentFilter() {
         if (!patterns.length) return undefined;
@@ -189,8 +193,7 @@ export function createIndexService(): IndexService {
                 return projection;
               } catch (error) {
                 if (error instanceof ContentFilterError && error.scope === 'worker') {
-                  reportRunFailure(run, 'content-filter', error);
-                  controller?.abort(error);
+                  fail('content-filter', error);
                 }
                 throw error;
               }
@@ -210,8 +213,7 @@ export function createIndexService(): IndexService {
         await filter?.close();
       } catch (error) {
         unreapedFilter = filter;
-        reportRunFailure(run, 'content-filter', error);
-        controller?.abort(error);
+        fail('content-filter', error);
         throw error;
       }
     }
@@ -220,7 +222,7 @@ export function createIndexService(): IndexService {
         reportRunFailure(run, 'content-policy', configurationError);
         throw configurationError;
       }
-      return await work(run);
+      return await work(run, fail);
     } finally {
       owner.signal.removeEventListener('abort', abortFromOwner);
       await closeFilter();
@@ -242,6 +244,7 @@ export function createIndexService(): IndexService {
           throw new Error(
             'Embedding model mismatch. Restore the indexed model or use full reindex --force. Existing index preserved.',
           );
+        assertEmbeddingModelCompatible(activeModelName());
         await rebuildIndex(run, await getContextLength(), { reason: 'content-policy' });
       } catch (error) {
         reportRunFailure(run, 'content-policy', error);
@@ -261,13 +264,18 @@ export function createIndexService(): IndexService {
   }
   const coordinator = createIndexCoordinator({
     async acquireBackground(owner) {
-      await withContentRun(owner, async (run) => {
+      await withContentRun(owner, async (run, fail) => {
         try {
           const contextLength = await prepareContentOwner(run, false);
           run.signal.throwIfAborted();
           const current = startWatcher(contextLength, run);
           watcher = current;
+          void current.stopped.then((error) => {
+            if (error) fail('watcher', error);
+          });
           await current.ready;
+          run.signal.throwIfAborted();
+          clearIndexFailures(run.lease, '', 'watcher');
           await startBackgroundIndexing(run, contextLength);
           if (!run.signal.aborted)
             await new Promise<void>((resolve) =>

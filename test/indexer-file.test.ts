@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it, vi } from 'vitest';
 
 vi.mock('chokidar', () => ({
   watch: vi.fn().mockReturnValue({
@@ -742,72 +742,6 @@ describe('indexVaultSync', () => {
     );
   });
 
-  it('reopens once for a typed SQLite storage failure and preserves completed batch writes', async () => {
-    wipeDatabaseFiles();
-    openDb();
-    initVecTable(4);
-    resetIndexingState();
-    writeFileSync(path.join(vaultDir, 'recover-storage.md'), 'Recovery storage marker');
-    const storage = await import('../src/storage/db.js');
-    const actual = storage.commitIndexedNote;
-    let failed = false;
-    const commit = vi.spyOn(storage, 'commitIndexedNote').mockImplementation((...args) => {
-      if (args[1].path === 'recover-storage.md' && !failed) {
-        failed = true;
-        throw new storage.IndexStorageError(new Error('database disk image is malformed'));
-      }
-      return actual(...args);
-    });
-    let recoveries = 0;
-    try {
-      const result = await indexVaultSync(false, 'Test indexing...', {
-        recoverDatabase: () => {
-          recoveries++;
-          openDb();
-        },
-      });
-      assert.equal(recoveries, 1);
-      assert.equal(result.errors.length, 0);
-      assert.ok(getNoteByPath('recover-storage.md'));
-    } finally {
-      commit.mockRestore();
-    }
-  });
-
-  it('stops after repeated typed storage corruption and leaves freshness unchanged', async () => {
-    wipeDatabaseFiles();
-    openDb();
-    initVecTable(4);
-    resetIndexingState();
-    writeFileSync(path.join(vaultDir, 'repeat-storage.md'), 'Repeated storage error');
-    const storage = await import('../src/storage/db.js');
-    const actual = storage.commitIndexedNote;
-    const commit = vi.spyOn(storage, 'commitIndexedNote').mockImplementation((...args) => {
-      if (args[1].path === 'repeat-storage.md')
-        throw new storage.IndexStorageError(new Error('database disk image is malformed'));
-      return actual(...args);
-    });
-    let recoveries = 0;
-    try {
-      await assert.rejects(
-        indexVaultSync(false, 'Test indexing...', {
-          recoverDatabase: () => {
-            recoveries++;
-            openDb();
-          },
-        }),
-        /malformed/,
-      );
-      assert.equal(recoveries, 1);
-      assert.equal(
-        getDb().prepare("SELECT value FROM settings WHERE key='last_indexed'").get(),
-        undefined,
-      );
-    } finally {
-      commit.mockRestore();
-    }
-  });
-
   it('does not mark the index fresh when requireClean sees non-corruption errors', async () => {
     const filePath = path.join(vaultDir, 'require-clean-error.md');
     writeFileSync(filePath, '# Require Clean Error\\n\\nSome content here.', 'utf-8');
@@ -1020,4 +954,193 @@ describe('indexFile model integrity', () => {
       modelSpy.mockRestore();
     }
   });
+});
+
+describe('typed SQLite recovery', () => {
+  const oldFreshness = '2000-01-01T00:00:00.000Z';
+  const targetPath = 'recovery-target.md';
+  const siblingPath = 'completed-sibling.md';
+  const referencePath = 'retained-reference.md';
+  let recoveryVault: string;
+  let previousVault: string | undefined;
+
+  function snapshotSibling() {
+    const note = getNoteByPath(siblingPath);
+    assert.ok(note, 'the clean sibling must already have committed');
+    const db = getDb();
+    const references = ['links', 'markdown_links', 'note_urls'].map((table) =>
+      db.prepare(`SELECT * FROM ${table} WHERE from_path=? ORDER BY rowid`).all(siblingPath),
+    );
+    const expectedLink = [{ from_path: siblingPath, to_path: referencePath }];
+    assert.deepEqual(references[0], expectedLink, 'the sibling must retain its wiki link');
+    assert.deepEqual(references[1], expectedLink, 'the sibling must retain its Markdown link');
+    return {
+      note,
+      chunks: db
+        .prepare(
+          'SELECT c.*, hex(v.embedding) AS vector FROM chunks c ' +
+            'JOIN vec_chunks v ON v.chunk_id=c.id WHERE c.note_id=? ORDER BY c.id',
+        )
+        .all(note.id),
+      metadata: ['note_aliases', 'note_tags', 'note_frontmatter_fields'].map((table) =>
+        db.prepare(`SELECT * FROM ${table} WHERE note_id=? ORDER BY rowid`).all(note.id),
+      ),
+      references,
+      fts: db
+        .prepare("SELECT rowid FROM notes_fts_bm25 WHERE notes_fts_bm25 MATCH 'siblingneedle'")
+        .all(),
+    };
+  }
+
+  function freshness(): string | undefined {
+    return getDb().prepare("SELECT value FROM settings WHERE key='last_indexed'").pluck().get() as
+      string | undefined;
+  }
+
+  beforeEach(async () => {
+    closeDb();
+    previousVault = process.env.OBSIDIAN_VAULT_PATH;
+    recoveryVault = mkdtempSync(path.join(tmpdir(), 'ohs-storage-recovery-'));
+    process.env.OBSIDIAN_VAULT_PATH = recoveryVault;
+    openDb();
+    initVecTable(4);
+    resetIndexingState();
+    getDb().prepare("INSERT INTO settings(key,value) VALUES('last_indexed', ?)").run(oldFreshness);
+    writeFileSync(path.join(recoveryVault, referencePath), 'A retained relation destination.');
+    assert.equal(await indexFile(path.join(recoveryVault, referencePath), 512), 'indexed');
+    writeFileSync(path.join(recoveryVault, targetPath), 'Target recoveryneedle body.');
+    writeFileSync(
+      path.join(recoveryVault, siblingPath),
+      '---\ntitle: Completed sibling\ntags: [kept]\naliases: [Retained]\nstate: active\n---\n' +
+        'siblingneedle [[retained-reference]] [target](retained-reference.md) ' +
+        '[source](https://example.com/recovery)',
+    );
+    vi.mocked(embedder.embedDetailed).mockClear();
+  });
+
+  afterEach(() => {
+    closeDb();
+    resetIndexingState();
+    if (previousVault === undefined) delete process.env.OBSIDIAN_VAULT_PATH;
+    else process.env.OBSIDIAN_VAULT_PATH = previousVault;
+    rmSync(recoveryVault, { recursive: true, force: true });
+  });
+
+  it.each(['single file', 'background', 'full vault'])(
+    'uses default SQLite recovery for %s indexing and preserves the completed sibling',
+    async (mode) => {
+      let completedSibling: ReturnType<typeof snapshotSibling> | undefined;
+      if (mode === 'single file') {
+        assert.equal(await indexFile(path.join(recoveryVault, siblingPath), 512), 'indexed');
+        completedSibling = snapshotSibling();
+        vi.mocked(embedder.embedDetailed).mockClear();
+      }
+      const storage = await import('../src/storage/db.js');
+      const actualCommit = storage.commitIndexedNote;
+      const actualReopen = storage.reopenDatabaseForRecovery;
+      const attempts = new Map<string, number>();
+      const commit = vi.spyOn(storage, 'commitIndexedNote').mockImplementation((...args) => {
+        const notePath = args[1].path;
+        const count = (attempts.get(notePath) ?? 0) + 1;
+        attempts.set(notePath, count);
+        if (notePath === targetPath && count === 1)
+          throw new storage.IndexStorageError(new Error('database disk image is malformed'));
+        const result = actualCommit(...args);
+        if (notePath === siblingPath) completedSibling ??= snapshotSibling();
+        return result;
+      });
+      const reopen = vi.spyOn(storage, 'reopenDatabaseForRecovery').mockImplementation((lease) => {
+        assert.ok(completedSibling, 'the clean sibling must commit before recovery starts');
+        const previousConnection = getDb();
+        actualReopen(lease);
+        assert.equal(previousConnection.open, false);
+        assert.notEqual(getDb(), previousConnection);
+        assert.deepEqual(snapshotSibling(), completedSibling);
+      });
+      try {
+        if (mode === 'single file')
+          assert.equal(
+            await indexFileWithRecovery(path.join(recoveryVault, targetPath), 512),
+            'indexed',
+          );
+        else if (mode === 'background') await startBackgroundIndexing(512);
+        else assert.deepEqual((await indexVaultSync(false)).errors, []);
+
+        assert.equal(reopen.mock.calls.length, 1, 'recovery must reopen SQLite exactly once');
+        assert.equal(attempts.get(targetPath), 2, 'only the failed commit needs a retry');
+        assert.equal(attempts.get(siblingPath) ?? 0, mode === 'single file' ? 0 : 1);
+        const inputs = vi.mocked(embedder.embedDetailed).mock.calls.flatMap(([texts]) => texts);
+        assert.equal(inputs.filter((text) => text.includes('recoveryneedle')).length, 2);
+        assert.equal(
+          inputs.filter((text) => text.includes('siblingneedle')).length,
+          mode === 'single file' ? 0 : 1,
+          'a completed sibling must not be re-embedded after reopening',
+        );
+        assert.deepEqual(snapshotSibling(), completedSibling);
+        assert.ok(completedSibling && completedSibling.chunks.length > 0);
+        assert.equal(completedSibling.fts.length, 1);
+        assert.equal(getNoteByPath(targetPath)?.content, 'Target recoveryneedle body.');
+        assert.equal(
+          getDb()
+            .prepare(
+              'SELECT count(*) FROM chunks c JOIN notes n ON n.id=c.note_id ' +
+                "JOIN vec_chunks v ON v.chunk_id=c.id WHERE n.path=? AND c.embedding_status='ok'",
+            )
+            .pluck()
+            .get(targetPath),
+          1,
+          'the retried note must have its accepted vector',
+        );
+        assert.equal(
+          getDb()
+            .prepare('SELECT count(*) FROM index_failures WHERE path=?')
+            .pluck()
+            .get(targetPath),
+          0,
+        );
+        if (mode === 'single file') assert.equal(freshness(), oldFreshness);
+        else {
+          const updated = freshness();
+          assert.ok(updated && Date.parse(updated) > Date.parse(oldFreshness));
+        }
+      } finally {
+        reopen.mockRestore();
+        commit.mockRestore();
+      }
+    },
+  );
+
+  it.each([undefined, oldFreshness])(
+    'stops after repeated storage failure and preserves freshness %s',
+    async (savedFreshness) => {
+      if (savedFreshness === undefined)
+        getDb().prepare("DELETE FROM settings WHERE key='last_indexed'").run();
+      const storage = await import('../src/storage/db.js');
+      const actual = storage.commitIndexedNote;
+      let completedSibling: ReturnType<typeof snapshotSibling> | undefined;
+      let targetAttempts = 0;
+      const commit = vi.spyOn(storage, 'commitIndexedNote').mockImplementation((...args) => {
+        if (args[1].path === targetPath) {
+          targetAttempts++;
+          throw new storage.IndexStorageError(new Error('database disk image is malformed'));
+        }
+        const result = actual(...args);
+        if (args[1].path === siblingPath) completedSibling ??= snapshotSibling();
+        return result;
+      });
+      const reopen = vi.spyOn(storage, 'reopenDatabaseForRecovery');
+      try {
+        await assert.rejects(indexVaultSync(false), /malformed/);
+        assert.equal(reopen.mock.calls.length, 1);
+        assert.equal(targetAttempts, 2, 'persistent corruption must stop after one retry');
+        assert.equal(getNoteByPath(targetPath), undefined);
+        assert.ok(completedSibling && completedSibling.chunks.length > 0);
+        assert.deepEqual(snapshotSibling(), completedSibling);
+        assert.equal(freshness(), savedFreshness);
+      } finally {
+        reopen.mockRestore();
+        commit.mockRestore();
+      }
+    },
+  );
 });

@@ -383,3 +383,93 @@ it('preserves an unreadable main database and reports the error', async () => {
   assert.match(result.stderr, /not a database|malformed/i);
   assert.deepEqual(readFileSync(filename), bytes);
 });
+
+function watcherService(failure?: 'startup' | 'running') {
+  const loader = `
+    export async function resolve(specifier, context, next) {
+      const resolved = await next(specifier, context);
+      if (specifier !== 'chokidar') return resolved;
+      const source = ${JSON.stringify(failure)} === 'startup'
+        ? "throw new Error('injected watcher unavailable');"
+        : 'import { watch as realWatch } from ' + JSON.stringify(resolved.url) + ';' +
+          'export function watch(...args) { const watcher = realWatch(...args);' +
+          'process.once("message", () => watcher.emit("error", new Error("injected watcher unavailable")));' +
+          'return watcher; }';
+      return { url: 'data:text/javascript,' + encodeURIComponent(source), shortCircuit: true };
+    }
+  `;
+  return script(`
+    import { register } from 'node:module';
+    ${failure ? `register('data:text/javascript,' + encodeURIComponent(${JSON.stringify(loader)}));` : ''}
+    const { openIndexDatabase, createIndexService } = await import(${JSON.stringify(serviceModule)});
+    const { closeDb } = await import(${JSON.stringify(dbModule)});
+    await openIndexDatabase();
+    const service = createIndexService();
+    service.start();
+    process.on('message', () => {});
+    process.send({ ready: true });
+    process.stdin.resume();
+    process.stdin.on('end', () => {
+      void service.close().then(() => { closeDb(); process.exit(0); }, error => {
+        console.error(error); closeDb(); process.exit(1);
+      });
+    });
+  `);
+}
+
+it.each(['startup', 'running'] as const)(
+  'a fatal %s watcher failure yields to a healthy process without manual restart',
+  async (phase) => {
+    await seed();
+    const failed = watcherService(phase);
+    await firstMessage(failed);
+    if (phase === 'running') {
+      await waitUntil(() => failed.stderr().includes('Indexing complete'));
+      assert.ok(owner().token);
+      failed.child.send('fail');
+    }
+    await waitUntil(() => failed.stderr().includes('indexing stopped'));
+    await waitUntil(() => owner().token === null);
+    assert.match(failed.stderr(), /injected watcher unavailable/);
+    assert.equal(
+      inspect((db) =>
+        db.prepare("SELECT count(*) FROM index_failures WHERE operation='watcher'").pluck().get(),
+      ),
+      1,
+    );
+    const follower = watcherService();
+    await firstMessage(follower);
+    writeFileSync(path.join(vault, 'later.md'), 'A new source after the watcher owner failed.');
+    await waitUntil(() =>
+      inspect((db) => !!db.prepare("SELECT 1 FROM notes WHERE path='later.md'").get()),
+    );
+    assert.ok(owner().token, 'a healthy follower owns indexing');
+    assert.equal(failed.child.exitCode, null, 'the failed process remains available for reads');
+    assert.equal(failed.stderr().match(/indexing stopped/g)?.length, 1);
+    assert.equal(
+      inspect((db) =>
+        db.prepare("SELECT count(*) FROM index_failures WHERE operation='watcher'").pluck().get(),
+      ),
+      0,
+      'a successfully started watcher clears the persisted failure',
+    );
+    assert.equal(
+      inspect((db) => db.prepare('PRAGMA integrity_check').pluck().get()),
+      'ok',
+    );
+  },
+);
+
+it('an entirely failed watcher group releases ownership and does not alternate retries', async () => {
+  await seed();
+  const workers = [watcherService('startup'), watcherService('startup')];
+  await Promise.all(workers.map(firstMessage));
+  await waitUntil(() => workers.every((worker) => worker.stderr().includes('indexing stopped')));
+  await waitUntil(() => owner().token === null);
+  const settled = owner();
+  const calls = requests.length;
+  await delay(6500);
+  assert.deepEqual(owner(), settled, 'failed services must not claim or renew ownership again');
+  assert.equal(requests.length, calls, 'failed services must not keep probing or embedding');
+  for (const worker of workers) assert.equal(worker.stderr().match(/indexing stopped/g)?.length, 1);
+});

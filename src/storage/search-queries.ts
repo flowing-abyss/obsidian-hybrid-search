@@ -1,5 +1,5 @@
 import type { FilterPredicate } from '../contracts/filter-predicate.js';
-import { getDb } from './db.js';
+import { assertEmbeddingModelCompatible, getDb } from './db.js';
 
 type FtsRow = {
   path: string;
@@ -168,6 +168,7 @@ const VEC_MAX_K = 4096;
 
 export function createVectorReader(
   queryEmbedding: Float32Array,
+  modelName: string | null,
   limit: number,
   predicate?: FilterPredicate,
   excludeLinkedFrom?: string,
@@ -223,7 +224,8 @@ export function createVectorReader(
   const restrictionSql = restrictions.map((r) => `\n          AND ${r}`).join('');
 
   const db = getDb();
-  return () => {
+  return db.transaction(() => {
+    assertEmbeddingModelCompatible(modelName);
     return (
       db
         .prepare(
@@ -265,7 +267,7 @@ export function createVectorReader(
         aliases: string | null;
       }>
     );
-  };
+  });
 }
 
 export function readSnippetContents(uniquePaths: string[]) {

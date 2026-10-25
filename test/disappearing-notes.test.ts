@@ -22,6 +22,7 @@ const vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-disappear-'));
 process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
 vi.mock('../src/inference/embedder.js', () => ({
+  activeModelName: () => 'fixture-model',
   embed: vi.fn((texts: string[]) => Promise.resolve(texts.map(() => null))),
 }));
 

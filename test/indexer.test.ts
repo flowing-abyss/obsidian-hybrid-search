@@ -12,7 +12,8 @@ process.env.OBSIDIAN_VAULT_PATH = vaultDir;
 
 // Dynamic imports so config reads the env var we just set
 const { resolveWikilinks, getIndexingStatus } = await import('./helpers/owned-indexer.js');
-const { closeDb, openDb, initVecTable, upsertNote } = await import('./helpers/owned-storage.js');
+const { closeDb, openDb, initVecTable, upsertNote, wipeDatabaseFiles } =
+  await import('./helpers/owned-storage.js');
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -151,7 +152,7 @@ describe('background failure diagnostics', () => {
     const embedder = await import('../src/inference/embedder.js');
     const { startBackgroundIndexing, resetIndexingState } =
       await import('./helpers/owned-indexer.js');
-    const { getNoteByPath, wipeDatabaseFiles } = await import('./helpers/owned-storage.js');
+    const { getNoteByPath } = await import('./helpers/owned-storage.js');
     wipeDatabaseFiles();
     openDb();
     initVecTable(4);
@@ -198,6 +199,7 @@ describe('background failure diagnostics', () => {
 
 describe('resolveWikilinks', () => {
   beforeAll(() => {
+    wipeDatabaseFiles();
     openDb();
     initVecTable(EMBED_DIM);
 

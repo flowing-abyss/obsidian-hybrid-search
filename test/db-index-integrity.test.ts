@@ -14,6 +14,7 @@ const {
   getStoredModel,
   initVecTable,
   openDb,
+  upsertLegacyNote,
   upsertLinks,
   upsertMarkdownLinks,
   upsertNote,
@@ -227,16 +228,28 @@ it('known model mismatch rejects an empty chunk update', () => {
   assert.deepEqual(snapshot(), before);
 });
 
-it('leaves legacy provenance unknown after successful vector writes', () => {
-  upsertNote(note());
-  upsertNote({ ...note(), hash: 'changed' }, { modelName: 'model-A' });
+it('rejects incremental writes into legacy vectors without guessing their model', () => {
+  upsertLegacyNote(note());
+  getDb()
+    .prepare("INSERT OR REPLACE INTO settings(key,value) VALUES ('api_model','model-A')")
+    .run();
+  const before = snapshot();
+  assert.throws(
+    () => upsertNote({ ...note(), hash: 'changed' }, { modelName: 'model-A' }),
+    /model.*unknown|unknown.*model/i,
+  );
   assert.equal(getStoredModel(), null);
+  assert.deepEqual(snapshot(), before);
 });
 
-it('leaves a legacy note-only index provenance unknown after a vector write', () => {
-  upsertNote({ ...note(), chunks: [] });
-  upsertNote({ ...note(), hash: 'changed' }, { modelName: 'model-A' });
-  assert.equal(getStoredModel(), null);
+it.each(['empty', 'failed'] as const)('binds the first vector after earlier %s rows', (kind) => {
+  const chunks = kind === 'empty' ? [] : [{ text: 'failed', embedding: null }];
+  upsertNote({ ...note('earlier.md'), chunks }, { modelName: 'model-A' });
+  upsertNote(note(), { modelName: 'model-A' });
+  assert.equal(getStoredModel(), 'model-A');
+  const before = snapshot();
+  assert.throws(() => upsertNote(note('other.md'), { modelName: 'model-B' }), /model/i);
+  assert.deepEqual(snapshot(), before);
 });
 
 it('records a fresh model only on successful vector commit', () => {

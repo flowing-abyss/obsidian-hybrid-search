@@ -297,17 +297,20 @@ class WorkerContentFilter implements ContentFilter {
     child.ref();
     child.channel?.ref();
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(
-        () =>
+      const timer = setTimeout(() => {
+        // Native inference can block the parent after the child has replied.
+        // Poll queued IPC before treating that delay as a failed filter job.
+        setImmediate(() => {
+          if (this.pending?.request !== request) return;
           this.fail(
             new Error(
               request.type === 'init'
                 ? 'Content filtering initialization timed out'
                 : 'Content filtering timed out. Simplify OBSIDIAN_CONTENT_IGNORE_PATTERNS and reindex.',
             ),
-          ),
-        timeoutMs,
-      );
+          );
+        });
+      }, timeoutMs);
       this.pending = { request, resolve, reject, timer };
       child.send(request, (error) => {
         if (error)

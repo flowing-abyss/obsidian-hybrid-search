@@ -34,6 +34,7 @@ export function startWatcher(contextLength: number, suiteLifetime = false): inde
   });
   const result = {
     ready: handle.ready,
+    stopped: handle.stopped,
     async close() {
       try {
         await handle.close();

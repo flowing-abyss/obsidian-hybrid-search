@@ -15,20 +15,23 @@ import {
   hasFilterValue,
   type FilterPredicate,
 } from '../contracts/filter-predicate.js';
-import { embed } from '../inference/embedder.js';
+import { activeModelName, embed } from '../inference/embedder.js';
 import { reranker, type RerankCandidate } from '../inference/reranker.js';
 import { config } from '../runtime/config.js';
 import {
+  assertEmbeddingModelCompatible,
+  EmbeddingModelMismatchError,
   filterNotePathsByFrontmatter,
   filterNotePathsByTag,
   getBacklinksForPaths,
-  getChunkEmbeddingsByPath,
+  getChunkEmbeddingSourceByPath,
   getDbVersion,
   getLinksForPaths,
   getMarkdownLinksForPaths,
   getMatchingNotesByFrontmatter,
   getNoteByPath,
   getOutgoingLinksForPaths,
+  getStoredModel,
   getUrlsForPaths,
   hasVecTable,
   resolveNotePath,
@@ -665,6 +668,7 @@ function isMarkdownWhitespace(char: string): boolean {
  */
 function searchVector(
   queryEmbedding: Float32Array,
+  modelName: string | null,
   limit: number,
   predicate?: FilterPredicate,
   excludeLinkedFrom?: string,
@@ -672,7 +676,13 @@ function searchVector(
   if (!hasVecTable()) return [];
 
   return measureSearchStageSync('vectorSearch', () => {
-    const readRows = createVectorReader(queryEmbedding, limit, predicate, excludeLinkedFrom);
+    const readRows = createVectorReader(
+      queryEmbedding,
+      modelName,
+      limit,
+      predicate,
+      excludeLinkedFrom,
+    );
 
     try {
       const rows = readRows();
@@ -699,6 +709,7 @@ function searchVector(
         };
       });
     } catch (error) {
+      if (error instanceof EmbeddingModelMismatchError) throw error;
       // Never swallow silently: an empty vector result is indistinguishable from
       // "no semantic matches", which hid the k-ceiling bug above for a long time.
       process.stderr.write(
@@ -1107,7 +1118,7 @@ function cacheKey(input: string, options: SearchOptions): string {
   //   getDbVersion() — shared via SQLite settings; any process that modifies the DB
   //                    bumps it, invalidating caches in all other processes.
   //   localVersion   — in-process counter; bumpIndexVersion() for test-suite isolation.
-  return `v${getDbVersion()}_${getIndexVersion()}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${fmStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}\0${rerankStr}\0${queriesStr}\0${anchorsStr}`;
+  return `v${getDbVersion()}_${getIndexVersion()}\0${activeModelName()}\0${getStoredModel()}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${fmStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}\0${rerankStr}\0${queriesStr}\0${anchorsStr}`;
 }
 
 // eslint-disable-next-line sonarjs/cognitive-complexity -- primary search entry-point; complexity is inherent in the multi-mode, multi-filter pipeline
@@ -1267,7 +1278,18 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     if (note) key += `\0${note.mtime}`;
   }
   const cached = searchCache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    // A warm cache must still report an incompatible query provider. Rebuilds
+    // invalidate by db_version; this also covers cached lexical-only fallback.
+    try {
+      if (!isPathLookup && (mode === 'semantic' || mode === 'hybrid'))
+        assertEmbeddingModelCompatible(activeModelName());
+      return cached;
+    } catch (error) {
+      if (mode !== 'hybrid' || !(error instanceof EmbeddingModelMismatchError)) throw error;
+      // Recompute the lexical fallback below, where the failure is reported.
+    }
+  }
 
   let results: RawResult[];
 
@@ -1508,11 +1530,13 @@ async function searchByQuery(
   }
 
   if (mode === 'semantic') {
+    const modelName = activeModelName();
+    assertEmbeddingModelCompatible(modelName);
     const f32 = await embedQuery(query);
     // If embedding permanently failed after retries, return empty rather than
     // polluting results with uniform zero-vector scores.
     if (!f32) return [];
-    return searchVector(f32, limit, predicate);
+    return searchVector(f32, modelName, limit, predicate);
   }
 
   // hybrid: RRF fusion of all three
@@ -1524,8 +1548,17 @@ async function searchByQuery(
   // #1 result and the BM25 winner (weight=2.0) always beats the true hybrid winner.
   // The caller (search()) already slices to `limit` after filtering.
   const candidateLimit = Math.max(limit, 20);
-  const f32 = await embedQuery(query);
-  const [bm25Results, fuzzyResults, vectorResults] = await Promise.all([
+  const modelName = activeModelName();
+  let vectorResults: RawResult[] = [];
+  try {
+    assertEmbeddingModelCompatible(modelName);
+    const f32 = await embedQuery(query);
+    if (f32) vectorResults = searchVector(f32, modelName, candidateLimit, predicate);
+  } catch (error) {
+    if (!(error instanceof EmbeddingModelMismatchError)) throw error;
+    process.stderr.write(`Vector search failed: ${error.message}\n`);
+  }
+  const [bm25Results, fuzzyResults] = await Promise.all([
     Promise.resolve(
       measureSearchStageSync('bm25', () =>
         searchBm25(query, candidateLimit, snippetLength, buildAnchors, predicate),
@@ -1536,7 +1569,6 @@ async function searchByQuery(
         searchFuzzyTitle(query, candidateLimit, predicate),
       ),
     ),
-    f32 ? searchVector(f32, candidateLimit, predicate) : Promise.resolve([]),
   ]);
 
   // Exact alias matches (fuzzy_title=1.0) are canonical identity signals — treated like BM25.
@@ -1574,16 +1606,20 @@ async function searchByQuery(
  * resolved here: it is pushed into the KNN as a SQL restriction, so it narrows the
  * pool the query scans instead of eating into an already-truncated top-N.
  */
-async function getSimilaritySource(normalizedPath: string): Promise<Float32Array[] | null> {
+async function getSimilaritySource(normalizedPath: string): Promise<{
+  embeddings: Float32Array[];
+  modelName: string | null;
+} | null> {
   const note = getNoteByPath(normalizedPath);
   if (!note) return null;
 
-  const stored = getChunkEmbeddingsByPath(normalizedPath);
-  if (stored.length > 0) return stored;
+  const stored = getChunkEmbeddingSourceByPath(normalizedPath);
+  if (stored.embeddings.length > 0) return stored;
 
+  const modelName = activeModelName();
   const f32 = await embedQuery(`${note.title}\n\n${note.content}`);
   if (!f32) return null;
-  return [f32];
+  return { embeddings: [f32], modelName };
 }
 
 /**
@@ -1600,12 +1636,12 @@ async function searchSimilar(
 ): Promise<RawResult[]> {
   // macOS stores filenames as NFD; normalize to match DB paths
   const normalizedPath = normalizeNotePath(notePath);
-  const embeddings = await getSimilaritySource(normalizedPath);
-  if (!embeddings) return [];
+  const source = await getSimilaritySource(normalizedPath);
+  if (!source) return [];
 
   // Run vector search per source chunk, deduplicate by path keeping the max score
-  const allResults = embeddings.flatMap((f32) =>
-    searchVector(f32, limit, predicate, normalizedPath),
+  const allResults = source.embeddings.flatMap((f32) =>
+    searchVector(f32, source.modelName, limit, predicate, normalizedPath),
   );
 
   const byPath = new Map<string, RawResult>();

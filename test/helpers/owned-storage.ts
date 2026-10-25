@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { rmSync } from 'node:fs';
+import { activeModelName } from '../../src/inference/embedder.js';
 import { config } from '../../src/runtime/config.js';
 import * as storage from '../../src/storage/db.js';
 import type { IndexLease } from '../../src/storage/index-ownership.js';
@@ -64,7 +65,16 @@ function owned<Args extends unknown[], Result>(
 }
 
 export const initVecTable = owned(storage.initVecTable);
-export const upsertNote = owned(storage.upsertNote);
+/** Ordinary vector fixtures carry explicit provenance matching their embedding provider. */
+export function upsertNote(
+  note: storage.PreparedIndexNote,
+  context: NonNullable<Parameters<typeof storage.upsertNote>[2]> = { modelName: activeModelName() },
+): void {
+  withTestIndexLease((lease) => storage.upsertNote(lease, note, context));
+}
+
+/** Deliberate legacy fixtures must opt in to unknown vector provenance. */
+export const upsertLegacyNote = owned(storage.upsertNote);
 export const deleteNote = owned(storage.deleteNote);
 export const upsertLinks = owned(storage.upsertLinks);
 export const upsertMarkdownLinks = owned(storage.upsertMarkdownLinks);

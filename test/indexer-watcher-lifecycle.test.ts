@@ -72,6 +72,7 @@ describe('watcher lifecycle', () => {
     handle = indexer.startWatcher(512);
     await handle.close();
     await handle.ready;
+    assert.equal(await handle.stopped, undefined);
     assert.equal(watch.mock.calls.length, 0);
   });
 
@@ -114,8 +115,10 @@ describe('watcher lifecycle', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     handle = indexer.startWatcher(512);
     await created;
-    assert.doesNotThrow(() => watcher.emit('error', new Error('EMFILE')));
+    const failure = new Error('EMFILE');
+    assert.doesNotThrow(() => watcher.emit('error', failure));
     await handle.ready;
+    assert.equal(await handle.stopped, failure);
     assert.match(warn.mock.calls.flat().join(' '), /watcher.*EMFILE/);
     vi.useFakeTimers();
     await vi.runAllTimersAsync();
@@ -129,6 +132,9 @@ describe('watcher lifecycle', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     handle = indexer.startWatcher(512);
     await handle.ready;
+    const failure = await handle.stopped;
+    assert.ok(failure instanceof Error);
+    assert.match(String(failure.cause), /cannot load chokidar/);
     await handle.close();
     assert.match(warn.mock.calls.flat().join(' '), /watcher.*chokidar load error/);
   });
