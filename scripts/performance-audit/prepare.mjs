@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 
 const model = 'Xenova/multilingual-e5-small';
 const packageName = 'obsidian-hybrid-search-0.16.4.tgz';
@@ -315,6 +316,111 @@ function writeJson(root, name, value) {
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+export function normalizePackage(
+  root,
+  label,
+  expectedSha256,
+  { gzipExecutable = '/usr/bin/gzip' } = {},
+) {
+  const relative = `runtime/${label}/${packageName}`;
+  const file = safePath(root, relative);
+  const diagnostic = `preparation/${label}-package-normalization.json`;
+  const maximumBytes = 16 * 1024 * 1024;
+  const report = {
+    status: 'normalizing',
+    package: relative,
+    expectedSha256,
+    node: process.version,
+    versions: process.versions,
+    compressor: { executable: gzipExecutable },
+  };
+  const persist = () => writeJson(root, diagnostic, report);
+  const describe = (bytes) => ({ bytes: bytes.length, sha256: sha256(bytes) });
+  function compress(args, input, version = false) {
+    const result = spawnSync(gzipExecutable, args, {
+      input,
+      maxBuffer: version ? 8192 : maximumBytes,
+      timeout: version ? 5000 : 30000,
+      killSignal: 'SIGKILL',
+    });
+    report.compressor[version ? 'version' : 'result'] = {
+      args,
+      status: result.status,
+      signal: result.signal,
+      error: result.error?.message,
+      stdout: version ? result.stdout?.toString('utf8').trim() : undefined,
+      stdoutBytes: result.stdout?.length,
+      stdoutSha256: result.stdout ? sha256(result.stdout) : undefined,
+      stderr: result.stderr?.subarray(0, 8192).toString('utf8').trim(),
+    };
+    persist();
+    if (result.error || result.status !== 0 || result.signal !== null) {
+      throw new Error(
+        `${label}: gzip compressor ${version ? 'version check' : 'execution'} failed; inspect ${diagnostic} and preserve the frozen pins`,
+        { cause: result.error },
+      );
+    }
+    return result.stdout;
+  }
+  persist();
+  try {
+    assert.ok(isHash(expectedSha256), `${label}: invalid frozen package SHA`);
+    const stat = fs.statSync(file);
+    assert.ok(
+      stat.isFile() && stat.size <= maximumBytes,
+      `${label}: package exceeds the 16 MiB input bound`,
+    );
+    const fresh = fs.readFileSync(file);
+    report.fresh = describe(fresh);
+    persist();
+    compress(['--version'], undefined, true);
+    const raw = gunzipSync(fresh, { maxOutputLength: maximumBytes });
+    report.rawTar = describe(raw);
+    persist();
+    const canonical = compress(['-n', '-9'], raw);
+    assert.ok(
+      canonical.length >= 10 && canonical.subarray(0, 3).equals(Buffer.from([31, 139, 8])),
+      `${label}: compressor did not produce gzip`,
+    );
+    // npm's portable tar format uses OS=255; preserve every uncompressed tar byte.
+    canonical[9] = 255;
+    report.canonical = describe(canonical);
+    persist();
+    assert.ok(
+      gunzipSync(canonical, { maxOutputLength: maximumBytes }).equals(raw),
+      `${label}: compressor changed the uncompressed tar bytes`,
+    );
+    assert.equal(
+      report.canonical.sha256,
+      expectedSha256,
+      `${label} package: hash mismatch after gzip normalization; preserve the frozen input and investigate`,
+    );
+    report.status = fresh.equals(canonical) ? 'already-pinned' : 'normalized';
+    persist();
+    if (!fresh.equals(canonical)) {
+      const temporary = safePath(root, `${relative}.canonical`);
+      const descriptor = fs.openSync(temporary, 'wx');
+      try {
+        try {
+          fs.writeFileSync(descriptor, canonical);
+        } finally {
+          fs.closeSync(descriptor);
+        }
+        fs.renameSync(temporary, file);
+      } catch (error) {
+        fs.rmSync(temporary, { force: true });
+        throw error;
+      }
+    }
+    return report;
+  } catch (error) {
+    report.status = 'failed';
+    report.error = { name: error.name, message: error.message, code: error.code };
+    persist();
+    throw error;
+  }
+}
+
 function run(root, label, command, args, cwd) {
   const directory = path.join(root, 'preparation');
   fs.mkdirSync(directory, { recursive: true });
@@ -449,6 +555,7 @@ async function prepare(root, bundle, workspace) {
     const runtime = path.join(root, 'runtime', label);
     fs.mkdirSync(runtime, { recursive: true });
     run(root, `${label}-pack`, 'npm', ['pack', '--pack-destination', runtime], source);
+    normalizePackage(root, label, pin.package);
     verifyEntries(runtime, [{ path: packageName, sha256: pin.package }], `${label} package`);
     run(
       root,

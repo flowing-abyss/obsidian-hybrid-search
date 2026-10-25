@@ -83,8 +83,8 @@
     },
     {
       "path": "scripts/performance-audit/prepare.mjs",
-      "bytes": 22116,
-      "sha256": "2feb55498068b13c2178f03d38b847d1ceadd27831bea036a12103382905c0e5"
+      "bytes": 25861,
+      "sha256": "1e143f7a55bc24b62416aa173ccdc92cfd4d9793fe39df9d1727b808e95d11d5"
     },
     {
       "path": "scripts/performance-audit/telemetry.mjs",
@@ -93,8 +93,8 @@
     },
     {
       "path": "scripts/tests/performance-audit-prepare.test.mjs",
-      "bytes": 14147,
-      "sha256": "4d25623b805bb6c56d52684bfd9e513f07ea39ce7c56130b8247c07da4974e42"
+      "bytes": 21084,
+      "sha256": "cc568601abb98be2438b27fdffdc857109d327c992b4474368d06ee934540714"
     }
   ]
 }
