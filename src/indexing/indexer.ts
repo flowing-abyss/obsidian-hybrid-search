@@ -773,6 +773,38 @@ export function renderProgressLine(processed: number, total: number, etaStr: str
   return `  ${bar}  ${pctLabel} (${processed}/${total} notes)${etaStr}`;
 }
 
+export function createIndexProgress(total: number, header: string) {
+  const isTTY = process.stderr.isTTY === true;
+  const logEvery = Math.max(config.batchSize, Math.floor(total / 10));
+  let completedBatches = 0;
+  process.stderr.write(`${header}\n`);
+  if (isTTY) process.stderr.write(renderProgressLine(0, total, ''));
+  const startTime = Date.now();
+
+  return {
+    update(processed: number): void {
+      completedBatches++;
+      const elapsedSec = (Date.now() - startTime) / 1000;
+      const rate = elapsedSec > 0 ? processed / elapsedSec : 0;
+      const remainingSec =
+        completedBatches >= ETA_WARMUP_BATCHES && rate > 0 && processed < total
+          ? (total - processed) / rate
+          : 0;
+      const etaStr = remainingSec > 5 ? ` — ${formatDuration(remainingSec)} remaining` : '';
+
+      if (isTTY) {
+        process.stderr.write(`\r\x1b[2K${renderProgressLine(processed, total, etaStr)}`);
+      } else if (processed % logEvery < config.batchSize || processed >= total) {
+        const pct = total > 0 ? Math.round((processed / total) * 100) : 100;
+        process.stderr.write(`${processed}/${total} (${pct}%)${etaStr}\n`);
+      }
+    },
+    finish(): void {
+      if (isTTY) process.stderr.write('\n');
+    },
+  };
+}
+
 export async function indexVaultSync(
   run: IndexRunContext,
   force = false,
@@ -812,51 +844,29 @@ export async function indexVaultSync(
     return result;
   }
 
-  const isTTY = process.stderr.isTTY === true;
-  const logEvery = Math.max(config.batchSize, Math.floor(files.length / 10));
-
-  process.stderr.write(`${header}\n`);
-  if (isTTY) {
-    // Print initial empty bar without newline — will be overwritten in-place
-    process.stderr.write(renderProgressLine(0, files.length, ''));
-  }
+  const progress = createIndexProgress(files.length, header);
   const startTime = Date.now();
 
-  for (let i = 0; i < files.length; i += config.batchSize) {
-    const batch = files.slice(i, i + config.batchSize);
-    const batchResult = await indexBatchWithRecovery(
-      run,
-      batch,
-      contextLength,
-      force,
-      options.recoverDatabase,
-    );
-    result.indexed += batchResult.indexed;
-    result.skipped += batchResult.skipped;
-    result.errors.push(...batchResult.errors);
+  try {
+    for (let i = 0; i < files.length; i += config.batchSize) {
+      const batch = files.slice(i, i + config.batchSize);
+      const batchResult = await indexBatchWithRecovery(
+        run,
+        batch,
+        contextLength,
+        force,
+        options.recoverDatabase,
+      );
+      result.indexed += batchResult.indexed;
+      result.skipped += batchResult.skipped;
+      result.errors.push(...batchResult.errors);
 
-    const processed = Math.min(i + config.batchSize, files.length);
-    reportIndexProgress(run, files.length, processed);
-    const completedBatches = Math.floor(i / config.batchSize) + 1;
-    const elapsedSec = (Date.now() - startTime) / 1000;
-    const rate = elapsedSec > 0 ? processed / elapsedSec : 0;
-    const remainingSec =
-      completedBatches >= ETA_WARMUP_BATCHES && rate > 0 && processed < files.length
-        ? (files.length - processed) / rate
-        : 0;
-    const etaStr = remainingSec > 5 ? ` — ${formatDuration(remainingSec)} remaining` : '';
-
-    if (isTTY) {
-      // \r\x1b[2K: return to line start and clear it, then redraw
-      process.stderr.write(`\r\x1b[2K${renderProgressLine(processed, files.length, etaStr)}`);
-    } else if (processed % logEvery < config.batchSize || processed >= files.length) {
-      const pct = Math.round((processed / files.length) * 100);
-      process.stderr.write(`${processed}/${files.length} (${pct}%)${etaStr}\n`);
+      const processed = Math.min(i + config.batchSize, files.length);
+      reportIndexProgress(run, files.length, processed);
+      progress.update(processed);
     }
-  }
-
-  if (isTTY) {
-    process.stderr.write('\n'); // finalise the progress bar line
+  } finally {
+    progress.finish();
   }
   const elapsed = formatDuration((Date.now() - startTime) / 1000);
   const summaryParts = [`${result.indexed} indexed`, `${result.skipped} skipped`];

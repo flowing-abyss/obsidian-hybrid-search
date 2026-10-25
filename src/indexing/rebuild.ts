@@ -20,6 +20,7 @@ import { reportIndexProgress } from './index-owner.js';
 import { retryIndexWrite } from './index-write.js';
 import {
   contentPolicyForRun,
+  createIndexProgress,
   createPreparedReferenceResolver,
   prepareIndexFile,
   scanVault,
@@ -35,6 +36,7 @@ export async function rebuildIndex(
 ): Promise<IndexResult> {
   const previousDimension = getStoredEmbeddingDim();
   let staged = false;
+  let progress: ReturnType<typeof createIndexProgress> | undefined;
   try {
     const policyOnly = options.reason === 'content-policy';
     const dimension =
@@ -64,6 +66,10 @@ export async function rebuildIndex(
       run.signal.throwIfAborted();
       const files = scanVault(undefined, run);
       reportIndexProgress(run, files.length, 0);
+      progress = createIndexProgress(
+        files.length,
+        pass === 0 ? 'Reindexing vault...' : 'Checking changed notes...',
+      );
       const policy = createIgnorePolicy();
       const prior = new Map(readRebuildNotes(id).map((row) => [row.note.path, row]));
       const present = new Set<string>();
@@ -105,8 +111,12 @@ export async function rebuildIndex(
         );
         const failure = outcomes.find((outcome) => outcome.status === 'rejected');
         if (failure?.status === 'rejected') throw failure.reason;
-        reportIndexProgress(run, files.length, Math.min(i + config.batchSize, files.length));
+        const processed = Math.min(i + config.batchSize, files.length);
+        reportIndexProgress(run, files.length, processed);
+        progress.update(processed);
       }
+      progress.finish();
+      progress = undefined;
       for (const relative of prior.keys())
         if (!present.has(relative)) removeRebuildNote(run.lease, id, relative);
       const rows = readRebuildNotes(id);
@@ -163,6 +173,7 @@ export async function rebuildIndex(
       'The vault kept changing during reindex; existing index preserved. Retry after the edits settle.',
     );
   } finally {
+    progress?.finish();
     if (staged && !run.signal.aborted) {
       // A stale owner's cleanup is fenced just like publication.
       try {
