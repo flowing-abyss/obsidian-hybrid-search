@@ -1,7 +1,16 @@
 #!/usr/bin/env node
 import { runNpm, verificationEnv } from './run-command.mjs';
 
-const common = ['format:check', 'lint', 'build', 'knip', 'test:ai', 'test:tooling'];
+const inferenceInstall = 'check:inference-install';
+const common = [
+  inferenceInstall,
+  'format:check',
+  'lint',
+  'build',
+  'knip',
+  'test:ai',
+  'test:tooling',
+];
 const complete = [
   'coverage',
   'test:e2e-watcher',
@@ -12,7 +21,7 @@ const complete = [
 const profiles = {
   '--task': [...common, 'test'],
   '--ci': [...common, ...complete],
-  '--quality': ['eval:quality'],
+  '--quality': [inferenceInstall, 'eval:quality'],
   '--full': [...common, ...complete, 'eval:quality'],
 };
 const profile = process.argv[2] ?? '--full';
