@@ -1,3 +1,4 @@
+import { getChunkPolicyStatus } from '../indexing/chunk-policy.js';
 import { getIndexingStatus } from '../indexing/indexer.js';
 import { activeModelName, useRemoteEmbeddings } from '../inference/embedder.js';
 import { config } from '../runtime/config.js';
@@ -45,6 +46,7 @@ export function buildStatusPayload({
     active_model: activeModelName(),
     embedding_dim: stats.embeddingDim,
     context_length: contextLength,
+    chunk_tokens: getChunkPolicyStatus(contextLength).chunkTokens,
     version,
     ignore_patterns: config.ignorePatterns,
     respect_gitignore: config.respectGitignore,

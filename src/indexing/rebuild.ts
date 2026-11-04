@@ -55,6 +55,7 @@ export async function rebuildIndex(
       modelName: activeModelName(),
       embeddingDim: dimension,
       contentPolicySignature: contentPolicyForRun(run),
+      chunkPolicy: run.chunkPolicy,
       metadata: {
         vaultPath: config.vaultPath,
         apiBaseUrl: config.apiBaseUrl,

@@ -44,7 +44,8 @@ function getCacheDir(): string {
 let localPipeline: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Hugging Face transformers pipeline has no types
 let localPipelinePromise: Promise<any> | null = null;
-let cachedContextLength: number | null = null;
+// Share discovery; null means unknown, so each caller can supply its recorded fallback.
+let contextLengthPromise: Promise<number | null> | undefined;
 let cachedDim: number | null = null;
 
 // Known context lengths for embedding models across all providers.
@@ -193,17 +194,19 @@ const KNOWN_CONTEXT_LENGTHS: Record<string, number> = {
   'onnx-community/embeddinggemma-300m-ONNX': 2048,
 };
 
-export async function getContextLength(): Promise<number> {
-  if (cachedContextLength !== null) return cachedContextLength;
+export async function getContextLength(fallback = config.chunkContextFallback): Promise<number> {
+  contextLengthPromise ??= discoverContextLength();
+  return (await contextLengthPromise) ?? fallback;
+}
 
+async function discoverContextLength(): Promise<number | null> {
   if (useApiMode()) {
     // Check known models first — avoids an API roundtrip
     const knownModel = isOllamaEndpoint()
       ? normalizeKnownModelName(config.apiModel)
       : config.apiModel;
     if (KNOWN_CONTEXT_LENGTHS[knownModel]) {
-      cachedContextLength = KNOWN_CONTEXT_LENGTHS[knownModel]!;
-      return cachedContextLength;
+      return KNOWN_CONTEXT_LENGTHS[knownModel];
     }
 
     try {
@@ -211,8 +214,13 @@ export async function getContextLength(): Promise<number> {
       if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
       const res = await fetch(`${config.apiBaseUrl}/models/${config.apiModel}`, { headers });
       const data = (await res.json()) as { context_length?: number };
-      cachedContextLength = data.context_length ?? config.chunkContextFallback;
-      return cachedContextLength;
+      if (
+        res.ok !== false &&
+        Number.isSafeInteger(data?.context_length) &&
+        data.context_length! > 0
+      ) {
+        return data.context_length!;
+      }
     } catch {
       // fall through to default
     }
@@ -221,13 +229,11 @@ export async function getContextLength(): Promise<number> {
     // local models use the configured fallback and are still validated exactly
     // with their tokenizer immediately before document inference.
     if (KNOWN_CONTEXT_LENGTHS[config.localModel]) {
-      cachedContextLength = KNOWN_CONTEXT_LENGTHS[config.localModel]!;
-      return cachedContextLength;
+      return KNOWN_CONTEXT_LENGTHS[config.localModel]!;
     }
   }
 
-  cachedContextLength = config.chunkContextFallback;
-  return cachedContextLength;
+  return null;
 }
 
 export async function getEmbeddingDim(
@@ -382,11 +388,11 @@ export function prepareEmbeddingInput(text: string, type: 'query' | 'document'):
   return text;
 }
 
-export async function getDocumentTokenPolicy(): Promise<{
+export async function getDocumentTokenPolicy(fallbackContextLength?: number): Promise<{
   limit: number;
   count(text: string): number;
 }> {
-  const limit = effectiveTokenLimit(await getContextLength());
+  const limit = effectiveTokenLimit(await getContextLength(fallbackContextLength));
   const estimated = createEstimatedTokenCounter();
   if (useApiMode()) {
     let counter = estimated;
@@ -445,7 +451,7 @@ export function clearOllamaSemaphore(): void {
   ollamaWaitQueue.length = 0;
   localPipeline = null;
   localPipelinePromise = null;
-  cachedContextLength = null;
+  contextLengthPromise = undefined;
 }
 
 async function embedViaApiDetailed(

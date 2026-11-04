@@ -70,7 +70,16 @@ export function upsertNote(
   note: storage.PreparedIndexNote,
   context: NonNullable<Parameters<typeof storage.upsertNote>[2]> = { modelName: activeModelName() },
 ): void {
-  withTestIndexLease((lease) => storage.upsertNote(lease, note, context));
+  withTestIndexLease((lease) => {
+    const chunkPolicy = storage.initializeChunkPolicy(
+      lease,
+      context.chunkPolicy ?? {
+        chunkTokens: 512,
+        contextLength: 512,
+      },
+    );
+    storage.upsertNote(lease, note, { ...context, chunkPolicy });
+  });
 }
 
 /** Deliberate legacy fixtures must opt in to unknown vector provenance. */

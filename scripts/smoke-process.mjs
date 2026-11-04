@@ -27,6 +27,9 @@ function assertStatus(status) {
   assert.equal(status.failed_chunks, 0);
   assert.equal(status.api_base_url, null);
   assert.equal(status.model, 'local:Xenova/multilingual-e5-small');
+  assert.equal(status.embedding_dim, 384);
+  assert.equal(status.context_length, 512);
+  assert.equal(status.chunk_tokens, 512);
 }
 async function stop(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
@@ -208,6 +211,7 @@ export async function smokeProcess(packageRoot, inheritedEnv = process.env) {
     OBSIDIAN_RESPECT_GITIGNORE: 'false',
     OBSIDIAN_CONTENT_IGNORE_PATTERNS: '',
   };
+  delete env.OBSIDIAN_CHUNK_TOKENS;
   try {
     mkdirSync(path.join(root, 'notes'));
     mkdirSync(path.join(root, 'kitchen'));
@@ -234,6 +238,8 @@ export async function smokeProcess(packageRoot, inheritedEnv = process.env) {
       });
       assert.equal(result.error, undefined, result.error?.message);
       assert.equal(result.status, 0, `${args.join(' ')}\n${result.stderr}`);
+      if (args[0] === 'reindex' || args[0] === 'status')
+        assert.doesNotMatch(result.stderr, /\[warn\]|chunk.*reindex --force/i);
       return json ? JSON.parse(result.stdout) : result.stdout;
     };
     run(['reindex'], false);

@@ -5,12 +5,7 @@ import {
   parseContentIgnorePatterns,
   type ContentIgnorePattern,
 } from '../content/content-ignore.js';
-import {
-  activeModelName,
-  getContextLength,
-  getEmbeddingDim,
-  primeEmbeddingDim,
-} from '../inference/embedder.js';
+import { activeModelName, getEmbeddingDim, primeEmbeddingDim } from '../inference/embedder.js';
 import { config } from '../runtime/config.js';
 import {
   assertEmbeddingModelCompatible,
@@ -28,6 +23,7 @@ import {
 } from '../storage/db.js';
 import { IndexLeaseLostError } from '../storage/index-ownership.js';
 import { discardRebuilds } from '../storage/index-rebuild.js';
+import { prepareChunkPolicy } from './chunk-policy.js';
 import {
   ContentFilterError,
   createContentFilter,
@@ -105,6 +101,7 @@ async function initializeOwner(run: IndexRunContext): Promise<number> {
       `Embedding model mismatch. Restore the indexed model or use full reindex --force. Existing index preserved.`,
     );
   assertEmbeddingModelCompatible(activeModelName());
+  const chunkPolicy = await prepareChunkPolicy(run);
   const dimension = getStoredEmbeddingDim() ?? (await getEmbeddingDim({ signal: run.signal }));
   run.signal.throwIfAborted();
   primeEmbeddingDim(dimension);
@@ -120,7 +117,7 @@ async function initializeOwner(run: IndexRunContext): Promise<number> {
   await populateMissingLinks(run);
   await populateMissingMarkdownReferences(run);
   clearIndexFailures(run.lease, '', 'initialize');
-  return getContextLength();
+  return chunkPolicy.chunkTokens;
 }
 
 export interface IndexService {
@@ -233,6 +230,13 @@ export function createIndexService(): IndexService {
     run: IndexRunContext,
     allowTransition: boolean,
   ): Promise<number> {
+    let contextLength: number;
+    try {
+      contextLength = (await prepareChunkPolicy(run)).chunkTokens;
+    } catch (error) {
+      reportRunFailure(run, 'initialize', error);
+      throw error;
+    }
     if (getActiveContentPolicySignature() !== desired) {
       try {
         if (!allowTransition)
@@ -245,13 +249,13 @@ export function createIndexService(): IndexService {
             'Embedding model mismatch. Restore the indexed model or use full reindex --force. Existing index preserved.',
           );
         assertEmbeddingModelCompatible(activeModelName());
-        await rebuildIndex(run, await getContextLength(), { reason: 'content-policy' });
+        await rebuildIndex(run, contextLength, { reason: 'content-policy' });
       } catch (error) {
         reportRunFailure(run, 'content-policy', error);
         throw error;
       }
     }
-    const contextLength = await prepareOwner(run);
+    await prepareOwner(run);
     clearIndexFailures(run.lease, '', 'content-policy');
     return contextLength;
   }
@@ -356,7 +360,8 @@ export function createIndexService(): IndexService {
       return runExplicitIndex(async (run) => {
         if (options.force && !options.path) {
           try {
-            return await rebuildIndex(run, await getContextLength());
+            const policy = await prepareChunkPolicy(run, true);
+            return await rebuildIndex(run, policy.chunkTokens);
           } catch (error) {
             reportRunFailure(run, 'rebuild', error);
             throw error;

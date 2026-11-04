@@ -7,9 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import pc from 'picocolors';
 import { parseCliIntegerOption, parseCliNumberOption } from '../contracts/boundary-validation.js';
+import { getChunkPolicyStatus, getIndexContextLength } from '../indexing/chunk-policy.js';
 import { createIndexService, openIndexDatabase } from '../indexing/index-service.js';
 import { formatDuration, renderProgressLine } from '../indexing/indexer.js';
-import { activeModelName, getContextLength, primeEmbeddingDim } from '../inference/embedder.js';
+import { activeModelName, primeEmbeddingDim } from '../inference/embedder.js';
 import { MAX_CPU_THREADS, saveCpuThreads } from '../inference/inference-settings.js';
 import { enableModelDownloadProgress } from '../inference/model-download-progress.js';
 import { config } from '../runtime/config.js';
@@ -217,7 +218,7 @@ interface ServeOpts {
 }
 
 const cliIndexer = createIndexService();
-async function init(): Promise<number> {
+async function init(): Promise<void> {
   await openIndexDatabase();
   applyDbConfigDefaults();
   const modelName = currentModelName();
@@ -228,7 +229,12 @@ async function init(): Promise<number> {
     );
   const dimension = getStoredEmbeddingDim();
   if (dimension !== null) primeEmbeddingDim(dimension);
-  return getContextLength();
+}
+let previousChunkNotice: string | undefined;
+function reportChunkPolicyNotice(contextLength: number): void {
+  const { notice } = getChunkPolicyStatus(contextLength);
+  if (notice && notice !== previousChunkNotice) process.stderr.write(`${notice}\n`);
+  previousChunkNotice = notice;
 }
 function currentModelName(): string {
   return activeModelName();
@@ -631,7 +637,8 @@ program
   .option('--recent', 'Include recent activity log')
   .option('--errors', 'Include list of chunks that failed to embed')
   .action(async (opts: { recent?: boolean; errors?: boolean }) => {
-    const [contextLength, updateInfo] = await Promise.all([init(), fetchUpdateStatus()]);
+    const [, updateInfo] = await Promise.all([init(), fetchUpdateStatus()]);
+    const contextLength = await getIndexContextLength();
     const output: Record<string, unknown> = {
       vault: config.vaultPath,
       ...buildStatusPayload({ contextLength, version }),
@@ -651,6 +658,7 @@ program
       output.errors = getFailedChunks();
     }
     console.log(JSON.stringify(output, null, 2));
+    reportChunkPolicyNotice(contextLength);
     const failedChunks = Number(output.failed_chunks ?? 0);
     if (!opts.errors && failedChunks > 0) {
       console.warn(
@@ -782,7 +790,6 @@ const serveCommand = program
     if (opts.stdio) {
       await init();
 
-      const contextLength = await getContextLength();
       cliIndexer.start();
 
       process.stdout.write(JSON.stringify({ ready: true }) + '\n');
@@ -814,7 +821,11 @@ const serveCommand = program
           line,
           search,
           (s) => process.stdout.write(s + '\n'),
-          () => buildStatusPayload({ contextLength, version }),
+          async () => {
+            const contextLength = await getIndexContextLength();
+            reportChunkPolicyNotice(contextLength);
+            return buildStatusPayload({ contextLength, version });
+          },
         );
       }
       return;

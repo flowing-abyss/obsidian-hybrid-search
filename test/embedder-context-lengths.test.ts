@@ -86,3 +86,42 @@ it('retains the unknown-model fallback', async () => {
   assert.equal(await getContextLength(), 512);
   assert.equal(vi.mocked(fetch).mock.calls.length, 1);
 });
+
+it('uses recorded context for an unavailable unknown model even after a default lookup', async () => {
+  vi.stubEnv('OPENAI_EMBEDDING_MODEL', 'unknown-fixture-model');
+  vi.mocked(fetch).mockRejectedValue(new Error('fixture metadata unavailable'));
+  assert.equal(await getContextLength(), 512);
+  assert.equal(await getContextLength(8192), 8192);
+  assert.equal((await getDocumentTokenPolicy(8192)).limit, 8128);
+});
+
+it('keeps a known smaller model limit authoritative over recorded fallback', async () => {
+  vi.stubEnv('OPENAI_EMBEDDING_MODEL', 'cohere/embed-multilingual-v3.0');
+  assert.equal(await getContextLength(8192), 512);
+});
+
+it('shares concurrent metadata discovery so a fallback cannot replace a confirmed smaller cap', async () => {
+  vi.stubEnv('OPENAI_EMBEDDING_MODEL', 'unknown-fixture-model');
+  let complete!: (response: Response) => void;
+  vi.mocked(fetch)
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          complete = resolve;
+        }),
+    )
+    .mockRejectedValue(new Error('transient metadata failure'));
+  const first = getContextLength(8192);
+  const second = getContextLength(8192);
+  complete(new Response(JSON.stringify({ context_length: 256 })));
+  assert.deepEqual(await Promise.all([first, second]), [256, 256]);
+  assert.equal(await getContextLength(8192), 256);
+});
+
+for (const value of [0, -1, 1.5, '8192', null]) {
+  it(`does not treat malformed context metadata ${String(value)} as a model limit`, async () => {
+    vi.stubEnv('OPENAI_EMBEDDING_MODEL', 'unknown-fixture-model');
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ context_length: value })));
+    assert.equal(await getContextLength(2048), 2048);
+  });
+}
