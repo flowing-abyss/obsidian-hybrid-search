@@ -6,10 +6,14 @@ import {
   tryAutoHealAbiMismatch,
   type NativeModule,
 } from './auto-heal.js';
+import { withSqliteNativeBinding, type SqliteBindingOptions } from './sqlite-binding.js';
 
 type RequireModule = (moduleName: string) => unknown;
 type ClosableDatabase = { close(): void };
-type DatabaseConstructor = new (filename: string) => ClosableDatabase;
+type DatabaseConstructor = new (
+  filename: string,
+  options?: SqliteBindingOptions,
+) => ClosableDatabase;
 type SqliteVecModule = { load(db: ClosableDatabase): void };
 
 export interface NativePreflightDeps {
@@ -78,7 +82,7 @@ export function loadNativeModuleWithRequire(
   requireModule: RequireModule,
 ): void {
   const Database = requireModule('better-sqlite3') as DatabaseConstructor;
-  const db = new Database(':memory:');
+  const db = withSqliteNativeBinding((options) => new Database(':memory:', options));
 
   try {
     if (moduleName === 'sqlite-vec') {
@@ -97,7 +101,7 @@ export function runNativeModulePreflight(deps: NativePreflightDeps): void {
     } catch (err) {
       let recoveryError: unknown;
 
-      if (moduleName === 'sqlite-vec' || isLikelyAbiFailure(String(err))) {
+      if (moduleName === 'sqlite-vec' || isLikelyAbiFailure(err)) {
         try {
           deps.handleAbiFailure(shortErrorMessage(err), moduleName);
           deps.loadNativeModule(moduleName);

@@ -120,7 +120,7 @@ describe('tryAutoHealAbiMismatch', () => {
 
     assert.equal(installCalls.length, 1);
     assert.equal(installCalls[0]?.command, 'npm');
-    assert.deepEqual(installCalls[0]?.args, ['run', 'install']);
+    assert.deepEqual(installCalls[0]?.args, ['run', 'build-release']);
     assert.equal(installCalls[0]?.cwd, nativeModuleRoot);
     assert.match(installCalls[0]?.logPath ?? '', /better-sqlite3-install-12345-999\.log$/);
     assert.equal(existsSync(installCalls[0]?.logPath ?? ''), false);
@@ -164,7 +164,7 @@ describe('tryAutoHealAbiMismatch', () => {
 
     assert.throws(
       () => tryAutoHealAbiMismatch('NODE_MODULE_VERSION mismatch', 'better-sqlite3', deps()),
-      /already attempted.*npm run install/i,
+      /already attempted.*npm run build-release/i,
     );
 
     assert.deepEqual(installCalls, []);

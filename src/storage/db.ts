@@ -6,6 +6,7 @@ import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
 import { CONTENT_POLICY_IDENTITY, type SourcePart } from '../content/content-ignore.js';
 import { normalizeNotePath, normalizeTag } from '../content/text-normalization.js';
 import { config } from '../runtime/config.js';
+import { withSqliteNativeBinding } from '../runtime/sqlite-binding.js';
 import { getIgnoreSignature, isIgnored } from '../vault/ignore.js';
 
 import {
@@ -542,7 +543,9 @@ export class IndexStorageError extends Error {
 
 export function openDb(): DB {
   closeDb();
-  const db = new Database(config.dbPath, { timeout: 250 });
+  const db = withSqliteNativeBinding(
+    (options) => new Database(config.dbPath, { timeout: 250, ...options }),
+  );
   try {
     sqliteVec.load(db);
     db.pragma('journal_mode = WAL');

@@ -13,6 +13,9 @@ import {
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { getSqliteBindingPath } from './sqlite-binding.js';
+
+export { isLikelyAbiFailure } from './sqlite-binding.js';
 
 export type NativeModule = 'better-sqlite3' | 'sqlite-vec';
 
@@ -56,13 +59,6 @@ export interface InstallInstanceDeps {
 const require_ = createRequire(import.meta.url);
 const INSTALL_INSTANCE_FILE = '.obsidian-hybrid-search-install-instance';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ABI_FAILURE_RE =
-  /NODE_MODULE_VERSION|ERR_DLOPEN_FAILED|was compiled against a different Node\.js version|dlopen.*Symbol not found|incompatible architecture|Cannot find module 'sqlite-vec|Could not locate the bindings file|better_sqlite3\.node/i;
-
-export function isLikelyAbiFailure(msg: string): boolean {
-  return ABI_FAILURE_RE.test(msg);
-}
-
 export function getNativeHealCacheDir(): string {
   return join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'obsidian-hybrid-search');
 }
@@ -218,10 +214,9 @@ function writeRetryMarker(path: string, underlyingErr: string): boolean {
 
 function removeStaleBetterSqliteBinary(): void {
   try {
-    const binaryPath = require_.resolve('better-sqlite3/build/Release/better_sqlite3.node');
-    unlinkSync(binaryPath);
+    unlinkSync(getSqliteBindingPath());
   } catch {
-    // Best-effort only. The dependency install script can still replace or rebuild the binary.
+    // Best-effort only. The build script also cleans the local build directory.
   }
 }
 
@@ -235,7 +230,7 @@ function manualInstructions(moduleName: NativeModule, reason: string): string {
   }
 
   return (
-    `obsidian-hybrid-search: ${moduleName} requires manual recovery; run "npm run install" in the better-sqlite3 package directory, then restart your MCP client.\n` +
+    `obsidian-hybrid-search: ${moduleName} requires manual recovery; run "npm run build-release" in the better-sqlite3 package directory, then restart your MCP client.\n` +
     `${reason}\n` +
     `Native module: ${moduleName}`
   );
@@ -262,7 +257,7 @@ export function tryAutoHealAbiMismatch(
   const marker = markerPath(deps.cacheDir, moduleName, deps.runtimeAbi, markerScope);
   if (!writeRetryMarker(marker, underlyingErr)) {
     throw new Error(
-      `obsidian-hybrid-search: native install already attempted for ${moduleName} on ABI ${deps.runtimeAbi}; run "npm run install" in the better-sqlite3 package directory, then restart your MCP client.`,
+      `obsidian-hybrid-search: native install already attempted for ${moduleName} on ABI ${deps.runtimeAbi}; run "npm run build-release" in the better-sqlite3 package directory, then restart your MCP client.`,
     );
   }
 
@@ -274,7 +269,7 @@ export function tryAutoHealAbiMismatch(
   try {
     result = deps.runInstallScript({
       command: 'npm',
-      args: ['run', 'install'],
+      args: ['run', 'build-release'],
       cwd,
       logPath,
       shell: deps.platform === 'win32',
