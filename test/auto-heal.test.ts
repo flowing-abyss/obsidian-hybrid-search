@@ -120,7 +120,8 @@ describe('tryAutoHealAbiMismatch', () => {
 
     assert.equal(installCalls.length, 1);
     assert.equal(installCalls[0]?.command, 'npm');
-    assert.deepEqual(installCalls[0]?.args, ['run', 'install']);
+    assert.deepEqual(installCalls[0]?.args, ['run', 'build-release']);
+    assert.equal(installCalls[0]?.shell, false);
     assert.equal(installCalls[0]?.cwd, nativeModuleRoot);
     assert.match(installCalls[0]?.logPath ?? '', /better-sqlite3-install-12345-999\.log$/);
     assert.equal(existsSync(installCalls[0]?.logPath ?? ''), false);
@@ -164,7 +165,7 @@ describe('tryAutoHealAbiMismatch', () => {
 
     assert.throws(
       () => tryAutoHealAbiMismatch('NODE_MODULE_VERSION mismatch', 'better-sqlite3', deps()),
-      /already attempted.*npm run install/i,
+      /already attempted.*npm run build-release/i,
     );
 
     assert.deepEqual(installCalls, []);
@@ -180,15 +181,19 @@ describe('tryAutoHealAbiMismatch', () => {
   });
 
   it('uses the synchronous install runner on Windows', () => {
+    const windowsModuleRoot = path.join(projectRoot, 'space & Cafe\u0301', 'better-sqlite3');
     assert.doesNotThrow(() =>
       tryAutoHealAbiMismatch('NODE_MODULE_VERSION mismatch', 'better-sqlite3', {
         ...deps(),
         platform: 'win32',
+        resolveNativeModuleRoot: () => windowsModuleRoot,
       }),
     );
 
     assert.equal(installCalls.length, 1);
-    assert.equal(installCalls[0]?.cwd, nativeModuleRoot);
+    assert.equal(installCalls[0]?.command, 'npm run build-release');
+    assert.deepEqual(installCalls[0]?.args, []);
+    assert.equal(installCalls[0]?.cwd, windowsModuleRoot);
     assert.equal(installCalls[0]?.shell, true);
   });
 });

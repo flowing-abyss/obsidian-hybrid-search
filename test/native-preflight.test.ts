@@ -131,6 +131,28 @@ describe('runNativeModulePreflight', () => {
     assert.match(log, /native recovery failed/);
   });
 
+  it('repairs a packaged binary failure identified by its error code', () => {
+    let loads = 0;
+    let repairs = 0;
+    runNativeModulePreflight(
+      deps({
+        modules: ['better-sqlite3'],
+        loadNativeModule: () => {
+          if (++loads === 1) {
+            throw Object.assign(new Error('file too short'), { code: 'ERR_DLOPEN_FAILED' });
+          }
+        },
+        handleAbiFailure: () => {
+          repairs++;
+        },
+      }),
+    );
+    assert.equal(loads, 2);
+    assert.equal(repairs, 1);
+    assert.equal(stderr, '');
+    assert.deepEqual(exits, []);
+  });
+
   it('records a failed reload after the repair command succeeds', () => {
     let loadAttempts = 0;
     const marker = path.join(cacheDir, 'abi-heal-attempted-better-sqlite3-127-reload-test');

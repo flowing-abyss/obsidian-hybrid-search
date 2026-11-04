@@ -16,6 +16,17 @@ const TIMEOUT = 180_000;
 const note = 'notes/Astronomy.md';
 const hidden = 'packagedhiddenneedle';
 const contentPattern = String.raw`/%%[\s\S]*?%%/g`;
+const startupWarnings =
+  /^(?:obsidian-hybrid-search: (?:Native module failed:|native install|(?:better-sqlite3|sqlite-vec) requires manual recovery)|npm warn (?:config|deprecated|install-scripts)\b|\[server\] embedding model mismatch:|\[warn\] Invalid or unreadable local inference settings;)/im;
+const stderrChecks = new WeakMap();
+function captureStderr(stream) {
+  let output = '';
+  stream?.on('data', (data) => {
+    output += data.toString();
+    process.stderr.write(data);
+  });
+  return () => assert.doesNotMatch(output, startupWarnings);
+}
 function assertSearch(results) {
   assert.ok(
     Array.isArray(results) && results.some((item) => item.path === note),
@@ -32,8 +43,11 @@ function assertStatus(status) {
   assert.equal(status.chunk_tokens, 512);
 }
 async function stop(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const exited = once(child, 'exit');
+  if (child.exitCode !== null || child.signalCode !== null) {
+    stderrChecks.get(child)?.();
+    return;
+  }
+  const exited = once(child, 'close');
   child.kill('SIGTERM');
   const timer = setTimeout(() => child.kill('SIGKILL'), 5000);
   try {
@@ -41,10 +55,11 @@ async function stop(child) {
   } finally {
     clearTimeout(timer);
   }
+  stderrChecks.get(child)?.();
 }
 function start(cli, args, env) {
   const child = spawn(process.execPath, [cli, ...args], { env, stdio: ['pipe', 'pipe', 'pipe'] });
-  child.stderr.on('data', (data) => process.stderr.write(data));
+  stderrChecks.set(child, captureStderr(child.stderr));
   return child;
 }
 async function jsonLines(cli, env) {
@@ -118,6 +133,7 @@ async function jsonLines(cli, env) {
 }
 async function checkMcp(transport) {
   const client = new Client({ name: 'packaged-smoke', version: '1.0.0' });
+  const checkStderr = captureStderr(transport.stderr);
   try {
     await client.connect(transport, { timeout: TIMEOUT });
     const { tools } = await client.listTools();
@@ -150,6 +166,7 @@ async function checkMcp(transport) {
   } finally {
     await client.close();
     await transport.close();
+    checkStderr();
   }
 }
 async function freePort() {
@@ -237,6 +254,7 @@ export async function smokeProcess(packageRoot, inheritedEnv = process.env) {
         timeout: TIMEOUT,
       });
       assert.equal(result.error, undefined, result.error?.message);
+      assert.doesNotMatch(result.stderr, startupWarnings);
       assert.equal(result.status, 0, `${args.join(' ')}\n${result.stderr}`);
       if (args[0] === 'reindex' || args[0] === 'status')
         assert.doesNotMatch(result.stderr, /\[warn\]|chunk.*reindex --force/i);
@@ -244,6 +262,12 @@ export async function smokeProcess(packageRoot, inheritedEnv = process.env) {
     };
     run(['reindex'], false);
     assertStatus(run(['status']));
+    assertStatus(run(['status'], true, { OBSIDIAN_VAULT_PATH: undefined }));
+    assertStatus(
+      run(['--db', path.join(root, '.obsidian-hybrid-search.db'), 'status'], true, {
+        OBSIDIAN_VAULT_PATH: undefined,
+      }),
+    );
     for (const mode of ['hybrid', 'semantic', 'fulltext', 'title'])
       assertSearch(run(['search', 'astronomy', '--mode', mode, '--json']));
     const filtered = run([
@@ -282,7 +306,7 @@ export async function smokeProcess(packageRoot, inheritedEnv = process.env) {
     await jsonLines(cli, env);
     for (const args of [[cli, 'mcp'], [path.join(packageRoot, 'dist/src/server.js')]]) {
       await checkMcp(
-        new StdioClientTransport({ command: process.execPath, args, env, stderr: 'inherit' }),
+        new StdioClientTransport({ command: process.execPath, args, env, stderr: 'pipe' }),
       );
     }
     await http(cli, env);
