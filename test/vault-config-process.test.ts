@@ -67,6 +67,7 @@ let vaultB: string;
 let endpointA: string;
 let endpointB: string;
 let requests: Request[];
+let providerContext: number;
 let provider: ReturnType<typeof createServer>;
 const children = new Set<ChildHandle>();
 const cleanupCallbacks = new Set<() => Promise<void>>();
@@ -78,6 +79,7 @@ beforeEach(async () => {
   mkdirSync(vaultA);
   mkdirSync(vaultB);
   requests = [];
+  providerContext = 512;
   provider = createServer((request, response) => {
     const chunks: Buffer[] = [];
     request.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -105,7 +107,7 @@ beforeEach(async () => {
           }),
         );
       } else if (request.url?.includes('/models/')) {
-        response.end(JSON.stringify({ context_length: 512 }));
+        response.end(JSON.stringify({ context_length: providerContext }));
       } else {
         response.statusCode = 400;
         response.end(JSON.stringify({ error: { message: 'unknown fixture route' } }));
@@ -508,6 +510,74 @@ function assertAStatus(status: Record<string, unknown>): void {
   assert.equal(status.active_model, 'model-A');
   assert.deepEqual(status.ignore_patterns, []);
 }
+
+it('keeps chunk configuration consistent across CLI, IPC and MCP without rebuilding implicitly', async () => {
+  providerContext = 8192;
+  const env = childEnv({
+    OBSIDIAN_VAULT_PATH: vaultA,
+    OPENAI_BASE_URL: endpointA,
+    OPENAI_EMBEDDING_MODEL: 'model-A',
+  });
+  writeFileSync(path.join(vaultA, 'keep.md'), '# Original\n\n' + 'long word '.repeat(1000));
+  const initial = await runCli(['reindex'], vaultA, env);
+  assert.equal(initial.code, 0, initial.stderr);
+  assert.doesNotMatch(initial.stderr, /\[warn\]|reindex --force/i);
+  assert.equal(dbSetting(vaultA, 'chunk_tokens'), '512');
+  const before = snapshot(vaultA);
+  const count = requests.length;
+  const initialStatus = await runCli(['status'], vaultA, env);
+  assert.equal(initialStatus.code, 0, initialStatus.stderr);
+  assert.doesNotMatch(initialStatus.stderr, /\[warn\]|reindex --force/i);
+  const checkStatus = (status: Record<string, unknown>, size: number) => {
+    assert.equal(status.embedding_dim, 4);
+    assert.equal(status.context_length, 8192);
+    assert.equal(status.chunk_tokens, size);
+  };
+  checkStatus(JSON.parse(initialStatus.stdout) as Record<string, unknown>, 512);
+
+  const changed = { ...env, OBSIDIAN_CHUNK_TOKENS: '1024' };
+  const incremental = await runCli(['reindex'], vaultA, changed);
+  assert.equal(incremental.code, 0, incremental.stderr);
+  assert.deepEqual(snapshot(vaultA), before);
+  assert.equal(requests.length, count);
+  const pending = await runCli(['status'], vaultA, changed);
+  assert.equal(pending.code, 0, pending.stderr);
+  checkStatus(JSON.parse(pending.stdout) as Record<string, unknown>, 512);
+  assert.match(pending.stderr, /512.*reindex --force.*1024/);
+
+  const ipc = startChild(['serve', '--stdio'], vaultA, changed);
+  try {
+    await pollUntil(() => ipc.stdout().includes('"ready":true'), ipc);
+    const response = await stdioRequest(ipc, { id: 'chunk-status', action: 'status' });
+    assert.equal(response.error, undefined);
+    checkStatus(response.status as Record<string, unknown>, 512);
+    assert.match(ipc.stderr(), /reindex --force/);
+    for (const line of ipc.stdout().trim().split('\n')) JSON.parse(line);
+  } finally {
+    await ipc.stop();
+  }
+  const mcp = await startStdioMcp(SERVER, [], vaultA, changed);
+  try {
+    const response = await mcp.client.callTool({ name: 'status', arguments: {} });
+    assert.ok(!response.isError);
+    const text = (response.content as Array<{ text: string }>)[0]!.text;
+    const end = text.lastIndexOf('}') + 1;
+    checkStatus(JSON.parse(text.slice(0, end)) as Record<string, unknown>, 512);
+    assert.match(text.slice(end), /reindex --force/);
+  } finally {
+    await mcp.stop();
+  }
+  assert.equal(requests.length, count);
+  assert.equal(dbSetting(vaultA, 'chunk_tokens'), '512');
+
+  const rebuilt = await runCli(['reindex', '--force'], vaultA, changed);
+  assert.equal(rebuilt.code, 0, rebuilt.stderr);
+  assert.doesNotMatch(rebuilt.stderr, /\[warn\]|run ohs reindex/i);
+  assert.equal(dbSetting(vaultA, 'chunk_tokens'), '1024');
+  const restored = await runCli(['status'], vaultA, env);
+  checkStatus(JSON.parse(restored.stdout) as Record<string, unknown>, 1024);
+  assert.doesNotMatch(restored.stderr, /\[warn\]|reindex --force/i);
+}, 30_000);
 
 async function assertPreserved(
   beforeA: Snapshot,

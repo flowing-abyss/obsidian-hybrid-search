@@ -11,28 +11,23 @@ import {
   StatusToolArgumentsSchema,
   type StringArrayParam,
 } from '../contracts/boundary-validation.js';
+import { getChunkPolicyStatus, getIndexContextLength } from '../indexing/chunk-policy.js';
 import {
   createIndexService,
   openIndexDatabase,
   type IndexService,
 } from '../indexing/index-service.js';
-import { getIndexingStatus } from '../indexing/indexer.js';
-import {
-  activeModelName,
-  getContextLength,
-  primeEmbeddingDim,
-  useRemoteEmbeddings,
-} from '../inference/embedder.js';
+import { activeModelName, primeEmbeddingDim } from '../inference/embedder.js';
 import { config } from '../runtime/config.js';
 import { isAmbiguousNotePathError, readNotes, search } from '../search/searcher.js';
 import {
   applyDbConfigDefaults,
-  getIndexFailures,
   getStats,
   getStoredEmbeddingDim,
   getStoredModel,
 } from '../storage/db.js';
 import { validateVaultPath } from '../vault/vault-config.js';
+import { buildStatusPayload } from './status-payload.js';
 
 const _dir = dirname(fileURLToPath(import.meta.url));
 
@@ -138,7 +133,7 @@ export async function createMcpRuntime(): Promise<McpRuntime> {
   if (embeddingDim !== null) primeEmbeddingDim(embeddingDim);
   return {
     version: packageVersion,
-    contextLength: await getContextLength(),
+    contextLength: await getIndexContextLength(),
     modelName,
     embeddingDim,
     getUpdateStatus: () => updateStatus,
@@ -253,34 +248,20 @@ async function callReindexTool(
   return response;
 }
 
-function callStatusTool(a: Record<string, unknown>, runtime: McpRuntime): McpToolResult {
+async function callStatusTool(
+  a: Record<string, unknown>,
+  runtime: McpRuntime,
+): Promise<McpToolResult> {
   const parsed = StatusToolArgumentsSchema.safeParse(a);
   if (!parsed.success) {
     return validationErrorResult(formatValidationError('status arguments', parsed.error));
   }
   const statusArgs = parsed.data;
   const stats = getStats();
-  const indexingStatus = getIndexingStatus();
+  const contextLength = await getIndexContextLength();
   const currentUpdateStatus = runtime.getUpdateStatus();
   const output: Record<string, unknown> = {
-    total: stats.total,
-    indexed: stats.indexed,
-    notes_without_chunks: stats.withoutChunks,
-    pending: indexingStatus.queued,
-    chunks: stats.chunks,
-    failed_chunks: stats.failedChunks,
-    failed_indexing: stats.failedIndexing,
-    indexing_errors: getIndexFailures(),
-    links: stats.links,
-    last_indexed: stats.lastIndexed,
-    db_size_mb:
-      stats.dbSizeBytes !== null ? Math.round((stats.dbSizeBytes / 1024 / 1024) * 10) / 10 : null,
-    api_base_url: useRemoteEmbeddings() ? config.apiBaseUrl : null,
-    model: stats.embeddingModel,
-    active_model: activeModelName(),
-    embedding_dim: stats.embeddingDim,
-    context_length: runtime.contextLength,
-    version: runtime.version,
+    ...buildStatusPayload({ contextLength, version: runtime.version }),
     ...(currentUpdateStatus.state === 'update_available'
       ? {
           latest_version: currentUpdateStatus.latestVersion,
@@ -289,18 +270,17 @@ function callStatusTool(a: Record<string, unknown>, runtime: McpRuntime): McpToo
       : currentUpdateStatus.state === 'offline'
         ? { version_check: 'offline' }
         : {}),
-    ignore_patterns: config.ignorePatterns,
-    respect_gitignore: config.respectGitignore,
-    include_patterns: config.includePatterns,
   };
   if (statusArgs.include_activity) {
     output.recent_activity = stats.recentActivity;
   }
+  const { notice } = getChunkPolicyStatus(contextLength);
   const statusText =
     JSON.stringify(output, null, 2) +
     (stats.failedChunks > 0
       ? `\n⚠️  ${stats.failedChunks} chunk(s) have no embeddings (text search still works)`
-      : '');
+      : '') +
+    (notice ? `\n${notice}` : '');
   return textResult(statusText);
 }
 
@@ -553,7 +533,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
         }
 
         if (isTool(name, 'status')) {
-          return callStatusTool(a, runtime);
+          return await callStatusTool(a, runtime);
         }
 
         if (isTool(name, 'read')) {

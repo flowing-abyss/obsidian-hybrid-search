@@ -852,14 +852,98 @@ export interface PreparedIndexNote {
   }[];
 }
 
+export interface ChunkPolicy {
+  chunkTokens: number;
+  contextLength: number;
+}
+
+export class ChunkPolicyError extends Error {}
+
+function validateChunkPolicy(policy: ChunkPolicy): void {
+  if (
+    !Number.isSafeInteger(policy.chunkTokens) ||
+    policy.chunkTokens <= 0 ||
+    !Number.isSafeInteger(policy.contextLength) ||
+    policy.contextLength <= 0 ||
+    policy.chunkTokens > policy.contextLength
+  ) {
+    throw new ChunkPolicyError(
+      'Index chunk configuration is invalid. Use full reindex --force to rebuild it.',
+    );
+  }
+}
+
+export function getStoredChunkPolicy(): ChunkPolicy | null {
+  const values = getDb()
+    .prepare("SELECT key,value FROM settings WHERE key IN ('chunk_tokens','context_length')")
+    .all() as Array<{ key: string; value: string }>;
+  if (values.length === 0) return null;
+  const settings = new Map(values.map(({ key, value }) => [key, value]));
+  const policy = {
+    chunkTokens: Number(settings.get('chunk_tokens')),
+    contextLength: Number(settings.get('context_length')),
+  };
+  validateChunkPolicy(policy);
+  return policy;
+}
+
+function saveChunkPolicy(db: DB, policy: ChunkPolicy): void {
+  validateChunkPolicy(policy);
+  const set = db.prepare('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)');
+  set.run('chunk_tokens', String(policy.chunkTokens));
+  set.run('context_length', String(policy.contextLength));
+}
+
+export function assertChunkPolicyCanInitialize(): void {
+  const db = getDb();
+  if (
+    db.prepare('SELECT 1 FROM notes LIMIT 1').get() ||
+    db.prepare('SELECT 1 FROM chunks LIMIT 1').get() ||
+    (hasVecTable() && db.prepare('SELECT 1 FROM vec_chunks LIMIT 1').get())
+  ) {
+    throw new ChunkPolicyError(
+      'Index chunk size is unknown. Search remains available; use full reindex --force before indexing more notes.',
+    );
+  }
+}
+
+export function initializeChunkPolicy(lease: IndexLease, policy: ChunkPolicy): ChunkPolicy {
+  return withIndexMutation(lease, () => {
+    const stored = getStoredChunkPolicy();
+    if (stored) return stored;
+    const db = getDb();
+    assertChunkPolicyCanInitialize();
+    saveChunkPolicy(db, policy);
+    return policy;
+  });
+}
+
+interface IndexWriteContext {
+  modelName: string;
+  contentPolicySignature?: string;
+  chunkPolicy?: ChunkPolicy;
+}
+
 export function upsertNote(
   lease: IndexLease,
   note: PreparedIndexNote,
-  context?: { modelName: string; contentPolicySignature?: string },
+  context?: IndexWriteContext,
 ): void {
   return withIndexMutation(lease, () => {
     const db = getDb();
     const write = db.transaction(() => {
+      if (context?.chunkPolicy) {
+        const stored = getStoredChunkPolicy();
+        if (
+          !stored ||
+          stored.chunkTokens !== context.chunkPolicy.chunkTokens ||
+          stored.contextLength !== context.chunkPolicy.contextLength
+        ) {
+          throw new Error(
+            'Index chunk configuration mismatch. Update not committed; retry with the current index configuration.',
+          );
+        }
+      }
       const desiredPolicy = context?.contentPolicySignature ?? CONTENT_POLICY_IDENTITY;
       const policyMismatch = context && getActiveContentPolicySignature() !== desiredPolicy;
       const empty =
@@ -1736,7 +1820,7 @@ export function clearIndexFailures(lease: IndexLease, notePath: string, operatio
 export function commitIndexedNote(
   lease: IndexLease,
   note: PreparedIndexNote,
-  context: { modelName: string; contentPolicySignature?: string },
+  context: IndexWriteContext,
   references: NoteReferences,
 ): void {
   withIndexMutation(lease, () => {
@@ -1796,6 +1880,7 @@ export interface RebuildTarget {
   modelName: string;
   embeddingDim: number;
   contentPolicySignature?: string;
+  chunkPolicy?: ChunkPolicy;
   metadata: { vaultPath: string; apiBaseUrl: string; apiModel: string };
 }
 
@@ -1851,6 +1936,8 @@ export function replaceActiveIndex(
     }
     const setting = db.prepare('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)');
     setting.run('embedding_model', target.modelName);
+    if (target.chunkPolicy) saveChunkPolicy(db, target.chunkPolicy);
+    else db.prepare("DELETE FROM settings WHERE key IN ('chunk_tokens','context_length')").run();
     setting.run('content_policy', target.contentPolicySignature ?? CONTENT_POLICY_IDENTITY);
     setting.run('db_version', String(version + 1));
     saveConfigMeta(lease, target.metadata);

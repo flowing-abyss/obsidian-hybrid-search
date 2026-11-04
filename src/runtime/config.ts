@@ -45,6 +45,15 @@ export const config = {
   get rerankerModel(): string {
     return process.env.RERANKER_MODEL ?? DEFAULT_RERANKER_MODEL;
   },
+  get chunkTokens(): number | undefined {
+    const raw = process.env.OBSIDIAN_CHUNK_TOKENS?.trim();
+    if (raw === undefined) return undefined;
+    const value = Number(raw);
+    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(value) || value <= 0) {
+      throw new Error('OBSIDIAN_CHUNK_TOKENS must be a positive integer. Correct or unset it.');
+    }
+    return value;
+  },
   get dbPath(): string {
     const v = process.env.OBSIDIAN_VAULT_PATH;
     if (!v) throw new Error('OBSIDIAN_VAULT_PATH environment variable is required');

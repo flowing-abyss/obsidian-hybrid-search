@@ -363,6 +363,25 @@ describe('createMcpServer — tool dispatch', () => {
     assert.ok(typeof parsed.context_length === 'number');
   });
 
+  it('tools/call status preserves the tool error result when storage fails', async () => {
+    const runtime = await createMcpRuntime();
+    const server = createMcpServer(runtime);
+    const storage = await import('../src/storage/db.js');
+    const stats = vi.spyOn(storage, 'getStats').mockImplementationOnce(() => {
+      throw new Error('fixture storage failure');
+    });
+    try {
+      const result = (await getHandler(server, 'tools/call')(
+        { method: 'tools/call', params: { name: 'status', arguments: {} } },
+        {},
+      )) as { content: { text: string }[]; isError?: boolean };
+      assert.equal(result.isError, true);
+      assert.match(result.content[0]!.text, /Error: fixture storage failure/);
+    } finally {
+      stats.mockRestore();
+    }
+  });
+
   it('tools/call read with array of paths returns one result per path', async () => {
     const runtime = await createMcpRuntime();
     const server = createMcpServer(runtime);

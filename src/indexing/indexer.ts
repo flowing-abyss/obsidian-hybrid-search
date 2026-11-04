@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   chunkNote,
   createChunkBoundaryIndex,
+  estimateTokens,
   refineChunksToFit,
   type Chunk,
 } from '../content/chunker.js';
@@ -19,11 +20,11 @@ import { normalizeNotePath } from '../content/text-normalization.js';
 import {
   activeModelName,
   embedDetailed,
-  getContextLength,
   getDocumentTokenPolicy,
   prepareEmbeddingInput,
 } from '../inference/embedder.js';
 import { config } from '../runtime/config.js';
+import type { ChunkPolicy } from '../storage/db.js';
 import {
   cleanupIgnoredNotes,
   clearIndexFailures,
@@ -64,6 +65,7 @@ import {
   embedChunksWithRecovery,
   type EmbeddedChunk,
 } from './chunk-embedding.js';
+import { prepareChunkPolicy } from './chunk-policy.js';
 import {
   ContentFilterBatchCancelledError,
   ContentFilterError,
@@ -73,6 +75,7 @@ import { reportIndexProgress, type IndexRunContext as OwnerRunContext } from './
 import { retryIndexWrite } from './index-write.js';
 
 export interface IndexRunContext extends OwnerRunContext {
+  chunkPolicy?: ChunkPolicy;
   readonly contentFilter?: ContentFilter;
   readonly contentPolicySignature?: string;
   readonly reuseEmbeddings?: boolean;
@@ -285,6 +288,7 @@ export type PreparedFile =
       frontmatterRaw: string;
       modelName: string;
       contentPolicySignature: string;
+      chunkPolicy?: ChunkPolicy;
       fingerprint: { mtimeMs: number; size: number };
     }
   | { kind: 'unchanged'; path: string; mtime: number; updateMtime: boolean }
@@ -337,12 +341,27 @@ export async function prepareIndexFile(
   let embeddingContext: string | null = null;
   if (semanticChunks.length > 0) {
     assertIndexRun(run);
-    const tokenPolicy = await getDocumentTokenPolicy();
     const boundaryIndex = createChunkBoundaryIndex(content);
+    // Semantic splitting may retain a long fallback when all sections/windows
+    // are too short. Enforce the body budget independently of the model limit.
+    const bodyChunks = refineChunksToFit(
+      content,
+      semanticChunks,
+      contextLength,
+      estimateTokens,
+      config.chunkOverlap,
+      boundaryIndex,
+    );
+    if (bodyChunks.some((chunk) => estimateTokens(chunk.text) > contextLength)) {
+      throw new Error(
+        `Chunk size ${contextLength} is too small for this note. Increase OBSIDIAN_CHUNK_TOKENS and run ohs reindex --force.`,
+      );
+    }
+    const tokenPolicy = await getDocumentTokenPolicy(run.chunkPolicy?.contextLength);
     const project = createDocumentTextProjector(title, tokenPolicy);
     const chunks = refineChunksToFit(
       content,
-      semanticChunks,
+      bodyChunks,
       tokenPolicy.limit,
       (body, headingChain) => tokenPolicy.count(project(body, headingChain)),
       config.chunkOverlap,
@@ -428,6 +447,7 @@ export async function prepareIndexFile(
     frontmatterRaw,
     modelName,
     contentPolicySignature,
+    chunkPolicy: run.chunkPolicy,
     fingerprint: { mtimeMs: stat.mtimeMs, size: stat.size },
     note: {
       path: relPath,
@@ -516,6 +536,7 @@ export async function indexFile(
 ): Promise<'indexed' | 'skipped' | { error: string; cause?: unknown }> {
   let attemptedFingerprint = fileFingerprint(fullPath, run);
   try {
+    const chunkPolicy = await prepareChunkPolicy(run, false, contextLength);
     const preparationPolicy =
       policy ?? createIgnorePolicyForFiles([toPhysicalRelativePath(fullPath)]);
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -523,7 +544,7 @@ export async function indexFile(
       const prepared = await prepareIndexFile(
         run,
         fullPath,
-        contextLength ?? (await getContextLength()),
+        chunkPolicy.chunkTokens,
         preparationPolicy,
         force,
       );
@@ -589,6 +610,7 @@ export async function indexFile(
             {
               modelName: prepared.modelName,
               contentPolicySignature: prepared.contentPolicySignature,
+              chunkPolicy: prepared.chunkPolicy,
             },
             resolvePreparedReferences(prepared.note, prepared.frontmatterRaw),
           );
@@ -811,6 +833,7 @@ export async function indexVaultSync(
   header = 'Indexing vault...',
   options: { requireClean?: boolean; recoverDatabase?: () => void } = {},
 ): Promise<IndexResult> {
+  const { chunkTokens: contextLength } = await prepareChunkPolicy(run);
   const { files } = await runWithDatabaseRecovery(
     run,
     'stale-note cleanup',
@@ -819,7 +842,6 @@ export async function indexVaultSync(
   );
   reportIndexProgress(run, files.length, 0);
 
-  const contextLength = await getContextLength();
   const result: IndexResult = { indexed: 0, skipped: 0, errors: [] };
 
   if (files.length === 0) {

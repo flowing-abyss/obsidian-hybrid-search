@@ -13,6 +13,7 @@ const {
   getStoredEmbeddingDim,
   getStoredModel,
   initVecTable,
+  initializeChunkPolicy,
   openDb,
   upsertLegacyNote,
   upsertLinks,
@@ -20,6 +21,7 @@ const {
   upsertNote,
   upsertNoteUrls,
   wipeDatabaseFiles,
+  withTestIndexLease,
 } = await import('./helpers/owned-storage.js');
 
 const vector = new Float32Array([0.1, 0.2, 0.3, 0.4]);
@@ -90,6 +92,10 @@ beforeEach(() => {
   wipeDatabaseFiles();
   openDb();
   initVecTable(4);
+  // These fixtures exercise note transactions/model provenance after owner setup.
+  withTestIndexLease((lease) =>
+    initializeChunkPolicy(lease, { chunkTokens: 512, contextLength: 512 }),
+  );
 });
 
 afterAll(() => {
