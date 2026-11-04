@@ -488,32 +488,18 @@ Set `OBSIDIAN_PREFIX` to add a prefix to every tool name. For example, `myvault_
 
 ## Configuration
 
-| Environment variable               | Default                              | Description                                                                                                                              |
-| ---------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `OBSIDIAN_VAULT_PATH`              | Required for MCP; CLI auto-detects   | Absolute path to your vault                                                                                                              |
-| `OBSIDIAN_PREFIX`                  | `""`                                 | Optional MCP tool prefix, e.g. `myvault_` → `myvault_search`, `myvault_read`                                                             |
-| `OBSIDIAN_IGNORE_PATTERNS`         | `.obsidian/**,templates/**,*.canvas` | Comma-separated ignore patterns                                                                                                          |
-| `OBSIDIAN_RESPECT_GITIGNORE`       | `true`                               | Read root and nested `.gitignore` files; set to `false` to disable                                                                       |
-| `OBSIDIAN_INCLUDE_PATTERNS`        | `""`                                 | Comma-separated patterns to re-include notes ignored only by `.gitignore`                                                                |
-| `OBSIDIAN_CONTENT_IGNORE_PATTERNS` | `""`                                 | Comma-separated regex rules for note body text to leave out of search, e.g. `/%%[\s\S]*?%%/g`. Original files and `read` stay unchanged. |
-| `OBSIDIAN_CHUNK_TOKENS`            | `512` for new indexes                | Chunk size in estimated tokens. Positive integer, capped at the embedding model's context limit.                                         |
-| `OPENAI_API_KEY`                   | None                                 | API key; omit to use local model embeddings or keyless servers (Ollama, LM Studio)                                                       |
-| `OPENAI_BASE_URL`                  | `https://api.openai.com/v1`          | API base URL                                                                                                                             |
-| `OPENAI_EMBEDDING_MODEL`           | `text-embedding-3-small`             | Embedding model name                                                                                                                     |
-
-### Chunk size
-
-New indexes use 512-token chunks for every model, or the model's context limit if smaller. The database saves the chosen size. Incremental indexing, file retries, and background updates keep that size even when `OBSIDIAN_CHUNK_TOKENS` changes. `status` reports the actual size as `chunk_tokens` and explains when a changed value needs a full rebuild.
-
-To apply a different size to the whole index:
-
-```bash
-OBSIDIAN_CHUNK_TOKENS=1024 ohs reindex --force
-```
-
-Without the variable, even a full rebuild retains the saved size. Set it to `512` to reset it. A failed full rebuild preserves the previous index and size.
-
-Indexes created before this setting have no recorded chunk size. Search remains available, but adding or updating indexed notes requires one explicit `ohs reindex --force`. Older versions do not enforce the saved size; after indexing with an older version, run a full rebuild before resuming with this version.
+| Environment variable               | Default                              | Description                                                                                                                                                                                 |
+| ---------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OBSIDIAN_VAULT_PATH`              | Required for MCP; CLI auto-detects   | Absolute path to your vault                                                                                                                                                                 |
+| `OBSIDIAN_PREFIX`                  | `""`                                 | Optional MCP tool prefix, e.g. `myvault_` → `myvault_search`, `myvault_read`                                                                                                                |
+| `OBSIDIAN_IGNORE_PATTERNS`         | `.obsidian/**,templates/**,*.canvas` | Comma-separated ignore patterns                                                                                                                                                             |
+| `OBSIDIAN_RESPECT_GITIGNORE`       | `true`                               | Read root and nested `.gitignore` files; set to `false` to disable                                                                                                                          |
+| `OBSIDIAN_INCLUDE_PATTERNS`        | `""`                                 | Comma-separated patterns to re-include notes ignored only by `.gitignore`                                                                                                                   |
+| `OBSIDIAN_CONTENT_IGNORE_PATTERNS` | `""`                                 | Comma-separated regex rules for note body text to leave out of search, e.g. `/%%[\s\S]*?%%/g`. Original files and `read` stay unchanged.                                                    |
+| `OBSIDIAN_CHUNK_TOKENS`            | `512` for new indexes                | Chunk size in estimated tokens: a positive integer capped by the model's context limit. Stored per index; changes require a full `reindex --force`. When unset, the saved size is retained. |
+| `OPENAI_API_KEY`                   | None                                 | API key; omit to use local model embeddings or keyless servers (Ollama, LM Studio)                                                                                                          |
+| `OPENAI_BASE_URL`                  | `https://api.openai.com/v1`          | API base URL                                                                                                                                                                                |
+| `OPENAI_EMBEDDING_MODEL`           | `text-embedding-3-small`             | Embedding model name                                                                                                                                                                        |
 
 ### Ignore patterns
 
