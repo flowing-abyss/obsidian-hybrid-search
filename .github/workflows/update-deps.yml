@@ -12,6 +12,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Apply to both npm ci and npm update, including nested ONNX Runtime installs.
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 jobs:
   update-deps:
     runs-on: ubuntu-latest
@@ -47,10 +51,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --foreground-scripts
 
       - name: Update dependencies
-        run: npm update --save
+        run: npm update --save --foreground-scripts
 
       - name: Check for changes
         id: changes
