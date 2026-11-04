@@ -1,6 +1,6 @@
 {
   "name": "obsidian-hybrid-search",
-  "version": "0.17.2",
+  "version": "0.17.3",
   "mcpName": "io.github.flowing-abyss/obsidian-hybrid-search",
   "type": "module",
   "bin": {
@@ -86,7 +86,7 @@
     "gray-matter": "^4.0.3",
     "ignore": "^7.0.14",
     "js-tiktoken": "^1.0.21",
-    "onnxruntime-node": "^1.30.0",
+    "onnxruntime-node": "^1.31.1",
     "picocolors": "^1.1.1",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
@@ -97,7 +97,7 @@
     "zod": "^4.6.7"
   },
   "optionalDependencies": {
-    "@huggingface/transformers": "^4.3.1"
+    "@huggingface/transformers": "^4.3.2"
   },
   "devDependencies": {
     "@colbymchenry/codegraph": "1.6.2",
@@ -106,14 +106,14 @@
     "@eslint/js": "10.0.1",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@types/better-sqlite3": "^9.6.0",
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@vitest/coverage-v8": "^4.1.11",
     "dependency-cruiser": "18.7.0",
     "eslint": "10.13.0",
     "eslint-plugin-sonarjs": "^4.2.2",
     "fast-check": "4.10.2",
     "husky": "^9.1.7",
-    "knip": "^6.43.0",
+    "knip": "^6.44.1",
     "lint-staged": "^16.4.0",
     "prettier": "^3.9.10",
     "prettier-plugin-organize-imports": "^4.3.0",
