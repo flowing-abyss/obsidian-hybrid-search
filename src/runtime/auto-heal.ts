@@ -156,7 +156,7 @@ function defaultRunInstallScript(options: InstallScriptOptions): InstallScriptRe
   try {
     // npm is intentionally resolved from the user's PATH: the global package was installed by
     // that package-manager installation, and npm has no portable absolute executable location.
-    const result = spawnSync(options.command, [...options.args], {
+    const result = spawnSync(options.command, options.shell ? undefined : [...options.args], {
       cwd: options.cwd,
       shell: options.shell,
       stdio: ['ignore', logFd, logFd],
@@ -267,12 +267,14 @@ export function tryAutoHealAbiMismatch(
   const logPath = installLogPath(moduleName, deps.now(), deps.pid);
   let result: InstallScriptResult;
   try {
+    const shell = deps.platform === 'win32';
     result = deps.runInstallScript({
-      command: 'npm',
-      args: ['run', 'build-release'],
+      // Only fixed tokens enter the Windows shell command; cwd is passed separately.
+      command: shell ? 'npm run build-release' : 'npm',
+      args: shell ? [] : ['run', 'build-release'],
       cwd,
       logPath,
-      shell: deps.platform === 'win32',
+      shell,
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);

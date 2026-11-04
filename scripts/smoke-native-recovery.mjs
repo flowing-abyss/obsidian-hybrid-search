@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -43,6 +44,24 @@ function run(command, args, options = {}) {
 
   if (result.error !== undefined || result.status !== 0) {
     throw commandFailure(command, args, result);
+  }
+
+  if (options.checkInstallWarnings) {
+    assert.doesNotMatch(result.stderr, /npm warn deprecated/i);
+    // Global npm 12 installs use the consumer's policy, not our root allowScripts.
+    for (const line of result.stderr.split(/\r?\n/)) {
+      if (!/^npm warn install-scripts[ \t]{2,}\S/.test(line)) continue;
+      assert.match(
+        line,
+        /^npm warn install-scripts[ \t]+(?:obsidian-hybrid-search@\S+ \(prepare: |(?:onnxruntime-node|protobufjs)@\S+ \(postinstall: )/,
+        'unexpected blocked install script',
+      );
+    }
+    process.stderr.write(result.stderr);
+  }
+  if (options.quiet) {
+    assert.equal(result.stdout, '', 'preflight wrote unexpected stdout');
+    assert.equal(result.stderr, '', 'preflight wrote unexpected stderr');
   }
 
   return result.stdout.trim();
@@ -106,6 +125,29 @@ function createFakeNpm(fakeBin) {
   );
 }
 
+function findLoadedBinding(packageRoot, nativeModuleRoot, env) {
+  const nativeRoot = realpathSync(nativeModuleRoot) + path.sep;
+  const binding = run(
+    process.execPath,
+    [
+      '-e',
+      `
+    const requirePackage = require('node:module').createRequire(${JSON.stringify(path.join(packageRoot, 'package.json'))});
+    const Database = requirePackage('better-sqlite3');
+    const db = new Database(':memory:');
+    db.close();
+    const bindings = Object.keys(requirePackage.cache).filter(file =>
+      file.startsWith(${JSON.stringify(nativeRoot)}) && file.endsWith('.node'));
+    if (bindings.length !== 1) throw new Error('Expected one loaded SQLite binding');
+    process.stdout.write(bindings[0]);
+  `,
+    ],
+    { env },
+  );
+  assert.equal(path.dirname(binding), path.join(realpathSync(nativeModuleRoot), 'prebuilds'));
+  return binding;
+}
+
 const smokeRoot = mkdtempSync(path.join(tmpdir(), 'ohs-native-recovery-smoke-'));
 const artifactsDir = path.join(smokeRoot, 'artifacts');
 const globalPrefix = path.join(smokeRoot, 'global');
@@ -159,12 +201,14 @@ try {
     '--global',
     '--prefix',
     globalPrefix,
-    '--ignore-scripts',
     '--no-audit',
     '--no-fund',
     tarball,
   ];
-  runNpm(installArgs, { env: smokeEnv });
+  runNpm(installArgs, {
+    env: { ...smokeEnv, NODE_GYP_FORCE_PYTHON: path.join(smokeRoot, 'unavailable-python') },
+    checkInstallWarnings: true,
+  });
 
   const globalNodeModules = runNpm(['root', '--global', '--prefix', globalPrefix], {
     env: smokeEnv,
@@ -174,18 +218,49 @@ try {
   const binding = path.join(nativeModuleRoot, 'build', 'Release', 'better_sqlite3.node');
   const sentinel = path.join(nativeModuleRoot, INSTALL_INSTANCE_FILE);
   const packagedPreflight = path.join(packageRoot, 'dist', 'src', 'runtime', 'preflight.js');
+  const bundledBinding = findLoadedBinding(packageRoot, nativeModuleRoot, smokeEnv);
+  const brokenBinary = 'intentionally broken native binding for recovery smoke\n';
+  createFakeNpm(fakeBin);
+  const tripwireEnv = {
+    ...smokeEnv,
+    PATH: `${fakeBin}${path.delimiter}${smokeEnv.PATH ?? ''}`,
+    OHS_NPM_TRIPWIRE: npmTripwire,
+  };
 
   assert.equal(
     existsSync(packagedPreflight),
     true,
     'packed dist/src/runtime/preflight.js is missing',
   );
-  assert.equal(existsSync(binding), false, 'binding exists after install with scripts blocked');
+  assert.equal(existsSync(binding), false, 'normal install unexpectedly compiled SQLite');
+  run(process.execPath, [packagedPreflight], { env: tripwireEnv, quiet: true });
+  assert.equal(existsSync(npmTripwire), false, 'normal startup invoked npm');
+  assert.deepEqual(attemptMarkers(cacheDir), [], 'normal startup wrote recovery state');
   assert.deepEqual(sentinelEntries(nativeModuleRoot), [], 'sentinel exists before recovery');
+  await smokeProcess(packageRoot, tripwireEnv);
 
-  run(process.execPath, [packagedPreflight], { env: smokeEnv });
+  const blockedReinstallArgs = [
+    ...installArgs.slice(0, -1),
+    '--force',
+    '--ignore-scripts',
+    tarball,
+  ];
+  runNpm(blockedReinstallArgs, { env: smokeEnv, checkInstallWarnings: true });
+  run(process.execPath, [packagedPreflight], { env: tripwireEnv, quiet: true });
+  assert.equal(existsSync(npmTripwire), false, 'blocked-script installation needed npm at startup');
+  assert.equal(existsSync(binding), false, 'blocked-script installation compiled SQLite');
+  assert.deepEqual(attemptMarkers(cacheDir), []);
+  assert.deepEqual(sentinelEntries(nativeModuleRoot), []);
+
+  writeFileSync(bundledBinding, brokenBinary);
+  run(process.execPath, [packagedPreflight], { env: smokeEnv, quiet: true });
 
   assert.equal(existsSync(binding), true, 'first preflight did not recover the native binding');
+  assert.equal(
+    readFileSync(bundledBinding, 'utf-8'),
+    brokenBinary,
+    'recovery changed the bundled binary',
+  );
   assert.deepEqual(sentinelEntries(nativeModuleRoot), [INSTALL_INSTANCE_FILE]);
   const firstInstallInstance = readFileSync(sentinel, 'utf-8');
   assert.match(firstInstallInstance, UUID_RE);
@@ -194,18 +269,11 @@ try {
   const firstSentinelEntries = sentinelEntries(nativeModuleRoot);
   assertNoInstallLogs(temporaryRoot);
 
-  createFakeNpm(fakeBin);
   const healthyState = firstMarkers.map((name) => ({
     name,
     contents: readFileSync(path.join(cacheDir, name), 'utf-8'),
   }));
-  run(process.execPath, [packagedPreflight], {
-    env: {
-      ...smokeEnv,
-      PATH: `${fakeBin}${path.delimiter}${smokeEnv.PATH ?? ''}`,
-      OHS_NPM_TRIPWIRE: npmTripwire,
-    },
-  });
+  run(process.execPath, [packagedPreflight], { env: tripwireEnv, quiet: true });
 
   assert.equal(existsSync(npmTripwire), false, 'healthy preflight invoked npm');
   assert.equal(readFileSync(sentinel, 'utf-8'), firstInstallInstance);
@@ -223,8 +291,24 @@ try {
     'healthy preflight changed recovery state',
   );
   assertNoInstallLogs(temporaryRoot);
+  await smokeProcess(packageRoot, tripwireEnv);
 
-  runNpm([...installArgs.slice(0, -1), '--force', tarball], { env: smokeEnv });
+  writeFileSync(binding, brokenBinary);
+  const repeatedFailure = spawnSync(process.execPath, [packagedPreflight], {
+    env: tripwireEnv,
+    encoding: 'utf-8',
+  });
+  assert.equal(repeatedFailure.error, undefined);
+  assert.equal(repeatedFailure.status, 1);
+  assert.match(repeatedFailure.stderr, /already attempted.*npm run build-release/);
+  assert.equal(existsSync(npmTripwire), false, 'repeated failure attempted another build');
+  assert.deepEqual(attemptMarkers(cacheDir), firstMarkers);
+  assert.match(
+    readFileSync(path.join(cacheDir, 'last-startup-error.log'), 'utf-8'),
+    /Native|module: better-sqlite3/,
+  );
+
+  runNpm(blockedReinstallArgs, { env: smokeEnv, checkInstallWarnings: true });
 
   assert.equal(existsSync(binding), false, 'force reinstall retained the native binding');
   assert.deepEqual(
@@ -233,8 +317,12 @@ try {
     'force reinstall retained the install-instance sentinel',
   );
   assert.deepEqual(attemptMarkers(cacheDir), firstMarkers, 'force reinstall changed old markers');
+  run(process.execPath, [packagedPreflight], { env: tripwireEnv, quiet: true });
+  assert.equal(existsSync(npmTripwire), false, 'healthy reinstall invoked npm');
+  assert.deepEqual(sentinelEntries(nativeModuleRoot), []);
 
-  run(process.execPath, [packagedPreflight], { env: smokeEnv });
+  writeFileSync(bundledBinding, brokenBinary);
+  run(process.execPath, [packagedPreflight], { env: smokeEnv, quiet: true });
 
   assert.equal(existsSync(binding), true, 'second preflight did not recover the native binding');
   assert.deepEqual(sentinelEntries(nativeModuleRoot), [INSTALL_INSTANCE_FILE]);
@@ -254,11 +342,14 @@ try {
   );
   assertNoInstallLogs(temporaryRoot);
 
-  await smokeProcess(packageRoot, smokeEnv);
-
   console.log(`native recovery packaged smoke passed with npm ${npmVersion}`);
-  console.log('  blocked install -> recovered binding, sentinel, and first marker');
+  console.log('  normal install -> no deprecation warnings, bundled binary, quiet startup');
+  console.log('  blocked-script install -> no compiler or recovery needed');
+  console.log(
+    '  broken bundled binary -> local rebuild, successful reload and installed transports',
+  );
   console.log('  healthy preflight -> no npm invocation and unchanged recovery state');
+  console.log('  repeated failure -> one attempt retained, actionable diagnostics');
   console.log('  force reinstall -> new sentinel, second marker, and recovered binding');
 } finally {
   rmSync(smokeRoot, { recursive: true, force: true });
