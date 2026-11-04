@@ -10,6 +10,7 @@ import { verificationEnv } from '../run-command.mjs';
 const runner = fileURLToPath(new URL('../verify.mjs', import.meta.url));
 const aggregator = fileURLToPath(new URL('../check-ci-results.mjs', import.meta.url));
 const mandatory = [
+  'check:inference-install',
   'format:check',
   'lint',
   'build',
@@ -49,26 +50,36 @@ test('a failed stage preserves its exit status and stops subsequent stages', () 
   fixture((env, log) => {
     const result = spawnSync(process.execPath, [runner], { env: { ...env, GATE_FAIL: 'build' } });
     assert.equal(result.status, 37);
-    assert.deepEqual(log(), mandatory.slice(0, 3));
+    assert.deepEqual(log(), mandatory.slice(0, 4));
   }));
 test('a cancelled process cannot pass the gate', () =>
   fixture((env, log) => {
     const result = spawnSync(process.execPath, [runner], { env: { ...env, GATE_CANCEL: 'lint' } });
     assert.notEqual(result.status, 0);
-    assert.deepEqual(log(), mandatory.slice(0, 2));
+    assert.deepEqual(log(), mandatory.slice(0, 3));
   }));
 test('fast feedback runs units instead of coverage and excludes inference', () =>
   fixture((env, log) => {
     const result = spawnSync(process.execPath, [runner, '--task'], { env });
     assert.equal(result.status, 0);
-    assert.deepEqual(log(), [...mandatory.slice(0, 6), 'test']);
+    assert.deepEqual(log(), [...mandatory.slice(0, 7), 'test']);
   }));
 test('CI profiles together retain the complete gate', () =>
   fixture((env, log) => {
     assert.equal(spawnSync(process.execPath, [runner, '--ci'], { env }).status, 0);
     assert.equal(spawnSync(process.execPath, [runner, '--quality'], { env }).status, 0);
-    assert.deepEqual(log(), mandatory);
+    assert.deepEqual(log(), [...mandatory.slice(0, -1), 'check:inference-install', 'eval:quality']);
   }));
+for (const profile of [undefined, '--task', '--ci', '--quality']) {
+  test(`${profile ?? 'default'} gate stops immediately when inference installation is broken`, () =>
+    fixture((env, log) => {
+      const result = spawnSync(process.execPath, [runner, ...(profile ? [profile] : [])], {
+        env: { ...env, GATE_FAIL: 'check:inference-install' },
+      });
+      assert.equal(result.status, 37);
+      assert.deepEqual(log(), ['check:inference-install']);
+    }));
+}
 test('aggregator rejects every failed, cancelled, skipped or missing mandatory job', () => {
   const call = (needs) =>
     spawnSync(process.execPath, [aggregator], {

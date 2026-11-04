@@ -10,6 +10,10 @@ name: CI
 permissions:
   contents: read
 
+env:
+  # CPU binaries are bundled; Linux CUDA downloads are unnecessary for these jobs.
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 jobs:
   test:
     name: CI (${{ matrix.os }}, Node ${{ matrix.node }})
@@ -30,7 +34,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           cache: npm
-      - run: npm ci
+      - run: npm ci --foreground-scripts
       - name: Restore model downloads
         uses: actions/cache@v5
         with:
@@ -53,7 +57,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           cache: npm
-      - run: npm ci
+      - run: npm ci --foreground-scripts
       - name: Restore model downloads
         uses: actions/cache@v5
         with:
