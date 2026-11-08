@@ -10,7 +10,7 @@ export default defineConfig({
     isolate: false,
     // Runs before every test file: clears the module registry the files share under
     // `isolate: false`, so none of them inherits another file's vault binding.
-    setupFiles: ['./test/setup-module-isolation.ts'],
+    setupFiles: ['./test/setup-vault-environment.ts', './test/setup-module-isolation.ts'],
     include: ['test/**/*.test.ts'],
     // integration.test.ts needs a real embedder; indexer-watcher-live-e2e.test.ts
     // runs a real (unmocked) chokidar watcher whose shared module state would
