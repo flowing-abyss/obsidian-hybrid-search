@@ -476,13 +476,17 @@ describe('modern MCP stdio', () => {
     await vi.waitFor(() => assert.equal(readIndexOwner().mode, 'background'), { timeout: 5_000 });
     session.child.stdin.once('error', () => {}); // A fatal peer close may interrupt this oversized write.
     session.child.stdin.write(Buffer.alloc(11 * 1024 * 1024, 'x'));
+    // write() queues the payload; a busy runner may still be delivering it after 3s.
+    // Start the shutdown deadline only once the transport has detected the overflow.
+    await vi.waitFor(() => assert.match(session.stderr(), /ReadBuffer exceeded maximum size/), {
+      timeout: 10_000,
+    });
     const exited = await Promise.race([
       session.closed.then(() => true),
       delay(3_000).then(() => false),
     ]);
     assert.equal(exited, true, 'fatal wire closure must stop the MCP process');
     assert.equal(session.child.exitCode, 1);
-    assert.match(session.stderr(), /ReadBuffer exceeded maximum size/);
     assert.equal(readIndexOwner().token, null, 'shutdown must release the database lease');
   });
 
