@@ -20,19 +20,23 @@ That turns Obsidian into a stronger personal knowledge system and a better start
 
 Evaluated on the [Obsidian Help vault](eval/README.md) (171 notes, 58 queries, local models):
 
-|                | OHS (default)<br>[Hybrid](eval/results/baseline-no-rerank.json) / [Rerank](eval/results/baseline-rerank.json) | OHS (Qwen)<br>[Hybrid](eval/results/qwen3-embedding-0.6b-no-rerank.json) / [Rerank](eval/results/qwen3-embedding-0.6b-rerank.json) | [QMD v2.8.3](https://github.com/tobi/qmd)<br>[Hybrid](eval/results/qmd-hybrid.json) / [Rerank](eval/results/qmd-rerank.json) / [Full](eval/results/qmd.json) |
-| -------------- | :-----------------------------------------------------------------------------------------------------------: | :--------------------------------------------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------: |
-| nDCG@5         |                                                 0.743 / 0.779                                                 |                                                         0.802 / **0.812**                                                          |                                                                    0.685 / 0.727 / 0.713                                                                     |
-| MRR            |                                                 0.799 / 0.837                                                 |                                                         0.856 / **0.857**                                                          |                                                                    0.703 / 0.735 / 0.706                                                                     |
-| Hit@1          |                                                 0.724 / 0.776                                                 |                                                         **0.810** / 0.793                                                          |                                                                    0.603 / 0.603 / 0.552                                                                     |
-| Avg query time |                                               **8** ¹ / 718 ms                                                |                                                           38 ² / 730 ms                                                            |                                                                  14 / 12,308 / 25,306 ms ³                                                                   |
-| Model download |                                                ~117 / ~458 MB                                                 |                                                           ~639 / ~980 MB                                                           |                                                                   ~334 / ~973 MB / ~2.2 GB                                                                   |
+| Configuration                                                          |  nDCG@5 ↑ |     MRR ↑ |   Hit@1 ↑ | Avg query (ms) ↓ | Model download ↓ |
+| :--------------------------------------------------------------------- | --------: | --------: | --------: | ---------------: | ---------------: |
+| [OHS Qwen, rerank](eval/results/qwen3-embedding-0.6b-rerank.json) ¹    | **0.812** | **0.857** |     79.3% |              730 |          ~980 MB |
+| [OHS Qwen, hybrid](eval/results/qwen3-embedding-0.6b-no-rerank.json) ¹ |     0.802 |     0.856 | **81.0%** |               38 |          ~639 MB |
+| [OHS default, rerank](eval/results/baseline-rerank.json) ²             |     0.779 |     0.837 |     77.6% |              718 |          ~458 MB |
+| [OHS default, hybrid](eval/results/baseline-no-rerank.json) ²          |     0.743 |     0.799 |     72.4% |            **8** |      **~117 MB** |
+| [QMD, rerank](eval/results/qmd-rerank.json) ³                          |     0.727 |     0.735 |     60.3% |           12,308 |          ~973 MB |
+| [QMD, full](eval/results/qmd.json) ³                                   |     0.713 |     0.706 |     55.2% |           25,306 |          ~2.2 GB |
+| [QMD, hybrid](eval/results/qmd-hybrid.json) ³                          |     0.685 |     0.703 |     60.3% |               14 |          ~334 MB |
 
-¹ CPU (Apple Silicon).
-² GPU (Apple Silicon Metal, Ollama).
+¹ GPU (Apple Silicon Metal, Ollama).
+² CPU (Apple Silicon).
 ³ GPU (Apple Silicon Metal).
 
-Default uses `Xenova/multilingual-e5-small`; Qwen uses `qwen3-embedding:0.6b`. [How to reproduce →](eval/COMPARISON.md) · [Full benchmark →](eval/README.md)
+Default uses `Xenova/multilingual-e5-small`; Qwen uses `qwen3-embedding:0.6b`. QMD was tested at [v2.8.3](https://github.com/tobi/qmd).
+
+[How to reproduce →](eval/COMPARISON.md) · [Full benchmark →](eval/README.md)
 
 ### Real knowledge-vault benchmark
 
