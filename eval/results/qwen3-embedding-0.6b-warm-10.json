@@ -1,0 +1,660 @@
+{
+  "meta": {
+    "date": "2026-11-08T11:48:58.088Z",
+    "ohs_version": "0.17.4",
+    "model": "qwen3-embedding:0.6b",
+    "mode": "hybrid",
+    "rerank": false,
+    "note_count": 171,
+    "k": 10,
+    "cache_enabled": true,
+    "warmup_queries": [
+      "Find the documentation for opening a vault on another computer",
+      "Explain how to display an image with a custom width",
+      "Where are the settings for changing the application language?"
+    ],
+    "unique_measured_queries": 10,
+    "timing": "Full search wall time in a resident process after three warmup queries; arithmetic mean",
+    "runtime": {
+      "node": "v26.13.0",
+      "platform": "darwin",
+      "arch": "arm64"
+    },
+    "ollama_model": {
+      "name": "qwen3-embedding:0.6b",
+      "model": "qwen3-embedding:0.6b",
+      "size": 1008740597,
+      "digest": "ac6da0dfba84a81fdbfbaf330198c33cd77c4cdfc53e8bc50eb581914a15621d",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen3",
+        "families": ["qwen3"],
+        "parameter_size": "595.78M",
+        "quantization_level": "Q8_0"
+      },
+      "expires_at": "2026-11-08T18:53:57.639068+07:00",
+      "size_vram": 1008740597,
+      "context_length": 4096,
+      "runner": "llamacpp"
+    }
+  },
+  "latency": {
+    "count": 10,
+    "mean_ms": 43.363878999999926,
+    "min_ms": 36.94258300000001,
+    "max_ms": 51.21633300000008
+  },
+  "per_query": [
+    {
+      "id": "extra-1",
+      "query": "How can I link directly to a heading inside another note?",
+      "elapsed_ms": 45.494624999999814,
+      "top_paths": [
+        "Linking notes and files/Embed files.md",
+        "Linking notes and files/Internal links.md",
+        "Editing and formatting/Basic formatting syntax.md",
+        "Plugins/Outgoing links.md",
+        "Plugins/Bookmarks.md",
+        "Plugins/Outline.md",
+        "Plugins/Note composer.md",
+        "Getting started/Link notes.md",
+        "Plugins/Backlinks.md",
+        "Getting started/Sync your notes across devices.md"
+      ],
+      "stages": [
+        {
+          "stage": "embedQuery",
+          "count": 1,
+          "totalMs": 24.997,
+          "medianMs": 24.997,
+          "p95Ms": 24.997
+        },
+        {
+          "stage": "vectorSearch",
+          "count": 1,
+          "totalMs": 2.062,
+          "medianMs": 2.062,
+          "p95Ms": 2.062
+        },
+        {
+          "stage": "bm25",
+          "count": 1,
+          "totalMs": 16.596,
+          "medianMs": 16.596,
+          "p95Ms": 16.596
+        },
+        {
+          "stage": "fuzzyTitle",
+          "count": 1,
+          "totalMs": 1.141,
+          "medianMs": 1.141,
+          "p95Ms": 1.141
+        },
+        {
+          "stage": "rrfFusion",
+          "count": 1,
+          "totalMs": 0.033,
+          "medianMs": 0.033,
+          "p95Ms": 0.033
+        },
+        {
+          "stage": "filterAndFormat",
+          "count": 1,
+          "totalMs": 0.434,
+          "medianMs": 0.434,
+          "p95Ms": 0.434
+        }
+      ]
+    },
+    {
+      "id": "extra-2",
+      "query": "Find instructions for putting a PDF document inside a note",
+      "elapsed_ms": 47.33920799999987,
+      "top_paths": [
+        "Linking notes and files/Embed files.md",
+        "Obsidian Publish/Publish limitations.md",
+        "Contributing to Obsidian/Style guide.md",
+        "Import notes/Import from Apple Notes.md",
+        "Obsidian/Early access versions.md",
+        "Editing and formatting/HTML content.md",
+        "Getting started/Download and install Obsidian.md",
+        "Editing and formatting/Advanced formatting syntax.md",
+        "Plugins/Templates.md",
+        "Obsidian Publish/Media files.md"
+      ],
+      "stages": [
+        {
+          "stage": "embedQuery",
+          "count": 1,
+          "totalMs": 26.927,
+          "medianMs": 26.927,
+          "p95Ms": 26.927
+        },
+        {
+          "stage": "vectorSearch",
+          "count": 1,
+          "totalMs": 2.216,
+          "medianMs": 2.216,
+          "p95Ms": 2.216
+        },
+        {
+          "stage": "bm25",
+          "count": 1,
+          "totalMs": 16.732,
+          "medianMs": 16.732,
+          "p95Ms": 16.732
+        },
+        {
+          "stage": "fuzzyTitle",
+          "count": 1,
+          "totalMs": 1.049,
+          "medianMs": 1.049,
+          "p95Ms": 1.049
+        },
+        {
+          "stage": "rrfFusion",
+          "count": 1,
+          "totalMs": 0.029,
+          "medianMs": 0.029,
+          "p95Ms": 0.029
+        },
+        {
+          "stage": "filterAndFormat",
+          "count": 1,
+          "totalMs": 0.222,
+          "medianMs": 0.222,
+          "p95Ms": 0.222
+        }
+      ]
+    },
+    {
+      "id": "extra-3",
+      "query": "How do I exclude a folder from the graph view?",
+      "elapsed_ms": 51.21633300000008,
+      "top_paths": [
+        "Plugins/Graph view.md",
+        "Obsidian Sync/Sync settings and selective syncing.md",
+        "User interface/Settings.md",
+        "Obsidian Publish/Publish your content.md",
+        "Obsidian Publish/Headless Publish.md",
+        "Obsidian Publish/Publish limitations.md",
+        "Getting started/Glossary.md",
+        "Plugins/Bookmarks.md",
+        "Files and folders/How Obsidian stores data.md",
+        "Obsidian Publish/Customize your site.md"
+      ],
+      "stages": [
+        {
+          "stage": "embedQuery",
+          "count": 1,
+          "totalMs": 27.932,
+          "medianMs": 27.932,
+          "p95Ms": 27.932
+        },
+        {
+          "stage": "vectorSearch",
+          "count": 1,
+          "totalMs": 2.196,
+          "medianMs": 2.196,
+          "p95Ms": 2.196
+        },
+        {
+          "stage": "bm25",
+          "count": 1,
+          "totalMs": 19.911,
+          "medianMs": 19.911,
+          "p95Ms": 19.911
+        },
+        {
+          "stage": "fuzzyTitle",
+          "count": 1,
+          "totalMs": 0.74,
+          "medianMs": 0.74,
+          "p95Ms": 0.74
+        },
+        {
+          "stage": "rrfFusion",
+          "count": 1,
+          "totalMs": 0.027,
+          "medianMs": 0.027,
+          "p95Ms": 0.027
+        },
+        {
+          "stage": "filterAndFormat",
+          "count": 1,
+          "totalMs": 0.264,
+          "medianMs": 0.264,
+          "p95Ms": 0.264
+        }
+      ]
+    },
+    {
+      "id": "extra-4",
+      "query": "Where can I configure keyboard shortcuts for commands?",
+      "elapsed_ms": 36.94258300000001,
+      "top_paths": [
+        "User interface/Hotkeys.md",
+        "Editing and formatting/Editing shortcuts.md",
+        "Plugins/Command palette.md",
+        "User interface/Settings.md",
+        "Contributing to Obsidian/Style guide.md",
+        "Obsidian Web Clipper/Clip web pages.md",
+        "Extending Obsidian/Obsidian CLI.md",
+        "Getting started/Mobile app.md",
+        "Bases/Layouts/Table view.md",
+        "Plugins/Slash commands.md"
+      ],
+      "stages": [
+        {
+          "stage": "embedQuery",
+          "count": 1,
+          "totalMs": 27.136,
+          "medianMs": 27.136,
+          "p95Ms": 27.136
+        },
+        {
+          "stage": "vectorSearch",
+          "count": 1,
+          "totalMs": 1.947,
+          "medianMs": 1.947,
+          "p95Ms": 1.947
+        },
+        {
+          "stage": "bm25",
+          "count": 1,
+          "totalMs": 6.453,
+          "medianMs": 6.453,
+          "p95Ms": 6.453
+        },
+        {
+          "stage": "fuzzyTitle",
+          "count": 1,
+          "totalMs": 0.948,
+          "medianMs": 0.948,
+          "p95Ms": 0.948
+        },
+        {
+          "stage": "rrfFusion",
+          "count": 1,
+          "totalMs": 0.029,
+          "medianMs": 0.029,
+          "p95Ms": 0.029
+        },
+        {
+          "stage": "filterAndFormat",
+          "count": 1,
+          "totalMs": 0.28,
+          "medianMs": 0.28,
+          "p95Ms": 0.28
+        }
+      ]
+    },
+    {
+      "id": "extra-5",
+      "query": "Show how to rename a property across multiple notes",
+      "elapsed_ms": 39.84616699999992,
+      "top_paths": [
+        "Editing and formatting/Properties.md",
+        "Files and folders/Manage notes.md",
+        "Plugins/Properties view.md",
+        "Files and folders/Manage vaults.md",
+        "Extending Obsidian/Obsidian CLI.md",
+        "Plugins/File explorer.md",
+        "Bases/Formulas.md",
+        "Obsidian Publish/Permalinks.md",
+        "Linking notes and files/Internal links.md",
+        "Bases/Bases syntax.md"
+      ],
+      "stages": [
+        {
+          "stage": "embedQuery",
+          "count": 1,
+          "totalMs": 27.382,
+          "medianMs": 27.382,
+          "p95Ms": 27.382
+        },
+        {
+          "stage": "vectorSearch",
+          "count": 1,
+          "totalMs": 2.073,
+          "medianMs": 2.073,
+          "p95Ms": 2.073
+        },
+        {
+          "stage": "bm25",
+          "count": 1,
+          "totalMs": 8.974,
+          "medianMs": 8.974,
+          "p95Ms": 8.974
+        },
+        {
+          "stage": "fuzzyTitle",
+          "count": 1,
+          "totalMs": 0.948,
+          "medianMs": 0.948,
+          "p95Ms": 0.948
+        },
+        {
+          "stage": "rrfFusion",
+          "count": 1,
+          "totalMs": 0.032,
+          "medianMs": 0.032,
+          "p95Ms": 0.032
+        },
+        {
+          "stage": "filterAndFormat",
+          "count": 1,
+          "totalMs": 0.275,
+          "medianMs": 0.275,
+          "p95Ms": 0.275
+        }
+      ]
+    },
+    {
+      "id": "extra-6",
+      "query": "How can I publish selected notes on the web?",
+      "elapsed_ms": 41.830208000000084,
+      "top_paths": [
+        "Obsidian Publish/Publish your content.md",
+        "Teams/Publishing for teams.md",
+        "Plugins/Search.md",
+        "Obsidian Publish/Permalinks.md",
+        "Obsidian Web Clipper/Highlighter.md",
+        "Extending Obsidian/Obsidian CLI.md",
+        "Obsidian Publish/Set up Obsidian Publish.md",
+        "Obsidian Publish/Introduction to Obsidian Publish.md",
+        "Obsidian Publish/Security and privacy.md",
+        "Obsidian Web Clipper/Variables.md"
+      ],
+      "stages": [
+        {
+          "stage": "embedQuery",
+          "count": 1,
+          "totalMs": 28.671,
+          "medianMs": 28.671,
+          "p95Ms": 28.671
+        },
+        {
+          "stage": "vectorSearch",
+          "count": 1,
+          "totalMs": 2.009,
+          "medianMs": 2.009,
+          "p95Ms": 2.009
+        },
+        {
+          "stage": "bm25",
+          "count": 1,
+          "totalMs": 9.842,
+          "medianMs": 9.842,
+          "p95Ms": 9.842
+        },
+        {
+          "stage": "fuzzyTitle",
+          "count": 1,
+          "totalMs": 0.851,
+          "medianMs": 0.851,
+          "p95Ms": 0.851
+        },
+        {
+          "stage": "rrfFusion",
+          "count": 1,
+          "totalMs": 0.03,
+          "medianMs": 0.03,
+          "p95Ms": 0.03
+        },
+        {
+          "stage": "filterAndFormat",
+          "count": 1,
+          "totalMs": 0.261,
+          "medianMs": 0.261,
+          "p95Ms": 0.261
+        }
+      ]
+    },
+    {
+      "id": "extra-7",
+      "query": "What happens when two devices edit the same synced note?",
+      "elapsed_ms": 39.48624999999993,
+      "top_paths": [
+        "Obsidian Sync/Sync settings and selective syncing.md",
+        "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "Getting started/Sync your notes across devices.md",
+        "Getting started/Back up your Obsidian files.md",
+        "Obsidian Sync/Security and privacy.md",
+        "Obsidian Sync/Version history.md",
+        "Obsidian Sync/Collaborate on a shared vault.md",
+        "Obsidian Sync/Status icon and messages.md",
+        "Obsidian Sync/Frequently asked questions.md",
+        "Obsidian Sync/Local and remote vaults.md"
+      ],
+      "stages": [
+        {
+          "stage": "embedQuery",
+          "count": 1,
+          "totalMs": 30.495,
+          "medianMs": 30.495,
+          "p95Ms": 30.495
+        },
+        {
+          "stage": "vectorSearch",
+          "count": 1,
+          "totalMs": 2.039,
+          "medianMs": 2.039,
+          "p95Ms": 2.039
+        },
+        {
+          "stage": "bm25",
+          "count": 1,
+          "totalMs": 5.448,
+          "medianMs": 5.448,
+          "p95Ms": 5.448
+        },
+        {
+          "stage": "fuzzyTitle",
+          "count": 1,
+          "totalMs": 1.082,
+          "medianMs": 1.082,
+          "p95Ms": 1.082
+        },
+        {
+          "stage": "rrfFusion",
+          "count": 1,
+          "totalMs": 0.031,
+          "medianMs": 0.031,
+          "p95Ms": 0.031
+        },
+        {
+          "stage": "filterAndFormat",
+          "count": 1,
+          "totalMs": 0.243,
+          "medianMs": 0.243,
+          "p95Ms": 0.243
+        }
+      ]
+    },
+    {
+      "id": "extra-8",
+      "query": "How do I insert a code block with syntax highlighting?",
+      "elapsed_ms": 46.629207999999835,
+      "top_paths": [
+        "Editing and formatting/Basic formatting syntax.md",
+        "Editing and formatting/Advanced formatting syntax.md",
+        "Editing and formatting/Obsidian Flavored Markdown.md",
+        "Linking notes and files/Internal links.md",
+        "User interface/Settings.md",
+        "Editing and formatting/Callouts.md",
+        "Editing and formatting/HTML content.md",
+        "Linking notes and files/Embed files.md",
+        "Plugins/Search.md",
+        "Plugins/Templates.md"
+      ],
+      "stages": [
+        {
+          "stage": "embedQuery",
+          "count": 1,
+          "totalMs": 29.905,
+          "medianMs": 29.905,
+          "p95Ms": 29.905
+        },
+        {
+          "stage": "vectorSearch",
+          "count": 1,
+          "totalMs": 2.09,
+          "medianMs": 2.09,
+          "p95Ms": 2.09
+        },
+        {
+          "stage": "bm25",
+          "count": 1,
+          "totalMs": 13.111,
+          "medianMs": 13.111,
+          "p95Ms": 13.111
+        },
+        {
+          "stage": "fuzzyTitle",
+          "count": 1,
+          "totalMs": 1.062,
+          "medianMs": 1.062,
+          "p95Ms": 1.062
+        },
+        {
+          "stage": "rrfFusion",
+          "count": 1,
+          "totalMs": 0.029,
+          "medianMs": 0.029,
+          "p95Ms": 0.029
+        },
+        {
+          "stage": "filterAndFormat",
+          "count": 1,
+          "totalMs": 0.274,
+          "medianMs": 0.274,
+          "p95Ms": 0.274
+        }
+      ]
+    },
+    {
+      "id": "extra-9",
+      "query": "Как восстановить удалённую заметку из локальной истории?",
+      "elapsed_ms": 44.138582999999926,
+      "top_paths": [
+        "Extending Obsidian/Obsidian CLI.md",
+        "Obsidian Sync/Version history.md",
+        "Obsidian Sync/Troubleshoot Obsidian Sync.md",
+        "Plugins/Graph view.md",
+        "Obsidian Sync/Local and remote vaults.md",
+        "Plugins/File recovery.md",
+        "Getting started/Glossary.md",
+        "Getting started/Back up your Obsidian files.md",
+        "Obsidian Publish/Publish your content.md",
+        "Extending Obsidian/Obsidian URI.md"
+      ],
+      "stages": [
+        {
+          "stage": "embedQuery",
+          "count": 1,
+          "totalMs": 40.752,
+          "medianMs": 40.752,
+          "p95Ms": 40.752
+        },
+        {
+          "stage": "vectorSearch",
+          "count": 1,
+          "totalMs": 2.02,
+          "medianMs": 2.02,
+          "p95Ms": 2.02
+        },
+        {
+          "stage": "bm25",
+          "count": 1,
+          "totalMs": 0.253,
+          "medianMs": 0.253,
+          "p95Ms": 0.253
+        },
+        {
+          "stage": "fuzzyTitle",
+          "count": 1,
+          "totalMs": 0.592,
+          "medianMs": 0.592,
+          "p95Ms": 0.592
+        },
+        {
+          "stage": "rrfFusion",
+          "count": 1,
+          "totalMs": 0.032,
+          "medianMs": 0.032,
+          "p95Ms": 0.032
+        },
+        {
+          "stage": "filterAndFormat",
+          "count": 1,
+          "totalMs": 0.329,
+          "medianMs": 0.329,
+          "p95Ms": 0.329
+        }
+      ]
+    },
+    {
+      "id": "extra-10",
+      "query": "Как добавить альтернативное название заметки для поиска и ссылок?",
+      "elapsed_ms": 40.71562499999982,
+      "top_paths": [
+        "Linking notes and files/Aliases.md",
+        "Getting started/Glossary.md",
+        "Linking notes and files/Internal links.md",
+        "Getting started/Mobile app.md",
+        "Import notes/Import Zettelkasten notes.md",
+        "Getting started/Link notes.md",
+        "Extending Obsidian/Obsidian CLI.md",
+        "Obsidian Publish/Publish limitations.md",
+        "Obsidian Publish/Permalinks.md",
+        "Plugins/Backlinks.md"
+      ],
+      "stages": [
+        {
+          "stage": "embedQuery",
+          "count": 1,
+          "totalMs": 37.784,
+          "medianMs": 37.784,
+          "p95Ms": 37.784
+        },
+        {
+          "stage": "vectorSearch",
+          "count": 1,
+          "totalMs": 2.081,
+          "medianMs": 2.081,
+          "p95Ms": 2.081
+        },
+        {
+          "stage": "bm25",
+          "count": 1,
+          "totalMs": 0.168,
+          "medianMs": 0.168,
+          "p95Ms": 0.168
+        },
+        {
+          "stage": "fuzzyTitle",
+          "count": 1,
+          "totalMs": 0.302,
+          "medianMs": 0.302,
+          "p95Ms": 0.302
+        },
+        {
+          "stage": "rrfFusion",
+          "count": 1,
+          "totalMs": 0.023,
+          "medianMs": 0.023,
+          "p95Ms": 0.023
+        },
+        {
+          "stage": "filterAndFormat",
+          "count": 1,
+          "totalMs": 0.214,
+          "medianMs": 0.214,
+          "p95Ms": 0.214
+        }
+      ]
+    }
+  ]
+}

@@ -18,19 +18,21 @@ That turns Obsidian into a stronger personal knowledge system and a better start
 
 ## Search quality
 
-Evaluated on the [Obsidian Help vault](eval/README.md) (171 notes, 58 queries, local model):
+Evaluated on the [Obsidian Help vault](eval/README.md) (171 notes, 58 queries, local models):
 
-|                | **OHS** (this project) | [qmd](https://github.com/tobi/qmd) |
-| -------------- | :--------------------: | :--------------------------------: |
-| nDCG@5         |       **0.733**        |               0.659                |
-| MRR            |       **0.788**        |               0.665                |
-| Hit@1          |       **0.724**        |               0.500                |
-| Avg query time |      **571 ms** ¹      |              754 ms ²              |
-| Model download |      **~117 MB**       |              ~2.2 GB               |
+|                | OHS (default)<br>[Hybrid](eval/results/baseline-no-rerank.json) / [Rerank](eval/results/baseline-rerank.json) | OHS (Qwen)<br>[Hybrid](eval/results/qwen3-embedding-0.6b-no-rerank.json) / [Rerank](eval/results/qwen3-embedding-0.6b-rerank.json) | [QMD v2.8.3](https://github.com/tobi/qmd)<br>[Hybrid](eval/results/qmd-hybrid.json) / [Rerank](eval/results/qmd-rerank.json) / [Full](eval/results/qmd.json) |
+| -------------- | :-----------------------------------------------------------------------------------------------------------: | :--------------------------------------------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------: |
+| nDCG@5         |                                                 0.743 / 0.779                                                 |                                                         0.802 / **0.812**                                                          |                                                                    0.685 / 0.727 / 0.713                                                                     |
+| MRR            |                                                 0.799 / 0.837                                                 |                                                         0.856 / **0.857**                                                          |                                                                    0.703 / 0.735 / 0.706                                                                     |
+| Hit@1          |                                                 0.724 / 0.776                                                 |                                                         **0.810** / 0.793                                                          |                                                                    0.603 / 0.603 / 0.552                                                                     |
+| Avg query time |                                               **8** ¹ / 718 ms                                                |                                                           38 ² / 730 ms                                                            |                                                                  14 / 12,308 / 25,306 ms ³                                                                   |
+| Model download |                                                ~117 / ~458 MB                                                 |                                                           ~639 / ~980 MB                                                           |                                                                   ~334 / ~973 MB / ~2.2 GB                                                                   |
 
-¹ CPU (Apple Silicon), hybrid mode, no rerank. ² GPU (Apple Silicon Metal), LLM query expansion + reranking.
+¹ CPU (Apple Silicon).
+² GPU (Apple Silicon Metal, Ollama).
+³ GPU (Apple Silicon Metal).
 
-OHS uses `Xenova/multilingual-e5-small`. [How to reproduce →](eval/COMPARISON.md) · [Full benchmark →](eval/README.md)
+Default uses `Xenova/multilingual-e5-small`; Qwen uses `qwen3-embedding:0.6b`. [How to reproduce →](eval/COMPARISON.md) · [Full benchmark →](eval/README.md)
 
 ### Real knowledge-vault benchmark
 
@@ -42,11 +44,11 @@ Using the default local embedding model, OHS performs strongly on this dense not
 
 | Metric    | Value     |
 | --------- | --------- |
-| nDCG@5    | **0.722** |
-| nDCG@10   | 0.753     |
-| MRR       | 0.874     |
+| nDCG@5    | **0.721** |
+| nDCG@10   | 0.754     |
+| MRR       | 0.875     |
 | Hit@1     | 0.795     |
-| Hit@5     | 0.974     |
+| Hit@5     | 0.962     |
 | Recall@10 | 0.972     |
 | AllRel@10 | 0.949     |
 
