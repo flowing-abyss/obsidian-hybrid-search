@@ -4,6 +4,7 @@ import { defineConfig } from 'vitest/config';
 // watcher's shared module state can't leak into the main isolate:false suite.
 export default defineConfig({
   test: {
+    setupFiles: ['./test/setup-vault-environment.ts'],
     include: ['test/indexer-watcher-live-e2e.test.ts', 'test/indexer-git-exclude-live-e2e.test.ts'],
     testTimeout: 30_000,
   },

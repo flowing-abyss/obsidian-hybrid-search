@@ -24,6 +24,10 @@ export function localModelEnv(source = process.env) {
 
 export function verificationEnv(source = process.env) {
   const env = localModelEnv(source);
+  // Verification fixtures own their vault and indexing policy, not the invoking shell.
+  for (const name of Object.keys(env)) {
+    if (name.toUpperCase().startsWith('OBSIDIAN_')) delete env[name];
+  }
   // Git hooks export repository locations. Fixture Git commands must use their
   // own cwd, as documented in git-hooks' guidance for foreign repositories.
   // eslint-disable-next-line sonarjs/no-os-command-from-path -- Git is a developer prerequisite; arguments are fixed and no shell is used.
