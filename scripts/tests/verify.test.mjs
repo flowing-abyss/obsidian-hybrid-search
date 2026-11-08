@@ -105,6 +105,63 @@ test('documentation-only changes still run the complete gate freshly on every in
     assert.deepEqual(log(), [...mandatory, ...mandatory]);
   }));
 
+test('verification ignores personal vault settings without changing the caller environment', () => {
+  const settings = {
+    OBSIDIAN_VAULT_PATH: '/personal/vault',
+    OBSIDIAN_PREFIX: 'personal_',
+    OBSIDIAN_CONTENT_IGNORE_PATTERNS: '/.*/g',
+    OBSIDIAN_CHUNK_TOKENS: '1',
+    OBSIDIAN_INCLUDE_PATTERNS: 'private/**',
+    OBSIDIAN_IGNORE_PATTERNS: '**/*.md',
+    OBSIDIAN_RESPECT_GITIGNORE: 'false',
+    Obsidian_Content_Ignore_Patterns: '/private/g',
+  };
+  const source = { ...process.env, ...settings, OHS_TEST_SENTINEL: 'preserved' };
+  const before = { ...source };
+  const isolated = verificationEnv(source);
+  for (const name of Object.keys(settings)) {
+    assert.equal(isolated[name], undefined, `${name} must not affect verification fixtures`);
+  }
+  assert.equal(isolated.OHS_TEST_SENTINEL, 'preserved');
+  assert.deepEqual(source, before);
+});
+
+test('Vitest vault setup clears inherited settings and permits fixture-specific configuration', () => {
+  const setup = new URL('../../test/setup-vault-environment.ts', import.meta.url).href;
+  const config = new URL('../../src/runtime/config.ts', import.meta.url).href;
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        import assert from 'node:assert/strict';
+        await import(${JSON.stringify(setup)});
+        assert.equal(process.env.OBSIDIAN_CONTENT_IGNORE_PATTERNS, undefined);
+        assert.equal(process.env.OBSIDIAN_CHUNK_TOKENS, undefined);
+        assert.equal(process.env.Obsidian_Prefix, undefined);
+        assert.equal(process.env.OHS_TEST_SENTINEL, 'preserved');
+        process.env.OBSIDIAN_CONTENT_IGNORE_PATTERNS = '/fixture/g';
+        process.env.OBSIDIAN_CHUNK_TOKENS = '256';
+        const { config } = await import(${JSON.stringify(config)});
+        assert.equal(config.contentIgnorePatternsRaw, '/fixture/g');
+        assert.equal(config.chunkTokens, 256);
+      `,
+    ],
+    {
+      env: {
+        ...process.env,
+        OBSIDIAN_CONTENT_IGNORE_PATTERNS: '/.*/g',
+        OBSIDIAN_CHUNK_TOKENS: '1',
+        Obsidian_Prefix: 'personal_',
+        OHS_TEST_SENTINEL: 'preserved',
+      },
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test('Git hook variables cannot redirect fixture operations into the invoking repository', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'ohs-gate-git-env-'));
   const cleanEnv = Object.fromEntries(

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, afterEach, beforeAll, describe, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, it, vi } from 'vitest';
 
 // ─── Vault setup (must precede application module imports) ────────────────────
 
@@ -40,7 +40,9 @@ const { createMcpRuntime, createMcpServer, checkForUpdates, packageVersion } =
 
 const fakeEmbedding = new Float32Array([0.1, 0.2, 0.3, 0.4]);
 
-beforeAll(() => {
+beforeEach(() => {
+  // Provenance/reindex cases replace the index; every tool test needs its own snapshot.
+  wipeDatabaseFiles();
   // Write a note file so scanVault has something to find during indexing paths.
   writeFileSync(path.join(vaultDir, 'tool-test.md'), 'Content for tool testing.');
   openDb();
@@ -336,16 +338,31 @@ describe('createMcpServer — tool dispatch', () => {
   });
 
   it('tools/call search returns results array for a known note', async () => {
-    const runtime = await createMcpRuntime();
-    const server = createMcpServer(runtime);
-    const callHandler = getHandler(server, 'tools/call');
-    const result = (await callHandler(
-      { method: 'tools/call', params: { name: 'search', arguments: { query: 'tool testing' } } },
-      {},
-    )) as { content: { type: string; text: string }[]; isError?: true };
-    assert.ok(!result.isError, `unexpected error: ${result.content[0]?.text}`);
-    const parsed = JSON.parse(result.content[0]?.text ?? '{}') as { results: unknown[] };
-    assert.ok(Array.isArray(parsed.results));
+    const errors = vi.spyOn(console, 'error');
+    try {
+      const runtime = await createMcpRuntime();
+      const server = createMcpServer(runtime);
+      const callHandler = getHandler(server, 'tools/call');
+      const result = (await callHandler(
+        { method: 'tools/call', params: { name: 'search', arguments: { query: 'tool testing' } } },
+        {},
+      )) as { content: { type: string; text: string }[]; isError?: true };
+      assert.ok(!result.isError, `unexpected error: ${result.content[0]?.text}`);
+      const parsed = JSON.parse(result.content[0]?.text ?? '{}') as {
+        results: { path: string }[];
+      };
+      assert.deepEqual(
+        parsed.results.map((note) => note.path),
+        ['tool-test.md'],
+      );
+      assert.deepEqual(
+        errors.mock.calls,
+        [],
+        'successful search must not fall back after an error',
+      );
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   it('tools/call status returns a JSON object with expected fields', async () => {

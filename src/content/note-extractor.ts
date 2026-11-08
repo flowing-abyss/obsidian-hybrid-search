@@ -46,15 +46,13 @@ export function parseAliasField(raw: unknown): string[] {
 /**
  * Extract inline tags from note body: #tag, #tag/subtag
  * Matches # preceded by start-of-string or whitespace, followed by
- * a letter/underscore and then any word chars, hyphens, or slashes.
+ * a Unicode letter/underscore, then letters, marks, digits, underscores, hyphens, or slashes.
  */
 export function parseInlineTags(content: string): string[] {
   const seen = new Set<string>();
   // Strip code blocks to avoid matching # inside them
   const stripped = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');
-  for (const match of stripped.matchAll(
-    /(?:^|[\s,;(])#([a-zA-Z_\u00C0-\u024F][a-zA-Z0-9_\-/\u00C0-\u024F]*)/gm,
-  )) {
+  for (const match of stripped.matchAll(/(?:^|[\s,;(])#([\p{L}_][\p{L}\p{M}\p{Nd}_\-/]*)/gmu)) {
     seen.add(match[1]!);
   }
   return [...seen];

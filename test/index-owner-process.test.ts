@@ -384,7 +384,7 @@ it('preserves an unreadable main database and reports the error', async () => {
   assert.deepEqual(readFileSync(filename), bytes);
 });
 
-function watcherService(failure?: 'startup' | 'running') {
+function watcherService(failure?: 'startup' | 'running', waitForStart = false) {
   const loader = `
     export async function resolve(specifier, context, next) {
       const resolved = await next(specifier, context);
@@ -405,9 +405,14 @@ function watcherService(failure?: 'startup' | 'running') {
     const { closeDb } = await import(${JSON.stringify(dbModule)});
     await openIndexDatabase();
     const service = createIndexService();
+    if (${waitForStart}) {
+      const start = new Promise(resolve => process.once('message', resolve));
+      process.send({ ready: true });
+      await start;
+    }
     service.start();
     process.on('message', () => {});
-    process.send({ ready: true });
+    if (!${waitForStart}) process.send({ ready: true });
     process.stdin.resume();
     process.stdin.on('end', () => {
       void service.close().then(() => { closeDb(); process.exit(0); }, error => {
@@ -415,6 +420,15 @@ function watcherService(failure?: 'startup' | 'running') {
       });
     });
   `);
+}
+
+function watcherFailureCount(worker: ReturnType<typeof watcherService>): number {
+  return (
+    worker
+      .stderr()
+      .match(/indexing stopped; search remains available: injected watcher unavailable/g)?.length ??
+    0
+  );
 }
 
 it.each(['startup', 'running'] as const)(
@@ -428,7 +442,7 @@ it.each(['startup', 'running'] as const)(
       assert.ok(owner().token);
       failed.child.send('fail');
     }
-    await waitUntil(() => failed.stderr().includes('indexing stopped'));
+    await waitUntil(() => watcherFailureCount(failed) > 0);
     await waitUntil(() => owner().token === null);
     assert.match(failed.stderr(), /injected watcher unavailable/);
     assert.equal(
@@ -445,7 +459,7 @@ it.each(['startup', 'running'] as const)(
     );
     assert.ok(owner().token, 'a healthy follower owns indexing');
     assert.equal(failed.child.exitCode, null, 'the failed process remains available for reads');
-    assert.equal(failed.stderr().match(/indexing stopped/g)?.length, 1);
+    assert.equal(watcherFailureCount(failed), 1);
     assert.equal(
       inspect((db) =>
         db.prepare("SELECT count(*) FROM index_failures WHERE operation='watcher'").pluck().get(),
@@ -462,14 +476,27 @@ it.each(['startup', 'running'] as const)(
 
 it('an entirely failed watcher group releases ownership and does not alternate retries', async () => {
   await seed();
-  const workers = [watcherService('startup'), watcherService('startup')];
+  const workers = [watcherService('startup', true), watcherService('startup', true)];
   await Promise.all(workers.map(firstMessage));
-  await waitUntil(() => workers.every((worker) => worker.stderr().includes('indexing stopped')));
+  // A transient SQLite lock must not be mistaken for the fatal watcher failure.
+  const blocker = new Database(path.join(vault, '.obsidian-hybrid-search.db'));
+  blocker.exec('BEGIN IMMEDIATE');
+  try {
+    for (const worker of workers) worker.child.send('start');
+    await waitUntil(() =>
+      workers.every((worker) => worker.stderr().includes('database is locked')),
+    );
+  } finally {
+    blocker.exec('ROLLBACK');
+    blocker.close();
+  }
+  // Contending workers can need two polls (5 seconds plus jitter each) to reach startup.
+  await waitUntil(() => workers.every((worker) => watcherFailureCount(worker) > 0), 15_000);
   await waitUntil(() => owner().token === null);
   const settled = owner();
   const calls = requests.length;
   await delay(6500);
   assert.deepEqual(owner(), settled, 'failed services must not claim or renew ownership again');
   assert.equal(requests.length, calls, 'failed services must not keep probing or embedding');
-  for (const worker of workers) assert.equal(worker.stderr().match(/indexing stopped/g)?.length, 1);
+  for (const worker of workers) assert.equal(watcherFailureCount(worker), 1);
 });

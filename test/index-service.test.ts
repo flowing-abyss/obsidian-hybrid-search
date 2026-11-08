@@ -67,6 +67,34 @@ function write(text: string): void {
   writeFileSync(path.join(vault, 'note.md'), text);
 }
 
+it.each([undefined, '/%%[\\s\\S]*?%%/g'])(
+  'indexes Unicode inline tags for filtered search with content policy %s',
+  async (patterns) => {
+    await service.close();
+    vi.spyOn(config, 'contentIgnorePatternsRaw', 'get').mockReturnValue(patterns);
+    service = createIndexService();
+    const { search } = await import('../src/search/searcher.js');
+    write(
+      '---\ntags: [свойство]\n---\n#note #заметка #проект/йога #café\n%% #скрыто %%'.normalize(
+        'NFD',
+      ),
+    );
+    for (const force of [false, true]) {
+      await service.reindex({ force });
+      for (const tag of ['note', 'ЗАМЕТКА', 'проект/йога', 'café', 'свойство']) {
+        const results = await search('', { tag, mode: 'fulltext' });
+        assert.deepEqual(
+          results.map((note) => note.path),
+          ['note.md'],
+          `${tag}, force=${force}`,
+        );
+      }
+      const hidden = await search('', { tag: 'скрыто', mode: 'fulltext' });
+      assert.equal(hidden.length, patterns ? 0 : 1);
+    }
+  },
+);
+
 it('keeps a complete active index when documents fail after a successful force probe', async () => {
   write('Original searchable body');
   await service.reindex();
