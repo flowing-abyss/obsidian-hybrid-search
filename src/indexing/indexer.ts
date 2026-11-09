@@ -295,7 +295,38 @@ export type PreparedFile =
   | { kind: 'ignored' }
   | { kind: 'missing'; path: string };
 
+class SourcePreparationError extends Error {
+  constructor(
+    readonly fingerprint: string,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+  }
+}
+
+async function readStableSource(fullPath: string, stat: Stats) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const raw = await readFile(fullPath, 'utf-8');
+    const current = statSync(fullPath);
+    if (current.mtimeMs === stat.mtimeMs && current.size === stat.size) return { stat, raw };
+    stat = current;
+  }
+  throw new Error(
+    'The file kept changing while reading; existing index preserved. Retry after the edits settle.',
+  );
+}
+
 export async function prepareIndexFile(
+  ...args: Parameters<typeof prepareIndexFileWithSource>
+): Promise<PreparedFile> {
+  try {
+    return await prepareIndexFileWithSource(...args);
+  } catch (error) {
+    throw error instanceof SourcePreparationError ? error.cause : error;
+  }
+}
+
+async function prepareIndexFileWithSource(
   run: IndexRunContext,
   fullPath: string,
   contextLength: number,
@@ -304,8 +335,6 @@ export async function prepareIndexFile(
 ): Promise<PreparedFile> {
   assertIndexRun(run);
   const relPath = toVaultRelativePath(fullPath);
-  const modelName = activeModelName();
-  const contentPolicySignature = contentPolicyForRun(run);
   if (policy.isIgnored(relPath)) return { kind: 'ignored' };
   let stat: Stats;
   let raw: string;
@@ -315,7 +344,7 @@ export async function prepareIndexFile(
     if (existing && existing.mtime === stat.mtimeMs) {
       return { kind: 'unchanged', path: relPath, mtime: stat.mtimeMs, updateMtime: false };
     }
-    raw = await readFile(fullPath, 'utf-8');
+    ({ stat, raw } = await readStableSource(fullPath, stat));
     const hash = createHash('md5').update(raw).digest('hex');
     if (existing && existing.hash === hash) {
       return { kind: 'unchanged', path: relPath, mtime: stat.mtimeMs, updateMtime: true };
@@ -326,6 +355,25 @@ export async function prepareIndexFile(
     }
     throw error;
   }
+  // A later edit must not be suppressed by a failure from this source snapshot.
+  const fingerprint = sourceFingerprint(run, stat);
+  try {
+    return await prepareIndexSource(run, fullPath, contextLength, stat, raw);
+  } catch (error) {
+    throw new SourcePreparationError(fingerprint, error);
+  }
+}
+
+async function prepareIndexSource(
+  run: IndexRunContext,
+  fullPath: string,
+  contextLength: number,
+  stat: Stats,
+  raw: string,
+): Promise<Extract<PreparedFile, { kind: 'prepared' }>> {
+  const relPath = toVaultRelativePath(fullPath);
+  const modelName = activeModelName();
+  const contentPolicySignature = contentPolicyForRun(run);
   const hash = createHash('md5').update(raw).digest('hex');
   const extracted = extractMarkdownNote(raw, path.basename(fullPath, '.md'));
   const { frontmatter, frontmatterRaw, title, aliases } = extracted;
@@ -541,7 +589,7 @@ export async function indexFile(
       policy ?? createIgnorePolicyForFiles([toPhysicalRelativePath(fullPath)]);
     for (let attempt = 0; attempt < 2; attempt++) {
       attemptedFingerprint = fileFingerprint(fullPath, run);
-      const prepared = await prepareIndexFile(
+      const prepared = await prepareIndexFileWithSource(
         run,
         fullPath,
         chunkPolicy.chunkTokens,
@@ -577,6 +625,7 @@ export async function indexFile(
         if (prepared.updateMtime) updateNoteMtime(run.lease, prepared.mtime, prepared.path);
         return 'skipped';
       }
+      attemptedFingerprint = sourceFingerprint(run, prepared.fingerprint);
       const published = await retryIndexWrite(run, () =>
         withIndexMutation(run.lease, () => {
           // Recheck only after SQLite admits this attempt. A busy wait may have
@@ -624,7 +673,12 @@ export async function indexFile(
     throw new Error(
       'The file kept changing during indexing; it will be retried after the next change.',
     );
-  } catch (error) {
+  } catch (failure) {
+    let error = failure;
+    if (failure instanceof SourcePreparationError) {
+      attemptedFingerprint = failure.fingerprint;
+      error = failure.cause;
+    }
     if (run.signal.aborted || error instanceof IndexLeaseLostError) throw error;
     if (error instanceof ContentFilterBatchCancelledError)
       return { error: error.message, cause: error };
@@ -930,13 +984,20 @@ export async function indexVaultSync(
 }
 
 function fileFingerprint(fullPath: string, run: IndexRunContext): string {
-  let fingerprint = 'missing';
+  let stat: Stats | undefined;
   try {
-    const stat = statSync(fullPath);
-    fingerprint = `${stat.mtimeMs}:${stat.size}`;
+    stat = statSync(fullPath);
   } catch {
     /* Missing paths retry when created. */
   }
+  return sourceFingerprint(run, stat);
+}
+
+function sourceFingerprint(
+  run: IndexRunContext,
+  stat: Pick<Stats, 'mtimeMs' | 'size'> | undefined,
+): string {
+  const fingerprint = stat ? `${stat.mtimeMs}:${stat.size}` : 'missing';
   return `${activeModelName()}:${config.apiBaseUrl}:${contentPolicyForRun(run)}:${fingerprint}`;
 }
 
