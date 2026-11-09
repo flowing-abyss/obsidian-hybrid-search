@@ -71,6 +71,17 @@ afterAll(() => {
 describe('checkForUpdates — edge cases', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('disables background registry requests when configured for offline/private use', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubEnv('OBSIDIAN_CHECK_FOR_UPDATES', 'false');
+    await checkForUpdates(packageVersion);
+    const runtime = await createMcpRuntime();
+    assert.equal(runtime.getUpdateStatus().state, 'disabled');
+    assert.equal(fetchMock.mock.calls.length, 0);
   });
 
   it('sets up_to_date when registry version matches (never throws)', async () => {

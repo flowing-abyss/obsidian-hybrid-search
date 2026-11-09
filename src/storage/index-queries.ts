@@ -203,6 +203,27 @@ export function storeResolveAllMarkdownReferences(
   });
 }
 
+export function storeRepairNoteReferences(
+  lease: IndexLease,
+  createWikilinkResolver: Parameters<typeof storeResolveAllLinks>[1],
+  resolveMarkdownReferencesForNote: Parameters<typeof storeResolveAllMarkdownReferences>[1],
+  force = false,
+): void {
+  withIndexMutation(lease, () => {
+    const db = getDb();
+    const dirty = db
+      .prepare("SELECT value FROM settings WHERE key='references_dirty'")
+      .pluck()
+      .get();
+    if (!force && dirty === '0') return;
+    // An absent marker also repairs older indexes once. Publish both graph
+    // projections and the clean marker together, or keep the repair retryable.
+    storeResolveAllLinks(lease, createWikilinkResolver);
+    storeResolveAllMarkdownReferences(lease, resolveMarkdownReferencesForNote);
+    db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('references_dirty','0')").run();
+  });
+}
+
 export function readWikiCatalogRows() {
   const db = getDb();
   // Load all paths, titles and aliases once — O(1) lookups instead of N queries

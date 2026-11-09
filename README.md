@@ -1,5 +1,11 @@
 # Obsidian Hybrid Search
 
+> This reviewed checkout contains security, indexing, and search fixes based on
+> upstream commit `12f28c60be3876ac9e52eb9ecf96d2e3dc73fb39` (0.17.4).
+> See [the review and implemented scenarios](REVIEW.md) and
+> [verification evidence](REVIEW_VALIDATION.md). It is a modified local build,
+> not an upstream release.
+
 [![npm version](https://img.shields.io/npm/v/obsidian-hybrid-search)](https://www.npmjs.com/package/obsidian-hybrid-search)
 [![Tests](https://github.com/flowing-abyss/obsidian-hybrid-search/actions/workflows/ci.yml/badge.svg)](https://github.com/flowing-abyss/obsidian-hybrid-search/actions)
 [![Total downloads](https://badgen.net/npm/dt/obsidian-hybrid-search)](https://www.npmjs.com/package/obsidian-hybrid-search)
@@ -472,7 +478,14 @@ If port 3939 is already in use, the command exits with an error instead of choos
 
 When binding beyond localhost, allow every hostname or address that MCP clients will use.
 
+Remote bindings also require `OBSIDIAN_MCP_AUTH_TOKEN`. Generate and retain a
+random token, configure the same bearer credential in each trusted MCP client,
+and use TLS termination or an encrypted tunnel for remote access. Host allowlists
+do not replace authentication. Tokens are never included in the printed config
+or daemon state; the printed config contains a placeholder.
+
 ```bash
+export OBSIDIAN_MCP_AUTH_TOKEN="$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))")"
 ohs serve \
   --host 0.0.0.0 \
   --allowed-host 192.168.1.20:3939 \
@@ -480,6 +493,16 @@ ohs serve \
 ```
 
 Repeat `--allowed-host` for multiple values. You can also set a comma-separated list with `OBSIDIAN_MCP_ALLOWED_HOSTS`. The `--allow-any-host` option disables Host-header protection for trusted networks.
+
+`--allow-any-host` requires a token even on loopback. When configured, the token
+protects both `/mcp` and `/health`. Native clients may omit `Origin`; browser
+requests must provide an HTTP(S) origin with the same host and port as the request.
+
+For a local installation that should not check npm for updates, set
+`OBSIDIAN_CHECK_FOR_UPDATES=false`. Model weights must still be available locally
+before offline inference can run. For a slow local HTTP embedding service, adjust
+`OBSIDIAN_EMBEDDING_TIMEOUT_MS` (default `60000`, maximum `600000`); unknown-model
+metadata discovery is capped at five seconds.
 
 ### Available MCP tools
 

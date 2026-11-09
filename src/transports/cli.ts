@@ -24,6 +24,7 @@ import {
   getStoredEmbeddingDim,
   getStoredModel,
 } from '../storage/db.js';
+import { createNoteSourceReader } from '../vault/note-source.js';
 import { discoverConfig } from '../vault/vault-config.js';
 import {
   formatSnippetForTable,
@@ -345,7 +346,15 @@ async function fetchUpdateStatus(): Promise<
   | { state: 'up_to_date' }
   | { state: 'update_available'; latestVersion: string }
   | { state: 'offline' }
+  | { state: 'disabled' }
 > {
+  if (
+    ['false', '0', 'no'].includes(
+      process.env.OBSIDIAN_CHECK_FOR_UPDATES?.trim().toLowerCase() ?? '',
+    )
+  ) {
+    return { state: 'disabled' };
+  }
   try {
     const signal = AbortSignal.timeout(3000);
     const res = await fetch('https://registry.npmjs.org/obsidian-hybrid-search/latest', { signal });
@@ -647,8 +656,8 @@ program
             latest_version: updateInfo.latestVersion,
             update_command: 'npm install -g obsidian-hybrid-search',
           }
-        : updateInfo.state === 'offline'
-          ? { version_check: 'offline' }
+        : updateInfo.state === 'offline' || updateInfo.state === 'disabled'
+          ? { version_check: updateInfo.state }
           : {}),
     };
     if (opts.recent) {
@@ -669,19 +678,19 @@ program
 
 function readRaw(paths: string[]): void {
   const multi = paths.length > 1;
+  const sourceReader = createNoteSourceReader(config.vaultPath);
   for (const notePath of paths) {
-    const fullPath = path.join(config.vaultPath, notePath);
+    const raw = sourceReader.read(notePath);
     if (multi) {
       const header = `── ${notePath} `;
       const line = header + '─'.repeat(Math.max(0, 72 - header.length));
       console.log(`\n${line}\n`);
     }
-    if (!existsSync(fullPath)) {
+    if (raw === null) {
       process.stderr.write(`Note "${notePath}" not found.\n`);
       process.exitCode = 1;
       continue;
     }
-    const raw = readFileSync(fullPath, 'utf-8');
     process.stdout.write(raw);
     if (!raw.endsWith('\n')) process.stdout.write('\n');
   }

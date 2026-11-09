@@ -165,7 +165,6 @@ async function requestWithHost(host: string): Promise<number> {
         method: 'POST',
         headers: {
           host,
-          origin: 'https://client.example.test',
           'content-type': 'application/json',
           accept: 'application/json, text/event-stream',
           'mcp-protocol-version': revision,
@@ -322,7 +321,7 @@ describe('modern MCP HTTP', () => {
     assert.match(JSON.stringify(status.reply.result?.content), /total/);
   });
 
-  it('keeps Host restrictions and the existing Origin behavior for both eras', async () => {
+  it('enforces Host and Origin restrictions for modern and legacy clients', async () => {
     httpServer = await runHttpMcpServer({
       host: '127.0.0.1',
       port: 0,
@@ -330,16 +329,41 @@ describe('modern MCP HTTP', () => {
     });
     assert.equal(await requestWithHost('evil.example.test'), 403);
     assert.equal(await requestWithHost('mcp.example.test'), 200);
-    const legacy = new Client({ name: 'legacy-origin', version: '1' });
-    await legacy.connect(
-      new StreamableHTTPClientTransport(new URL(httpServer.url), {
-        requestInit: { headers: { origin: 'https://client.example.test' } },
-      }),
-    );
+    const foreignOrigin = 'https://client.example.test';
+    const rejectedModern = await modernRequest('tools/list', {}, undefined, {
+      origin: foreignOrigin,
+    });
+    assert.equal(rejectedModern.response.status, 403);
+    const rejectedLegacy = new Client({ name: 'legacy-foreign-origin', version: '1' });
     try {
-      assert.equal((await legacy.listTools()).tools.length, 4);
+      await assert.rejects(
+        rejectedLegacy.connect(
+          new StreamableHTTPClientTransport(new URL(httpServer.url), {
+            requestInit: { headers: { origin: foreignOrigin } },
+          }),
+        ),
+        { code: 403, message: /Invalid Origin header/ },
+      );
     } finally {
-      await legacy.close();
+      await rejectedLegacy.close();
+    }
+
+    for (const origin of [undefined, new URL(httpServer.url).origin]) {
+      const headers: Record<string, string> = origin === undefined ? {} : { origin };
+      const modern = await modernRequest('tools/list', {}, undefined, headers);
+      assert.equal(modern.response.status, 200);
+      assert.equal(modern.reply.result?.tools?.length, 4);
+      const legacy = new Client({ name: 'legacy-accepted-origin', version: '1' });
+      try {
+        await legacy.connect(
+          new StreamableHTTPClientTransport(new URL(httpServer.url), {
+            requestInit: { headers },
+          }),
+        );
+        assert.equal((await legacy.listTools()).tools.length, 4);
+      } finally {
+        await legacy.close();
+      }
     }
   });
 

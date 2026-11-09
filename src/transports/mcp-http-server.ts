@@ -9,6 +9,14 @@ import { config } from '../runtime/config.js';
 import { registerProcessHandlers } from '../runtime/process-resilience.js';
 import { closeDb } from '../storage/db.js';
 import {
+  assertHttpBindingSecurity,
+  createBearerValidator,
+  formatHttpHost,
+  isSameOrigin,
+  normalizeHttpAuthority,
+  readHttpAuthToken,
+} from './mcp-http-security.js';
+import {
   closeMcpRuntime,
   createMcpRuntime,
   createMcpServer,
@@ -34,6 +42,9 @@ export interface HttpMcpServerHandle {
 export async function runHttpMcpServer(
   options: HttpMcpServerOptions,
 ): Promise<HttpMcpServerHandle> {
+  const authToken = readHttpAuthToken();
+  assertHttpBindingSecurity(options.host, options.allowAnyHost, authToken);
+  const hasValidBearer = createBearerValidator(authToken);
   const runtime = await createMcpRuntime();
   let actualPort = options.port;
   const reportError = (error: Error) => console.error('[mcp-http] request error:', error);
@@ -43,20 +54,56 @@ export async function runHttpMcpServer(
   });
   const serveRequest = toNodeHandler(handler, { onerror: reportError });
 
-  const nodeServer = http.createServer((req, res) => {
-    void handleRequest(req, res).catch((err: unknown) => {
-      console.error('[mcp-http] request error:', err);
-      writeJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
-    });
-  });
+  let activeRequests = 0;
+  const nodeServer = http.createServer(
+    { headersTimeout: 10_000, requestTimeout: 30_000, connectionsCheckingInterval: 1000 },
+    (req, res) => {
+      void handleRequest(req, res).catch((err: unknown) => {
+        console.error('[mcp-http] request error:', err);
+        writeJson(res, 500, { error: 'Internal server error' });
+      });
+    },
+  );
+  nodeServer.maxConnections = 128;
 
   async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const hostHeader = req.headers.host ?? `${options.host}:${actualPort}`;
+    const hostHeader = req.headers.host;
+    if (!hostHeader || req.headersDistinct.host?.length !== 1) {
+      writeJson(res, 400, { error: 'Missing or duplicate Host header' });
+      return;
+    }
     if (!isAllowedHostHeader(hostHeader, options.host, actualPort, options)) {
       writeJson(res, 403, { error: 'Invalid Host header' });
       return;
     }
-    const url = new URL(req.url ?? '/', `http://${hostHeader}`);
+    if (req.headersDistinct.origin && req.headersDistinct.origin.length !== 1) {
+      writeJson(res, 403, { error: 'Invalid Origin header' });
+      return;
+    }
+    if (!isSameOrigin(req.headers.origin, hostHeader)) {
+      writeJson(res, 403, { error: 'Invalid Origin header' });
+      return;
+    }
+    if (
+      (authToken !== undefined && req.headersDistinct.authorization?.length !== 1) ||
+      !hasValidBearer(req.headers.authorization)
+    ) {
+      writeJson(
+        res,
+        401,
+        { error: 'Bearer authentication required' },
+        {
+          'www-authenticate': 'Bearer realm="obsidian-hybrid-search"',
+        },
+      );
+      return;
+    }
+    const requestTarget = req.url ?? '/';
+    if (!requestTarget.startsWith('/') || /^[/\\]{2}/.test(requestTarget)) {
+      writeJson(res, 400, { error: 'Invalid request target' });
+      return;
+    }
+    const url = new URL(requestTarget, `http://${hostHeader}`);
 
     if (req.method === 'GET' && url.pathname === '/health') {
       writeJson(res, 200, {
@@ -81,11 +128,26 @@ export async function runHttpMcpServer(
       return;
     }
 
-    if (!req.headers.host) {
-      writeJson(res, 400, { error: 'Missing Host header' });
+    if (activeRequests >= 32) {
+      writeJson(
+        res,
+        429,
+        { error: 'Too many concurrent requests; retry later' },
+        {
+          'retry-after': '1',
+          connection: 'close',
+        },
+      );
       return;
     }
-    await serveRequest(req, res);
+    activeRequests += 1;
+    try {
+      // The SDK bounds both Content-Length and streamed bodies to 4 MiB. The
+      // admission cap also bounds aggregate buffering before JSON is parsed.
+      await serveRequest(req, res);
+    } finally {
+      activeRequests -= 1;
+    }
   }
 
   await listen(nodeServer, options.host, options.port);
@@ -99,13 +161,14 @@ export async function runHttpMcpServer(
     startMcpBackgroundServices(runtime);
   }
 
-  const url = `http://${options.host}:${actualPort}/mcp`;
+  const authority = `${formatHttpHost(options.host)}:${actualPort}`;
+  const url = `http://${authority}/mcp`;
   let closing: Promise<void> | undefined;
   return {
     host: options.host,
     port: actualPort,
     url,
-    healthUrl: `http://${options.host}:${actualPort}/health`,
+    healthUrl: `http://${authority}/health`,
     close: () => {
       closing ??= (async () => {
         const results = await Promise.allSettled([
@@ -176,7 +239,11 @@ function writeJson(
   extraHeaders: Record<string, string> = {},
 ): void {
   if (res.headersSent) return;
-  res.writeHead(status, { 'content-type': 'application/json', ...extraHeaders });
+  res.writeHead(status, {
+    'content-type': 'application/json',
+    'cache-control': 'no-store',
+    ...extraHeaders,
+  });
   res.end(JSON.stringify(body));
 }
 
@@ -186,8 +253,12 @@ function isAllowedHostHeader(
   port: number,
   options: Pick<HttpMcpServerOptions, 'allowedHosts' | 'allowAnyHost'>,
 ): boolean {
+  const authority = normalizeHttpAuthority(hostHeader);
+  if (authority === null) return false;
   if (options.allowAnyHost === true) return true;
-  return allowedHosts(host, port, options.allowedHosts).includes(hostHeader.trim());
+  return allowedHosts(host, port, options.allowedHosts).some(
+    (allowed) => normalizeHttpAuthority(allowed) === authority,
+  );
 }
 
 export function normalizeAllowedHosts(hosts: readonly string[] | undefined): string[] {
@@ -208,9 +279,13 @@ function allowedHosts(
   extraHosts: readonly string[] | undefined,
 ): string[] {
   return normalizeAllowedHosts(
-    [host, 'localhost', '127.0.0.1', ...normalizeAllowedHosts(extraHosts)].flatMap((allowedHost) =>
-      expandAllowedHostForPort(allowedHost, port),
-    ),
+    [
+      formatHttpHost(host),
+      'localhost',
+      '127.0.0.1',
+      '[::1]',
+      ...normalizeAllowedHosts(extraHosts),
+    ].flatMap((allowedHost) => expandAllowedHostForPort(allowedHost, port)),
   );
 }
 

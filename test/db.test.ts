@@ -372,16 +372,36 @@ describe('title prepended to first chunk', () => {
 // ─── LRU cache ───────────────────────────────────────────────────────────────
 
 describe('search LRU cache', () => {
-  it('repeated query returns cached result', async () => {
-    const r1 = await search('zettelkasten', { mode: 'fulltext', limit: 5 });
-    const r2 = await search('zettelkasten', { mode: 'fulltext', limit: 5 });
-    assert.strictEqual(r1, r2, 'repeated search should return cached result');
+  it('reuses cached values without sharing mutable results', async () => {
+    const { bumpIndexVersion } = await import('../src/storage/index-state.js');
+    const queries = await import('../src/storage/search-queries.js');
+    bumpIndexVersion();
+    const prepare = vi.spyOn(queries, 'prepareBm25Rows');
+    try {
+      const r1 = await search('zettelkasten', { mode: 'fulltext', limit: 5 });
+      assert.ok(r1.length > 0);
+      assert.ok(prepare.mock.calls.length > 0);
+      const expected = structuredClone(r1);
+      const calls = prepare.mock.calls.length;
+      r1[0]!.tags.push('caller-annotation');
+      r1[0]!.title = 'caller-mutated title';
+      const r2 = await search('zettelkasten', { mode: 'fulltext', limit: 5 });
+      assert.deepEqual(r2, expected, 'a caller cannot change cached values');
+      assert.notStrictEqual(r1, r2, 'callers receive their own result objects');
+      assert.equal(prepare.mock.calls.length, calls, 'cache hits avoid another full-text query');
+    } finally {
+      prepare.mockRestore();
+    }
   });
 
   it('different query bypasses cache', async () => {
     const r1 = await search('zettelkasten', { mode: 'fulltext', limit: 5 });
     const r2 = await search('python programming', { mode: 'fulltext', limit: 5 });
-    assert.notStrictEqual(r1, r2, 'different query should not return cached result');
+    assert.notDeepEqual(
+      r1.map((result) => result.path),
+      r2.map((result) => result.path),
+      'different queries must retain their own matching notes',
+    );
   });
 });
 

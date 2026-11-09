@@ -1,57 +1,87 @@
 import { z, type ZodError } from 'zod';
 
+// Bound semantic fan-out and SQL parameter growth independently of transport
+// payload sizes: a compact JSON request can otherwise trigger unbounded work.
+export const SEARCH_REQUEST_LIMITS = {
+  maxQueries: 16,
+  maxQueryLength: 16_384,
+  maxFilters: 128,
+  maxFilterLength: 4096,
+  maxResults: 10_000,
+  maxSnippetLength: 100_000,
+  maxDepth: 64,
+  maxReadPaths: 128,
+  maxGraphNodes: 10_000,
+  maxGraphEdges: 100_000,
+} as const;
+
 const SearchModeSchema = z.enum(['hybrid', 'semantic', 'fulltext', 'title']);
 const DirectionSchema = z.enum(['outgoing', 'backlinks', 'both']);
 const LinkTypeSchema = z.enum(['wiki', 'markdown', 'all']);
 const FiniteNumberSchema = z.number().finite();
 const NonNegativeIntegerSchema = FiniteNumberSchema.int().min(0);
 const ThresholdSchema = FiniteNumberSchema.min(0).max(1);
+const QuerySchema = z.string().max(SEARCH_REQUEST_LIMITS.maxQueryLength);
+const QueriesSchema = z.array(QuerySchema).max(SEARCH_REQUEST_LIMITS.maxQueries);
+const PathSchema = z.string().max(SEARCH_REQUEST_LIMITS.maxFilterLength);
+const LimitSchema = NonNegativeIntegerSchema.max(SEARCH_REQUEST_LIMITS.maxResults);
+const DepthSchema = NonNegativeIntegerSchema.max(SEARCH_REQUEST_LIMITS.maxDepth);
+const SnippetLengthSchema = NonNegativeIntegerSchema.max(SEARCH_REQUEST_LIMITS.maxSnippetLength);
 
 export const SearchOptionsBoundarySchema = z.object({
   mode: SearchModeSchema.optional(),
   scope: z.unknown().optional(),
-  limit: NonNegativeIntegerSchema.optional(),
+  limit: LimitSchema.optional(),
   threshold: ThresholdSchema.optional(),
   tag: z.unknown().optional(),
   frontmatter: z.unknown().optional(),
   related: z.boolean().optional(),
-  depth: NonNegativeIntegerSchema.optional(),
+  depth: DepthSchema.optional(),
   direction: DirectionSchema.optional(),
   linkType: LinkTypeSchema.optional(),
-  snippetLength: NonNegativeIntegerSchema.optional(),
-  notePath: z.string().optional(),
+  snippetLength: SnippetLengthSchema.optional(),
+  notePath: PathSchema.optional(),
   rerank: z.boolean().optional(),
-  queries: z.array(z.string()).optional(),
+  queries: QueriesSchema.optional(),
   anchors: z.boolean().optional(),
 });
 
-export const SearchToolArgumentsSchema = z.object({
-  query: z.string().optional(),
-  queries: z.array(z.string()).optional(),
-  path: z.string().optional(),
-  mode: SearchModeSchema.optional(),
-  scope: z.unknown().optional(),
-  limit: NonNegativeIntegerSchema.optional(),
-  threshold: ThresholdSchema.optional(),
-  tag: z.unknown().optional(),
-  frontmatter: z.unknown().optional(),
-  related: z.boolean().optional(),
-  depth: NonNegativeIntegerSchema.optional(),
-  direction: DirectionSchema.optional(),
-  link_type: LinkTypeSchema.optional(),
-  snippet_length: NonNegativeIntegerSchema.optional(),
-  rerank: z.boolean().optional(),
-  anchors: z.boolean().optional(),
-});
+export const SearchToolArgumentsSchema = z
+  .object({
+    query: QuerySchema.optional(),
+    queries: QueriesSchema.optional(),
+    path: PathSchema.optional(),
+    mode: SearchModeSchema.optional(),
+    scope: z.unknown().optional(),
+    limit: LimitSchema.optional(),
+    threshold: ThresholdSchema.optional(),
+    tag: z.unknown().optional(),
+    frontmatter: z.unknown().optional(),
+    related: z.boolean().optional(),
+    depth: DepthSchema.optional(),
+    direction: DirectionSchema.optional(),
+    link_type: LinkTypeSchema.optional(),
+    snippet_length: SnippetLengthSchema.optional(),
+    rerank: z.boolean().optional(),
+    anchors: z.boolean().optional(),
+  })
+  .refine(
+    (args) =>
+      (args.queries?.length ?? 0) + (args.query ? 1 : 0) <= SEARCH_REQUEST_LIMITS.maxQueries,
+    {
+      path: ['queries'],
+      message: `query and queries must contain at most ${SEARCH_REQUEST_LIMITS.maxQueries} queries combined`,
+    },
+  );
 
 export const ReadToolArgumentsSchema = z.object({
   paths: z.unknown(),
-  snippet_length: NonNegativeIntegerSchema.optional(),
+  snippet_length: SnippetLengthSchema.optional(),
   related: z.boolean().optional(),
 });
 
 export const ReindexToolArgumentsSchema = z.object({
-  path: z.string().optional(),
+  path: PathSchema.optional(),
   force: z.boolean().optional(),
 });
 
@@ -66,7 +96,7 @@ export const StdioStatusRequestSchema = z.object({
 
 export const StdioRequestSchema = z.object({
   id: z.string().optional(),
-  query: z.string(),
+  query: QuerySchema,
   options: SearchOptionsBoundarySchema.optional(),
 });
 
@@ -146,6 +176,17 @@ export function parseStringArrayParam(name: string, value: unknown): StringArray
     throw new Error(stringArrayErrorMessage(name));
   }
 
+  const values = result === undefined ? [] : Array.isArray(result) ? result : [result];
+  const maxItems =
+    name === 'paths' ? SEARCH_REQUEST_LIMITS.maxReadPaths : SEARCH_REQUEST_LIMITS.maxFilters;
+  if (values.length > maxItems) {
+    throw new Error(`Invalid ${name}: expected at most ${maxItems} values`);
+  }
+  if (values.some((item) => item.length > SEARCH_REQUEST_LIMITS.maxFilterLength)) {
+    throw new Error(
+      `Invalid ${name}: each value must contain at most ${SEARCH_REQUEST_LIMITS.maxFilterLength} characters`,
+    );
+  }
   return result;
 }
 

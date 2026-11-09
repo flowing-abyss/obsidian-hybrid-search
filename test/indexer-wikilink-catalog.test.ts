@@ -21,7 +21,7 @@ vi.spyOn(embedder, 'getDocumentTokenPolicy').mockResolvedValue({
   count: (text) => Math.ceil(Array.from(text).length / 4),
 });
 
-const { indexFile, indexVaultSync, resetIndexingState, resolveWikilinks } =
+const { indexFile, indexVaultSync, populateMissingLinks, resetIndexingState, resolveWikilinks } =
   await import('./helpers/owned-indexer.js');
 
 function writeNote(name: string, content: string): string {
@@ -108,6 +108,21 @@ describe('final wiki-link repair catalog', () => {
       assert.equal(await indexFile(writeNote('plain-new.md', 'Plain new content'), 512), 'indexed');
     });
     assert.equal(executions, 0);
+  });
+
+  it('migrates legacy forward references with one shared catalog', async () => {
+    for (const name of ['alpha', 'beta', 'gamma']) {
+      assert.equal(
+        await indexFile(writeNote(`${name}.md`, `[[target]] from ${name}`), 512),
+        'indexed',
+      );
+    }
+    assert.equal(await indexFile(writeNote('target.md', '# Target'), 512), 'indexed');
+
+    assert.equal(await countCatalogExecutions(() => populateMissingLinks()), 1);
+    for (const name of ['alpha', 'beta', 'gamma'])
+      assert.deepEqual(outgoing(`${name}.md`), ['target.md']);
+    assert.equal(await countCatalogExecutions(() => populateMissingLinks()), 0);
   });
 
   it('runs no catalog query when a no-op vault contains no wiki links', async () => {

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { lookup } from 'node:dns/promises';
 import {
   closeSync,
   existsSync,
@@ -9,10 +10,17 @@ import {
   writeFileSync,
 } from 'node:fs';
 import net from 'node:net';
+import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../runtime/config.js';
 import { getLocalStateDirectory } from '../runtime/local-state.js';
+import {
+  assertHttpBindingSecurity,
+  formatHttpHost,
+  isLoopbackHost,
+  readHttpAuthToken,
+} from './mcp-http-security.js';
 import { normalizeAllowedHosts } from './mcp-http-server.js';
 
 export interface McpState {
@@ -25,6 +33,7 @@ export interface McpState {
   vaultPath: string;
   allowedHosts?: string[];
   allowAnyHost?: boolean;
+  authRequired?: boolean;
   startedAt: string;
 }
 
@@ -65,9 +74,10 @@ export function getMcpPaths(): McpPaths {
 }
 
 export function buildMcpUrls(host: string, port: number): { url: string; healthUrl: string } {
+  const authority = `${formatHttpHost(host)}:${port}`;
   return {
-    url: `http://${host}:${port}/mcp`,
-    healthUrl: `http://${host}:${port}/health`,
+    url: `http://${authority}/mcp`,
+    healthUrl: `http://${authority}/health`,
   };
 }
 
@@ -132,6 +142,22 @@ If this is a different vault/server, choose an explicit port:
 
 export function formatMcpInfo(state: McpState, started: boolean): string {
   const status = started ? 'is running' : 'is already running';
+  const clientConfig = JSON.stringify(
+    {
+      mcpServers: {
+        'obsidian-hybrid-search': {
+          url: state.url,
+          ...(state.authRequired
+            ? {
+                headers: { Authorization: 'Bearer <OBSIDIAN_MCP_AUTH_TOKEN>' },
+              }
+            : {}),
+        },
+      },
+    },
+    null,
+    2,
+  );
   return `Obsidian Hybrid Search MCP server ${status}
 
 URL:  ${state.url}
@@ -139,13 +165,7 @@ PID:  ${state.pid}
 Logs: ${state.logPath}
 
 Add this to your MCP client:
-{
-  "mcpServers": {
-    "obsidian-hybrid-search": {
-      "url": "${state.url}"
-    }
-  }
-}`;
+${clientConfig}${state.authRequired ? "\nReplace the token placeholder using your client's secret configuration." : ''}`;
 }
 
 export function matchesRequestedState(
@@ -161,6 +181,7 @@ export function matchesRequestedState(
     state.host === options.host &&
     state.port === options.port &&
     state.vaultPath === vaultPath &&
+    (state.authRequired === true) === (readHttpAuthToken() !== undefined) &&
     stateAllowAnyHost === requestedAllowAnyHost &&
     (stateAllowAnyHost || sameStringSet(stateAllowedHosts, requestedAllowedHosts))
   );
@@ -202,9 +223,45 @@ Requested:
 Run "obsidian-hybrid-search serve stop" before starting a different server, or set an explicit XDG_CACHE_HOME for separate state.`;
 }
 
-async function fetchHealthInfo(healthUrl: string): Promise<McpHealthInfo | null> {
+async function localHealthTarget(state: McpState): Promise<{ url: string; host: string } | null> {
+  if (state.healthUrl !== buildMcpUrls(state.host, state.port).healthUrl) return null;
+  const host = state.host === '0.0.0.0' ? '127.0.0.1' : state.host === '::' ? '::1' : state.host;
+  const address = net.isIP(host) ? host : (await lookup(host)).address;
+  // State is a local convenience file, not an authority to send a bearer
+  // credential to another machine. Pin DNS resolution to a local IP literal.
+  if (!isLoopbackHost(address)) {
+    const localAddresses = Object.values(networkInterfaces()).flatMap((entries) =>
+      (entries ?? []).map((entry) => entry.address),
+    );
+    if (!localAddresses.includes(address)) return null;
+  }
+  return { url: buildMcpUrls(address, state.port).healthUrl, host: new URL(state.healthUrl).host };
+}
+
+async function fetchHealthInfo(state: McpState): Promise<McpHealthInfo | null> {
+  const token = readHttpAuthToken();
+  let res: Response;
   try {
-    const res = await fetch(healthUrl, { signal: AbortSignal.timeout(500) });
+    const target = await localHealthTarget(state);
+    if (!target) return null;
+    res = await fetch(target.url, {
+      signal: AbortSignal.timeout(500),
+      redirect: 'error',
+      headers: {
+        host: target.host,
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+    });
+  } catch {
+    return null;
+  }
+  if (res.status === 401) {
+    await res.body?.cancel();
+    throw new Error(
+      'MCP server authentication failed. Set OBSIDIAN_MCP_AUTH_TOKEN to the token used to start it; the running server state has been preserved.',
+    );
+  }
+  try {
     if (!res.ok) return null;
     const body = (await res.json()) as { ok?: unknown };
     if (body.ok !== true) return null;
@@ -217,13 +274,15 @@ async function fetchHealthInfo(healthUrl: string): Promise<McpHealthInfo | null>
 async function waitForStateHealth(state: McpState, timeoutMs = 10_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (healthMatchesState(state, await fetchHealthInfo(state.healthUrl))) return true;
+    if (healthMatchesState(state, await fetchHealthInfo(state))) return true;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   return false;
 }
 
 export async function ensureMcpServer(options: EnsureMcpOptions): Promise<EnsureMcpResult> {
+  const authToken = readHttpAuthToken();
+  assertHttpBindingSecurity(options.host, options.allowAnyHost, authToken);
   const vaultPath = config.vaultPath;
   const allowedHosts = normalizeAllowedHosts(options.allowedHosts);
   const allowAnyHost = options.allowAnyHost === true;
@@ -231,7 +290,7 @@ export async function ensureMcpServer(options: EnsureMcpOptions): Promise<Ensure
   if (
     existing &&
     isPidAlive(existing.pid) &&
-    healthMatchesState(existing, await fetchHealthInfo(existing.healthUrl))
+    healthMatchesState(existing, await fetchHealthInfo(existing))
   ) {
     if (matchesRequestedState(existing, options, vaultPath)) {
       return { state: existing, started: false };
@@ -267,6 +326,7 @@ export async function ensureMcpServer(options: EnsureMcpOptions): Promise<Ensure
     vaultPath,
     allowedHosts,
     allowAnyHost,
+    ...(authToken ? { authRequired: true } : {}),
     startedAt: new Date().toISOString(),
   };
   writeMcpState(state);
@@ -318,7 +378,7 @@ export async function getMcpStatus(): Promise<McpState | null> {
   const state = readMcpState();
   if (!state) return null;
 
-  if (isPidAlive(state.pid) && healthMatchesState(state, await fetchHealthInfo(state.healthUrl))) {
+  if (isPidAlive(state.pid) && healthMatchesState(state, await fetchHealthInfo(state))) {
     return state;
   }
 
@@ -334,7 +394,7 @@ export async function stopMcpServer(): Promise<boolean> {
     return false;
   }
 
-  if (!healthMatchesState(state, await fetchHealthInfo(state.healthUrl))) {
+  if (!healthMatchesState(state, await fetchHealthInfo(state))) {
     removeMcpState();
     return false;
   }

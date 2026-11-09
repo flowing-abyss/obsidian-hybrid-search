@@ -48,6 +48,47 @@ let localPipelinePromise: Promise<any> | null = null;
 let contextLengthPromise: Promise<number | null> | undefined;
 let cachedDim: number | null = null;
 
+function embeddingRequestTimeoutMs(): number {
+  const raw = process.env.OBSIDIAN_EMBEDDING_TIMEOUT_MS?.trim();
+  if (raw === undefined) return 60_000;
+  const value = Number(raw);
+  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(value) || value < 1 || value > 600_000) {
+    throw new Error('OBSIDIAN_EMBEDDING_TIMEOUT_MS must be an integer from 1 to 600000');
+  }
+  return value;
+}
+
+class EmbeddingRequestTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Embedding provider request timed out after ${timeoutMs} ms`);
+    this.name = 'EmbeddingRequestTimeoutError';
+  }
+}
+
+async function withProviderDeadline<T>(
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+  operation: (requestSignal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  signal?.throwIfAborted();
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  signal?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(
+    () => controller.abort(new EmbeddingRequestTimeoutError(timeoutMs)),
+    timeoutMs,
+  );
+  timer.unref();
+  try {
+    return await operation(controller.signal);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+    // Also retire unread fallback bodies and fetch followers on successful requests.
+    controller.abort();
+  }
+}
+
 // Known context lengths for embedding models across all providers.
 // Used to avoid an API roundtrip on startup and ensure correct chunking.
 // Sources: OpenRouter /api/v1/embeddings/models, Ollama library,
@@ -209,18 +250,22 @@ async function discoverContextLength(): Promise<number | null> {
       return KNOWN_CONTEXT_LENGTHS[knownModel];
     }
 
+    const timeoutMs = Math.min(embeddingRequestTimeoutMs(), 5000);
     try {
       const headers: Record<string, string> = {};
       if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
-      const res = await fetch(`${config.apiBaseUrl}/models/${config.apiModel}`, { headers });
-      const data = (await res.json()) as { context_length?: number };
-      if (
-        res.ok !== false &&
-        Number.isSafeInteger(data?.context_length) &&
-        data.context_length! > 0
-      ) {
-        return data.context_length!;
-      }
+      return await withProviderDeadline(undefined, timeoutMs, async (signal) => {
+        const res = await fetch(`${config.apiBaseUrl}/models/${config.apiModel}`, {
+          headers,
+          signal,
+        });
+        const data = (await res.json()) as { context_length?: number };
+        return res.ok !== false &&
+          Number.isSafeInteger(data?.context_length) &&
+          data.context_length! > 0
+          ? data.context_length!
+          : null;
+      });
     } catch {
       // fall through to default
     }
@@ -589,12 +634,22 @@ async function embedViaApiRawDetailed(
   signal?: AbortSignal,
 ): Promise<EmbeddingOutcome[]> {
   const results: EmbeddingOutcome[] = [];
-  const batchTransport = (batch: string[]) =>
-    withEmbeddingSignal(signal, (requestSignal) =>
-      isOllamaEndpoint()
-        ? embedOllamaBatchWithCompatibleFallback(batch, requestSignal)
-        : embedApiBatch(batch, undefined, requestSignal),
-    );
+  const timeoutMs = embeddingRequestTimeoutMs();
+  const batchTransport = async (batch: string[]): Promise<EmbeddingBatchAttempt> => {
+    try {
+      return await withEmbeddingSignal(signal, (requestSignal) =>
+        withProviderDeadline(requestSignal, timeoutMs, (boundedSignal) =>
+          isOllamaEndpoint()
+            ? embedOllamaBatchWithCompatibleFallback(batch, boundedSignal)
+            : embedApiBatch(batch, undefined, boundedSignal),
+        ),
+      );
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (!(error instanceof EmbeddingRequestTimeoutError)) throw error;
+      return { ok: false, failure: failureOutcome('transient', error.message), localize: false };
+    }
+  };
 
   // Ollama: send one at a time to avoid the >2KB crash bug in v0.12.5+
   // and because Ollama queues internally anyway (batching gives no speedup)

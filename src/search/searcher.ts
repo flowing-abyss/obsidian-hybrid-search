@@ -11,6 +11,13 @@ import {
 import { extractMarkdownNote } from '../content/note-extractor.js';
 import { normalizeNotePath } from '../content/text-normalization.js';
 import {
+  formatValidationError,
+  parseStringArrayParam,
+  ReadToolArgumentsSchema,
+  SEARCH_REQUEST_LIMITS,
+  StdioRequestSchema,
+} from '../contracts/boundary-validation.js';
+import {
   buildFilterPredicate,
   hasFilterValue,
   type FilterPredicate,
@@ -23,14 +30,11 @@ import {
   EmbeddingModelMismatchError,
   filterNotePathsByFrontmatter,
   filterNotePathsByTag,
-  getBacklinksForPaths,
   getChunkEmbeddingSourceByPath,
   getDbVersion,
   getLinksForPaths,
   getMarkdownLinksForPaths,
-  getMatchingNotesByFrontmatter,
   getNoteByPath,
-  getOutgoingLinksForPaths,
   getStoredModel,
   getUrlsForPaths,
   hasVecTable,
@@ -40,6 +44,7 @@ import { getIndexVersion } from '../storage/index-state.js';
 import {
   assertSearchStorageReady,
   createFuzzyTitleReader,
+  createGraphReader,
   createNoteContentReader,
   createVectorReader,
   findExactAliasRows,
@@ -53,6 +58,7 @@ import {
   readSnippetContents,
 } from '../storage/search-queries.js';
 import { createNoteSourceReader } from '../vault/note-source.js';
+import { ResultCache } from './result-cache.js';
 import { measureSearchStage, measureSearchStageSync } from './search-profile.js';
 
 interface NoteReadResult {
@@ -187,22 +193,6 @@ export function matchesScopeFilter(notePath: string, scope: string | string[]): 
 
 function applyThreshold(results: RawResult[], threshold: number): RawResult[] {
   return results.filter((r) => r.score >= threshold);
-}
-
-function applyTagFilter(results: RawResult[], tag: string | string[]): RawResult[] {
-  const allowedPaths = filterNotePathsByTag(
-    results.map((result) => result.path),
-    tag,
-  );
-  return results.filter((result) => allowedPaths.has(result.path));
-}
-
-function applyFrontmatterFilter(results: RawResult[], frontmatter: string | string[]): RawResult[] {
-  const allowedPaths = filterNotePathsByFrontmatter(
-    results.map((result) => result.path),
-    frontmatter,
-  );
-  return results.filter((result) => allowedPaths.has(result.path));
 }
 
 function toSearchResult(r: RawResult): SearchResult {
@@ -888,6 +878,7 @@ function searchRelated(
   const results: SearchResult[] = [];
   const resultIndexes = new Map<string, number>();
   const contentCache = new Map<string, string>();
+  const readGraph = createGraphReader(SEARCH_REQUEST_LIMITS.maxGraphEdges);
 
   const makeResult = (notePth: string, depth: number, snippet: string): SearchResult | null => {
     const note = readNoteIdentity(notePth);
@@ -948,6 +939,11 @@ function searchRelated(
 
     const r = makeResult(notePth, depth, snippet);
     if (!r) return false;
+    if (results.length >= SEARCH_REQUEST_LIMITS.maxGraphNodes) {
+      throw new Error(
+        `Related search exceeds ${SEARCH_REQUEST_LIMITS.maxGraphNodes} notes; reduce depth or choose a narrower source note`,
+      );
+    }
     r.matchedBy = [matchedBy];
     resultIndexes.set(notePth, results.length);
     results.push(r);
@@ -960,7 +956,7 @@ function searchRelated(
     const edges = new Map<string, Array<{ path: string; matchedBy: 'link' | 'markdown_link' }>>();
     for (const frontierPath of frontierPaths) edges.set(frontierPath, []);
     if (linkType === 'wiki' || linkType === 'all') {
-      const wikiLinks = getOutgoingLinksForPaths(frontierPaths);
+      const wikiLinks = readGraph(frontierPaths, 'wiki', 'outgoing');
       for (const frontierPath of frontierPaths) {
         for (const target of wikiLinks.get(frontierPath) ?? []) {
           edges.get(frontierPath)!.push({ path: target, matchedBy: 'link' });
@@ -968,7 +964,7 @@ function searchRelated(
       }
     }
     if (linkType === 'markdown' || linkType === 'all') {
-      const markdownLinks = getMarkdownLinksForPaths(frontierPaths).links;
+      const markdownLinks = readGraph(frontierPaths, 'markdown', 'outgoing');
       for (const frontierPath of frontierPaths) {
         for (const target of markdownLinks.get(frontierPath) ?? []) {
           edges.get(frontierPath)!.push({ path: target, matchedBy: 'markdown_link' });
@@ -987,7 +983,7 @@ function searchRelated(
     >();
     for (const frontierPath of frontierPaths) edges.set(frontierPath, []);
     if (linkType === 'wiki' || linkType === 'all') {
-      const wikiBacklinks = getBacklinksForPaths(frontierPaths);
+      const wikiBacklinks = readGraph(frontierPaths, 'wiki', 'backlinks');
       for (const frontierPath of frontierPaths) {
         for (const source of wikiBacklinks.get(frontierPath) ?? []) {
           edges.get(frontierPath)!.push({ path: source, matchedBy: 'backlink' });
@@ -995,7 +991,7 @@ function searchRelated(
       }
     }
     if (linkType === 'markdown' || linkType === 'all') {
-      const markdownBacklinks = getMarkdownLinksForPaths(frontierPaths).backlinks;
+      const markdownBacklinks = readGraph(frontierPaths, 'markdown', 'backlinks');
       for (const frontierPath of frontierPaths) {
         for (const source of markdownBacklinks.get(frontierPath) ?? []) {
           edges.get(frontierPath)!.push({ path: source, matchedBy: 'markdown_backlink' });
@@ -1060,8 +1056,12 @@ function searchRelated(
 
   // Populate links/backlinks for all results
   const paths = results.map((r) => r.path);
-  const { links, backlinks } = getLinksForPaths(paths);
-  const markdown = getMarkdownLinksForPaths(paths);
+  const links = readGraph(paths, 'wiki', 'outgoing');
+  const backlinks = readGraph(paths, 'wiki', 'backlinks');
+  const markdown = {
+    links: readGraph(paths, 'markdown', 'outgoing'),
+    backlinks: readGraph(paths, 'markdown', 'backlinks'),
+  };
   const urls = getUrlsForPaths(paths);
   for (const r of results) {
     r.links = links.get(r.path) ?? [];
@@ -1078,51 +1078,54 @@ function searchRelated(
 // Avoids redundant searches when the same query is repeated (common in MCP usage).
 // Path-based lookups are cached by path:mtime so stale entries auto-invalidate.
 
-class LRUCache<V> {
-  private map = new Map<string, V>();
-  constructor(private maxSize: number) {}
+const searchCache = new ResultCache();
 
-  get(key: string): V | undefined {
-    const val = this.map.get(key);
-    if (val !== undefined) {
-      this.map.delete(key);
-      this.map.set(key, val);
-    }
-    return val;
-  }
-
-  set(key: string, val: V): void {
-    if (this.map.has(key)) this.map.delete(key);
-    else if (this.map.size >= this.maxSize) this.map.delete(this.map.keys().next().value!);
-    this.map.set(key, val);
-  }
-}
-
-const searchCache = new LRUCache<SearchResult[]>(100);
-
-/** Ceiling used when the caller asks for "no limit" (limit === 0). Mirrors the
- *  filter-only branch's FETCH_ALL so both paths cap the vault the same way. */
+/** Retrieval remains finite when the caller asks for "no limit" (limit === 0). */
 const UNLIMITED_RESULTS = 10000;
 
 function cacheKey(input: string, options: SearchOptions): string {
-  const scopeStr = Array.isArray(options.scope) ? options.scope.join(',') : (options.scope ?? '');
-  const tagStr = Array.isArray(options.tag) ? options.tag.join(',') : (options.tag ?? '');
-  const fmStr = Array.isArray(options.frontmatter)
-    ? options.frontmatter.join(',')
-    : (options.frontmatter ?? '');
-  // Include reranker model so that changing RERANKER_MODEL invalidates the cache
-  const rerankStr = options.rerank ? config.rerankerModel : '';
-  const queriesStr = options.queries && options.queries.length > 1 ? options.queries.join('|') : '';
-  const anchorsStr = options.anchors ? 'a' : '';
   // Two-component version:
   //   getDbVersion() — shared via SQLite settings; any process that modifies the DB
   //                    bumps it, invalidating caches in all other processes.
   //   localVersion   — in-process counter; bumpIndexVersion() for test-suite isolation.
-  return `v${getDbVersion()}_${getIndexVersion()}\0${activeModelName()}\0${getStoredModel()}\0${input}\0${options.mode ?? ''}\0${scopeStr}\0${options.limit ?? ''}\0${options.threshold ?? ''}\0${tagStr}\0${fmStr}\0${options.snippetLength ?? ''}\0${options.notePath ?? ''}\0${rerankStr}\0${queriesStr}\0${anchorsStr}`;
+  // User-controlled commas, pipes and NULs must never impersonate field or array
+  // boundaries: a collision can return another request's scoped results.
+  return JSON.stringify([
+    getDbVersion(),
+    getIndexVersion(),
+    activeModelName(),
+    getStoredModel(),
+    input,
+    options.mode,
+    options.scope,
+    options.limit,
+    options.threshold,
+    options.tag,
+    options.frontmatter,
+    options.snippetLength,
+    options.notePath,
+    options.rerank ? config.rerankerModel : null,
+    options.queries,
+    options.anchors,
+  ]);
 }
 
 // eslint-disable-next-line sonarjs/cognitive-complexity -- primary search entry-point; complexity is inherent in the multi-mode, multi-filter pipeline
 export async function search(input: string, options: SearchOptions = {}): Promise<SearchResult[]> {
+  // Direct callers historically accept any finite score cutoff (e.g. -1).
+  // Transport schemas retain 0..1; applying their budget checks must not change
+  // that harmless programmatic behavior.
+  const request = StdioRequestSchema.safeParse({
+    query: input,
+    options: { ...options, threshold: undefined },
+  });
+  if (!request.success) throw new Error(formatValidationError('search request', request.error));
+  if (options.threshold !== undefined && !Number.isFinite(options.threshold)) {
+    throw new Error('Invalid search request: threshold must be finite');
+  }
+  for (const name of ['scope', 'tag', 'frontmatter'] as const) {
+    parseStringArrayParam(name, options[name]);
+  }
   const mode = options.mode ?? 'hybrid';
   const limit = options.limit ?? 10;
   const threshold = options.threshold ?? 0.0;
@@ -1154,12 +1157,19 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     const maxDepth = options.depth ?? 1;
     const direction = options.direction ?? 'both';
     const linkType = options.linkType ?? 'wiki';
-    const scopeStr = Array.isArray(options.scope) ? options.scope.join(',') : (options.scope ?? '');
-    const tagStr = Array.isArray(options.tag) ? options.tag.join(',') : (options.tag ?? '');
-    const fmStr = Array.isArray(options.frontmatter)
-      ? options.frontmatter.join(',')
-      : (options.frontmatter ?? '');
-    const key = `related\0v${getDbVersion()}_${getIndexVersion()}\0${resolvedPath}\0${maxDepth}\0${direction}\0${linkType}\0${snippetLength}\0${scopeStr}\0${tagStr}\0${fmStr}`;
+    const key = JSON.stringify([
+      'related',
+      getDbVersion(),
+      getIndexVersion(),
+      resolvedPath,
+      maxDepth,
+      direction,
+      linkType,
+      snippetLength,
+      options.scope,
+      options.tag,
+      options.frontmatter,
+    ]);
     const cached = searchCache.get(key);
     if (cached) return cached;
     let related = searchRelated(resolvedPath, maxDepth, direction, snippetLength, linkType);
@@ -1211,57 +1221,22 @@ export async function search(input: string, options: SearchOptions = {}): Promis
     const cachedFm = searchCache.get(fmKey);
     if (cachedFm) return cachedFm;
 
-    // Always fetch a large batch so filters can see the full vault, then slice to limit.
-    const FETCH_ALL = 10000;
-    let fmResults: RawResult[];
-
-    if (hasFrontmatterFilter) {
-      const matches = getMatchingNotesByFrontmatter(options.frontmatter!, FETCH_ALL);
-      fmResults = matches.map((m) => ({
-        path: m.path,
-        title: m.title ?? '',
-        tags: m.tags ?? '[]',
-        aliases: m.aliases,
+    // Apply every filter in SQLite before LIMIT; filtering the first 10,000
+    // titles in JavaScript silently hid matches elsewhere in a large vault.
+    const rows = listNoteIdentities(
+      noLimit ? UNLIMITED_RESULTS : limit,
+      buildFilterPredicate(options),
+    );
+    const finalResults = rows.map((row, i) => {
+      const sr = toSearchResult({
+        path: row.path,
+        title: row.title ?? '',
+        tags: row.tags ?? '[]',
+        aliases: row.aliases,
         snippet: '',
         score: 1.0,
         scores: { hybrid: 1.0 },
-      }));
-    } else {
-      assertSearchStorageReady();
-      const rows = listNoteIdentities(FETCH_ALL);
-      fmResults = rows.map((m) => ({
-        path: m.path,
-        title: m.title ?? '',
-        tags: m.tags ?? '[]',
-        aliases: m.aliases,
-        snippet: '',
-        score: 1.0,
-        scores: { hybrid: 1.0 },
-      }));
-    }
-
-    // Apply scope filter
-    if (hasScopeFilter) {
-      fmResults = fmResults.filter((r) => matchesScopeFilter(r.path, options.scope!));
-    }
-
-    // Apply tag filter
-    if (hasTagFilter) {
-      fmResults = applyTagFilter(fmResults, options.tag!);
-    }
-
-    // Apply frontmatter filter
-    if (hasFrontmatterFilter) {
-      fmResults = applyFrontmatterFilter(fmResults, options.frontmatter!);
-    }
-
-    // Apply limit (0 = no limit)
-    if (limit > 0) {
-      fmResults = fmResults.slice(0, limit);
-    }
-
-    const finalResults = fmResults.map((r, i) => {
-      const sr = toSearchResult(r);
+      });
       sr.rank = i + 1;
       return sr;
     });
@@ -1673,6 +1648,13 @@ export function readNotes(
   paths: string[],
   options: { snippetLength?: number; related?: boolean } = {},
 ): ReadResult[] {
+  const request = ReadToolArgumentsSchema.safeParse({
+    paths,
+    snippet_length: options.snippetLength,
+    related: options.related,
+  });
+  if (!request.success) throw new Error(formatValidationError('read request', request.error));
+  parseStringArrayParam('paths', paths);
   const { snippetLength, related = true } = options;
   const results: ReadResult[] = [];
   const sourceReader = createNoteSourceReader(config.vaultPath);

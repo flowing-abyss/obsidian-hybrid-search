@@ -73,6 +73,7 @@ describe('embedDetailed() — structured provider outcomes', () => {
   const fakeEmb = Array.from({ length: 384 }, () => 0.1);
 
   it('classifies OpenRouter HTTP 200 context metadata without transient sleeps', async () => {
+    vi.useFakeTimers();
     const fetchMock = vi.fn().mockResolvedValue(
       providerErrorResponse(200, {
         code: 400,
@@ -81,8 +82,8 @@ describe('embedDetailed() — structured provider outcomes', () => {
       }),
     );
     vi.stubGlobal('fetch', fetchMock);
-    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
 
+    // Do not advance fake time: context rejections must finish without retry backoff.
     const [outcome] = await embedDetailed(['oversized'], 'document');
 
     assert.ok(outcome && !outcome.ok);
@@ -91,7 +92,7 @@ describe('embedDetailed() — structured provider outcomes', () => {
     assert.equal(outcome.providerCode, 400);
     assert.match(outcome.message, /maximum input length/i);
     assert.equal(fetchMock.mock.calls.length, 1);
-    assert.equal(timeoutSpy.mock.calls.length, 0);
+    assert.equal(vi.getTimerCount(), 0);
   });
 
   it('classifies a generic structured HTTP 400 as permanent', async () => {

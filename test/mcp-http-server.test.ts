@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, it } from 'vitest';
+import { afterEach, beforeEach, describe, it, vi } from 'vitest';
 import type { HttpMcpServerHandle } from '../src/transports/mcp-http-server.js';
 
 const { closeDb, initVecTable, openDb, upsertMarkdownLinks, upsertNote } =
@@ -12,6 +12,11 @@ const { runHttpMcpServer } = await import('../src/transports/mcp-http-server.js'
 
 let server: HttpMcpServerHandle | undefined;
 let vaultDir: string | undefined;
+const authToken = 'test-only-token-0123456789abcdef0123456789abcdef';
+
+beforeEach(() => {
+  vi.stubEnv('OBSIDIAN_MCP_AUTH_TOKEN', undefined);
+});
 
 afterEach(async () => {
   await server?.close();
@@ -23,6 +28,7 @@ afterEach(async () => {
   }
 
   delete process.env.OBSIDIAN_VAULT_PATH;
+  vi.unstubAllEnvs();
 });
 
 function createTempVault(): string {
@@ -134,15 +140,124 @@ describe('runHttpMcpServer', () => {
 
   it('allows any Host header when explicitly configured', async () => {
     vaultDir = createTempVault();
+    vi.stubEnv('OBSIDIAN_MCP_AUTH_TOKEN', authToken);
     server = await runHttpMcpServer({ host: '127.0.0.1', port: 0, allowAnyHost: true });
 
     const { status, sessionId } = await initializeMcpSessionWithHost(
       server.url,
       'example.tailnet.ts.net:3939',
+      { authorization: `Bearer ${authToken}` },
     );
 
     assert.equal(status, 200);
     assert.equal(sessionId, null);
+  });
+
+  it('requires a token before exposing the server beyond loopback', async () => {
+    await assert.rejects(runHttpMcpServer({ host: '0.0.0.0', port: 0 }), /OBSIDIAN_MCP_AUTH_TOKEN/);
+    await assert.rejects(
+      runHttpMcpServer({ host: '127.0.0.1', port: 0, allowAnyHost: true }),
+      /OBSIDIAN_MCP_AUTH_TOKEN/,
+    );
+  });
+
+  it('authenticates both health and MCP without revealing vault metadata', async () => {
+    vaultDir = createTempVault();
+    vi.stubEnv('OBSIDIAN_MCP_AUTH_TOKEN', authToken);
+    server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
+
+    for (const authorization of [undefined, 'Bearer wrong-token', `Basic ${authToken}`]) {
+      const headers = authorization ? { authorization } : undefined;
+      const res: Response = await fetch(server.healthUrl, { headers });
+      assert.equal(res.status, 401);
+      assert.match(res.headers.get('www-authenticate') ?? '', /^Bearer /);
+      assert.equal(res.headers.get('cache-control'), 'no-store');
+      assert.equal((await res.text()).includes(vaultDir), false);
+    }
+
+    const mcpRes = await fetch(server.url, { method: 'POST', headers: mcpHeaders(), body: '{}' });
+    assert.equal(mcpRes.status, 401);
+    await mcpRes.text();
+    const headers = { authorization: `Bearer ${authToken}` };
+    const health = await fetch(server.healthUrl, { headers });
+    assert.equal(health.status, 200);
+    assert.equal(((await health.json()) as { vaultPath: string }).vaultPath, vaultDir);
+    await initializeMcpSession(server.url, headers);
+  });
+
+  it('rejects invalid and cross-origin browser requests even with a valid Host', async () => {
+    vaultDir = createTempVault();
+    server = await runHttpMcpServer({
+      host: '127.0.0.1',
+      port: 0,
+      allowedHosts: ['other.example:3939'],
+    });
+    const sameOrigin = new URL(server.url).origin;
+    for (const origin of [
+      'https://untrusted.example',
+      'http://other.example:3939',
+      'http://127.0.0.1:1',
+      'null',
+      'not a URL',
+      `${sameOrigin}/path`,
+      `${sameOrigin}/`,
+    ]) {
+      const res: Response = await fetch(server.healthUrl, { headers: { origin } });
+      assert.equal(res.status, 403, origin);
+      assert.match(await res.text(), /Origin/);
+    }
+    await initializeMcpSession(server.url, { origin: sameOrigin });
+  });
+
+  it('checks Origin even when bearer authentication and allow-any-host are enabled', async () => {
+    vaultDir = createTempVault();
+    vi.stubEnv('OBSIDIAN_MCP_AUTH_TOKEN', authToken);
+    server = await runHttpMcpServer({ host: '127.0.0.1', port: 0, allowAnyHost: true });
+    const res = await fetch(server.url, {
+      method: 'POST',
+      headers: {
+        ...mcpHeaders(),
+        authorization: `Bearer ${authToken}`,
+        origin: 'https://untrusted.example',
+      },
+      body: '{}',
+    });
+    assert.equal(res.status, 403);
+    await res.text();
+  });
+
+  it('retains the SDK body-size guard before dispatching tool calls', async () => {
+    vaultDir = createTempVault();
+    server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
+    const res = await fetch(server.url, {
+      method: 'POST',
+      headers: mcpHeaders(),
+      body: 'x'.repeat(4 * 1024 * 1024 + 1),
+    });
+    assert.equal(res.status, 413);
+    await res.text();
+    await initializeMcpSession(server.url);
+  });
+
+  it('bounds concurrent request bodies and releases capacity after uploads finish', async () => {
+    vaultDir = createTempVault();
+    server = await runHttpMcpServer({ host: '127.0.0.1', port: 0 });
+    const uploads = Array.from({ length: 32 }, () => pendingUpload(server!.url));
+    try {
+      await Promise.all(uploads.map((upload) => upload.admitted));
+      const overflow = await fetch(server.url, {
+        method: 'POST',
+        headers: mcpHeaders(),
+        body: '{}',
+      });
+      assert.equal(overflow.status, 429);
+      assert.equal(overflow.headers.get('retry-after'), '1');
+      await overflow.text();
+    } finally {
+      for (const upload of uploads) upload.request.end('{}');
+      await Promise.all(uploads.map((upload) => upload.finished));
+    }
+    await initializeMcpSession(server.url);
   });
 
   it('answers non-POST requests on /mcp with 405 and an Allow header', async () => {
@@ -277,6 +392,26 @@ function mcpHeaders(): Record<string, string> {
   };
 }
 
+function pendingUpload(url: string) {
+  const request = http.request(url, {
+    method: 'POST',
+    headers: { ...mcpHeaders(), expect: '100-continue', 'content-length': '2' },
+  });
+  const admitted = new Promise<void>((resolve, reject) => {
+    request.once('continue', resolve);
+    request.once('error', reject);
+  });
+  const finished = new Promise<void>((resolve, reject) => {
+    request.once('response', (response) => {
+      response.resume();
+      response.once('end', resolve);
+    });
+    request.once('error', reject);
+  });
+  request.flushHeaders();
+  return { request, admitted, finished };
+}
+
 async function initializeMcpSession(
   url: string,
   extraHeaders: Record<string, string> = {},
@@ -302,6 +437,7 @@ async function initializeMcpSession(
 function initializeMcpSessionWithHost(
   url: string,
   hostHeader: string,
+  extraHeaders: Record<string, string> = {},
 ): Promise<{ status: number; sessionId: string | null }> {
   const parsed = new URL(url);
   const body = JSON.stringify({
@@ -326,6 +462,7 @@ function initializeMcpSessionWithHost(
           ...mcpHeaders(),
           host: hostHeader,
           'content-length': Buffer.byteLength(body),
+          ...extraHeaders,
         },
       },
       (res) => {

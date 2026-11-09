@@ -258,6 +258,12 @@ describe('formatMcpInfo — edge cases', () => {
     const info = formatMcpInfo(state, true);
     assert.match(info, /mcpServers/);
   });
+
+  it('prints a bearer placeholder rather than the server credential', () => {
+    const info = formatMcpInfo({ ...state, authRequired: true }, true);
+    assert.match(info, /Bearer <OBSIDIAN_MCP_AUTH_TOKEN>/);
+    assert.match(info, /secret configuration/);
+  });
 });
 
 describe('buildMcpServeArgs — edge cases', () => {
@@ -336,6 +342,12 @@ describe('healthMatchesState — edge cases', () => {
 
 // Sanity check that buildMcpUrls is exported and behaves as expected.
 describe('buildMcpUrls — edge cases', () => {
+  it('brackets IPv6 literals so the URLs are valid', () => {
+    assert.deepEqual(buildMcpUrls('::1', 3939), {
+      url: 'http://[::1]:3939/mcp',
+      healthUrl: 'http://[::1]:3939/health',
+    });
+  });
   it('builds mcp and health URLs', () => {
     assert.deepEqual(buildMcpUrls('127.0.0.1', 3939), {
       url: 'http://127.0.0.1:3939/mcp',

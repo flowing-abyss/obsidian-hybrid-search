@@ -163,7 +163,7 @@ describe('createMcpRuntime — lifecycle', () => {
     const runtime = await createMcpRuntime();
     const status = runtime.getUpdateStatus();
     assert.ok(
-      ['checking', 'up_to_date', 'update_available', 'offline'].includes(status.state),
+      ['checking', 'up_to_date', 'update_available', 'offline', 'disabled'].includes(status.state),
       `unexpected state: ${status.state}`,
     );
   });

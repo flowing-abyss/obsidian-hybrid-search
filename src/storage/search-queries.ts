@@ -302,16 +302,51 @@ export function readNoteIdentity(notePth: string) {
     { path: string; title: string; tags: string; aliases: string | null } | undefined;
 }
 
-export function listNoteIdentities(FETCH_ALL: number) {
+export function listNoteIdentities(limit: number, predicate?: FilterPredicate) {
   const db = getDb();
+  const filter = filterFragment(predicate);
+  const where = predicate?.isEmpty === false ? ` WHERE ${predicate.sql}` : '';
   return db
-    .prepare('SELECT path, title, tags, aliases FROM notes ORDER BY title ASC LIMIT ?')
-    .all(FETCH_ALL) as Array<{
+    .prepare(
+      `SELECT n.path, n.title, n.tags, n.aliases FROM notes n${where} ORDER BY n.title ASC LIMIT ?`,
+    )
+    .all(...filter.params, limit) as Array<{
     path: string;
     title: string;
     tags: string;
     aliases: string | null;
   }>;
+}
+
+/** Bound adjacency materialization before rows leave SQLite, including metadata. */
+export function createGraphReader(maxEdges: number) {
+  let remaining = maxEdges;
+  return (
+    paths: string[],
+    kind: 'wiki' | 'markdown',
+    direction: 'outgoing' | 'backlinks',
+  ): Map<string, string[]> => {
+    const result = new Map<string, string[]>(paths.map((notePath) => [notePath, []]));
+    if (paths.length === 0) return result;
+    const table = kind === 'wiki' ? 'links' : 'markdown_links';
+    const key = direction === 'outgoing' ? 'from_path' : 'to_path';
+    const value = direction === 'outgoing' ? 'to_path' : 'from_path';
+    const order = kind === 'markdown' ? ` ORDER BY ${key} ASC, ${value} ASC` : '';
+    const placeholders = paths.map(() => '?').join(', ');
+    const rows = getDb()
+      .prepare(
+        `SELECT from_path, to_path FROM ${table} WHERE ${key} IN (${placeholders})${order} LIMIT ?`,
+      )
+      .all(...paths, remaining + 1) as Array<{ from_path: string; to_path: string }>;
+    if (rows.length > remaining) {
+      throw new Error(
+        `Related search exceeds ${maxEdges} edge rows; reduce depth or choose a narrower source note`,
+      );
+    }
+    remaining -= rows.length;
+    for (const row of rows) result.get(row[key])!.push(row[value]);
+    return result;
+  };
 }
 
 /** Preserve acquisition failure before callers enter their query fallback blocks. */

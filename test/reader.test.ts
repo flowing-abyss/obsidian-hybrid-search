@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { inspect } from 'node:util';
@@ -150,6 +150,33 @@ describe('readNotes() — hit', () => {
 });
 
 describe('readNotes() — miss', () => {
+  it.skipIf(process.platform === 'win32')(
+    'rejects an indexed note replaced with an outside-vault symlink',
+    () => {
+      const outside = mkdtempSync(path.join(tmpdir(), 'ohs-reader-outside-'));
+      const source = path.join(vaultDir, 'replacement.md');
+      try {
+        writeFileSync(path.join(outside, 'private.md'), 'OUTSIDE_PRIVATE_SENTINEL');
+        writeFileSync(source, 'Indexed original body');
+        upsertNote({
+          path: 'replacement.md',
+          title: 'Replacement',
+          tags: [],
+          content: 'Indexed original body',
+          mtime: 1,
+          hash: 'replacement',
+          chunks: [],
+        });
+        unlinkSync(source);
+        symlinkSync(path.join(outside, 'private.md'), source);
+        assert.throws(() => readNotes(['replacement.md']), /symbolic links/i);
+      } finally {
+        rmSync(source, { force: true });
+        rmSync(outside, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('reports malformed frontmatter without printing private source excerpts', () => {
     writeFileSync(path.join(vaultDir, 'invalid.md'), '---\nkey: [PRIVATE_SENTINEL\n---\nBody');
     upsertNote({

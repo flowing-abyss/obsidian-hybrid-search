@@ -74,3 +74,85 @@ it.skipIf(process.platform === 'darwin')('rejects ambiguous normalized physical 
   fs.writeFileSync(path.join(vault, 'Åe\u0301.md'), 'Second');
   expect(() => createNoteSourceReader(vault).read('Åé.md'.normalize('NFD'))).toThrow(/ambiguous/i);
 });
+
+it.each(['../outside.md', 'folder/../../outside.md', '/outside.md', '', '.', 'bad\0name.md'])(
+  'rejects non-relative file paths before reading: %s',
+  async (input) => {
+    const reader = createNoteSourceReader(vault);
+    const read = vi.spyOn(fs, 'readFileSync');
+    expect(() => reader.read(input)).toThrow(/vault-relative/i);
+    expect(() => reader.stat(input)).toThrow(/vault-relative/i);
+    await expect(reader.readWithStat(input)).rejects.toThrow(/vault-relative/i);
+    expect(read).not.toHaveBeenCalled();
+  },
+);
+
+it('reads async content and metadata from the same open source', async () => {
+  const filename = path.join(vault, 'note.md');
+  const raw = 'Async source with café and русский';
+  fs.writeFileSync(filename, raw);
+  const reader = createNoteSourceReader(vault);
+  const read = await reader.readWithStat('note.md');
+  expect(read?.raw).toBe(raw);
+  expect(read?.stat.size).toBe(Buffer.byteLength(raw));
+  expect(reader.stat('note.md')?.ino).toBe(read?.stat.ino);
+  expect(await reader.readWithStat('missing.md')).toBeNull();
+});
+
+it.skipIf(process.platform === 'win32')(
+  'rejects file and directory symlinks, including in-vault aliases',
+  async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ohs-note-outside-'));
+    try {
+      fs.writeFileSync(path.join(outside, 'private.md'), 'OUTSIDE_SECRET');
+      fs.writeFileSync(path.join(vault, 'inside.md'), 'Inside');
+      fs.symlinkSync(path.join(outside, 'private.md'), path.join(vault, 'file.md'));
+      fs.symlinkSync(outside, path.join(vault, 'directory'));
+      fs.symlinkSync(path.join(vault, 'inside.md'), path.join(vault, 'alias.md'));
+      const reader = createNoteSourceReader(vault);
+      for (const target of ['file.md', 'directory/private.md', 'alias.md']) {
+        expect(() => reader.read(target)).toThrow(/symbolic links/i);
+        expect(() => reader.stat(target)).toThrow(/symbolic links/i);
+        await expect(reader.readWithStat(target)).rejects.toThrow(/symbolic links/i);
+      }
+      expect(fs.readFileSync(path.join(outside, 'private.md'), 'utf8')).toBe('OUTSIDE_SECRET');
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  },
+);
+
+it.skipIf(process.platform === 'win32')(
+  'revalidates cached directory names after a directory is replaced by a link',
+  () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ohs-note-swap-'));
+    try {
+      const physicalDirectory = path.join(vault, 'café');
+      fs.mkdirSync(physicalDirectory);
+      fs.writeFileSync(path.join(physicalDirectory, 'note.md'), 'Original');
+      fs.writeFileSync(path.join(outside, 'note.md'), 'OUTSIDE_SECRET');
+      const reader = createNoteSourceReader(vault);
+      const target = 'café/note.md'.normalize('NFD');
+      expect(reader.read(target)).toBe('Original');
+      fs.rmSync(physicalDirectory, { recursive: true });
+      fs.symlinkSync(outside, physicalDirectory);
+      expect(() => reader.read(target)).toThrow(/symbolic links/i);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  },
+);
+
+it.skipIf(process.platform === 'win32')(
+  'supports a vault selected through a directory symlink',
+  () => {
+    const links = fs.mkdtempSync(path.join(os.tmpdir(), 'ohs-vault-root-link-'));
+    try {
+      fs.writeFileSync(path.join(vault, 'note.md'), 'Vault body');
+      fs.symlinkSync(vault, path.join(links, 'vault'));
+      expect(createNoteSourceReader(path.join(links, 'vault')).read('note.md')).toBe('Vault body');
+    } finally {
+      fs.rmSync(links, { recursive: true, force: true });
+    }
+  },
+);

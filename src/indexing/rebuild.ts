@@ -1,4 +1,3 @@
-import { statSync } from 'node:fs';
 import path from 'node:path';
 import { normalizeNotePath } from '../content/text-normalization.js';
 import { activeModelName, getEmbeddingDim, primeEmbeddingDim } from '../inference/embedder.js';
@@ -16,6 +15,7 @@ import {
 } from '../storage/index-rebuild.js';
 import { bumpIndexVersion } from '../storage/index-state.js';
 import { createIgnorePolicy } from '../vault/ignore.js';
+import { createNoteSourceReader } from '../vault/note-source.js';
 import { reportIndexProgress } from './index-owner.js';
 import { retryIndexWrite } from './index-write.js';
 import {
@@ -35,6 +35,7 @@ export async function rebuildIndex(
   options: { reason?: 'force' | 'content-policy' } = {},
 ): Promise<IndexResult> {
   const previousDimension = getStoredEmbeddingDim();
+  const source = createNoteSourceReader(config.vaultPath);
   let staged = false;
   let progress: ReturnType<typeof createIndexProgress> | undefined;
   try {
@@ -78,17 +79,15 @@ export async function rebuildIndex(
         const outcomes = await Promise.allSettled(
           files.slice(i, i + config.batchSize).map(async (file) => {
             run.signal.throwIfAborted();
-            const relative = normalizeNotePath(
-              path.relative(config.vaultPath, file).split(path.sep).join('/'),
-            );
+            const physicalRelative = path
+              .relative(config.vaultPath, file)
+              .split(path.sep)
+              .join('/');
+            const relative = normalizeNotePath(physicalRelative);
             present.add(relative);
             const existing = prior.get(relative);
-            let current;
-            try {
-              current = statSync(file);
-            } catch {
-              return;
-            }
+            const current = source.stat(physicalRelative);
+            if (!current) return;
             if (existing && existing.mtime === current.mtimeMs && existing.size === current.size)
               return;
             const prepared = await prepareIndexFile(
@@ -141,23 +140,14 @@ export async function rebuildIndex(
           const stable =
             finalFiles.length === rows.length &&
             finalFiles.every((file) => {
-              const relative = normalizeNotePath(
-                path.relative(config.vaultPath, file).split(path.sep).join('/'),
-              );
+              const physicalRelative = path
+                .relative(config.vaultPath, file)
+                .split(path.sep)
+                .join('/');
+              const relative = normalizeNotePath(physicalRelative);
               const row = byPath.get(relative);
-              try {
-                const stat = statSync(file);
-                return row && row.mtime === stat.mtimeMs && row.size === stat.size;
-              } catch (error) {
-                if (
-                  error &&
-                  typeof error === 'object' &&
-                  'code' in error &&
-                  error.code === 'ENOENT'
-                )
-                  return false;
-                throw error;
-              }
+              const stat = source.stat(physicalRelative);
+              return row && stat && row.mtime === stat.mtimeMs && row.size === stat.size;
             });
           if (!stable) return false;
           publishRebuild(run.lease, id);

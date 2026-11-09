@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, it } from 'vitest';
+import { afterEach, beforeEach, describe, it, vi } from 'vitest';
 import {
   buildMcpServeArgs,
   buildMcpUrls,
@@ -26,6 +26,11 @@ let vaultDir: string | undefined;
 let childProcess: ChildProcess | undefined;
 const originalXdgCacheHome = process.env.XDG_CACHE_HOME;
 const originalVaultPath = process.env.OBSIDIAN_VAULT_PATH;
+const authToken = 'test-only-token-0123456789abcdef0123456789abcdef';
+
+beforeEach(() => {
+  vi.stubEnv('OBSIDIAN_MCP_AUTH_TOKEN', undefined);
+});
 
 afterEach(async () => {
   if (childProcess?.pid && isPidAlive(childProcess.pid)) {
@@ -58,6 +63,7 @@ afterEach(async () => {
   } else {
     process.env.OBSIDIAN_VAULT_PATH = originalVaultPath;
   }
+  vi.unstubAllEnvs();
 });
 
 describe('mcp supervisor utilities', () => {
@@ -470,6 +476,85 @@ If this is a different vault/server, choose an explicit port:
           else resolve();
         });
       });
+    }
+  });
+
+  it('authenticates health checks and preserves a live state on missing or wrong credentials', async () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ohs-mcp-auth-test-'));
+    vaultDir = mkdtempSync(path.join(tmpdir(), 'ohs-mcp-auth-vault-'));
+    process.env.XDG_CACHE_HOME = tempDir;
+    process.env.OBSIDIAN_VAULT_PATH = vaultDir;
+    const server = http.createServer((req, res) => {
+      if (req.headers.authorization !== `Bearer ${authToken}`) {
+        res.writeHead(401).end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' }).end(
+        JSON.stringify({
+          ok: true,
+          name: 'obsidian-hybrid-search',
+          transport: 'streamable-http',
+          vaultPath: vaultDir,
+        }),
+      );
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    try {
+      const address = server.address();
+      assert.ok(address && typeof address !== 'string');
+      const state: McpState = {
+        pid: process.pid,
+        host: '127.0.0.1',
+        port: address.port,
+        ...buildMcpUrls('127.0.0.1', address.port),
+        logPath: path.join(tempDir, 'mcp.log'),
+        vaultPath: vaultDir,
+        authRequired: true,
+        startedAt: new Date().toISOString(),
+      };
+      writeMcpState(state);
+      for (const token of [undefined, 'different-test-token-0123456789abcdef0123456789']) {
+        vi.stubEnv('OBSIDIAN_MCP_AUTH_TOKEN', token);
+        await assert.rejects(getMcpStatus(), /authentication failed/);
+        await assert.rejects(stopMcpServer(), /authentication failed/);
+        assert.deepEqual(readMcpState(), state);
+      }
+      vi.stubEnv('OBSIDIAN_MCP_AUTH_TOKEN', authToken);
+      assert.deepEqual(await getMcpStatus(), state);
+      assert.equal(
+        matchesRequestedState(state, { host: '127.0.0.1', port: state.port }, vaultDir),
+        true,
+      );
+      assert.equal(JSON.stringify(readMcpState()).includes(authToken), false);
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    }
+  });
+
+  it('never forwards the configured bearer token to a non-local state URL', async () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ohs-mcp-local-probe-'));
+    process.env.XDG_CACHE_HOME = tempDir;
+    vi.stubEnv('OBSIDIAN_MCP_AUTH_TOKEN', authToken);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    writeMcpState({
+      pid: process.pid,
+      host: '192.0.2.1',
+      port: 3939,
+      ...buildMcpUrls('192.0.2.1', 3939),
+      logPath: path.join(tempDir, 'mcp.log'),
+      vaultPath: '/test-vault',
+      authRequired: true,
+      startedAt: new Date().toISOString(),
+    });
+    try {
+      assert.equal(await getMcpStatus(), null);
+      assert.equal(fetchSpy.mock.calls.length, 0);
+    } finally {
+      fetchSpy.mockRestore();
     }
   });
 

@@ -42,6 +42,7 @@ import {
   indexVaultSync,
   populateMissingLinks,
   populateMissingMarkdownReferences,
+  repairNoteReferences,
   startBackgroundIndexing,
   startWatcher,
   type IndexResult,
@@ -353,6 +354,7 @@ export function createIndexService(): IndexService {
           reportIndexProgress(run, paths.length, index + 1);
           onProgress?.(index + 1, paths.length);
         }
+        await repairNoteReferences(run);
         return result;
       });
     },
@@ -377,6 +379,7 @@ export function createIndexService(): IndexService {
           contextLength,
           options.force,
         );
+        await repairNoteReferences(run);
         if (status === 'indexed') return { indexed: 1, skipped: 0, errors: [] };
         if (status === 'skipped') return { indexed: 0, skipped: 1, errors: [] };
         return { indexed: 0, skipped: 0, errors: [{ path: options.path, error: status.error }] };

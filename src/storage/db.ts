@@ -996,8 +996,9 @@ export function upsertNote(
         note.aliases?.filter((alias): alias is string => typeof alias === 'string') ?? [];
       const aliasesJson = aliases.length > 0 ? JSON.stringify(aliases) : null;
 
-      const existing = db.prepare('SELECT id FROM notes WHERE path = ?').get(note.path) as
-        { id: number } | undefined;
+      const existing = db
+        .prepare('SELECT id, title, aliases FROM notes WHERE path = ?')
+        .get(note.path) as { id: number; title: string; aliases: string | null } | undefined;
 
       const fmString = note.frontmatter ? yamlStringify(note.frontmatter) : '';
 
@@ -1058,6 +1059,14 @@ export function upsertNote(
         insertChunks(db, noteId, note.chunks);
         logEvent('added', note.path);
         bumpDbVersion();
+      }
+      if (!existing || existing.title !== note.title || existing.aliases !== aliasesJson) {
+        // Other notes may refer to this newly available path, title or alias.
+        // Persist the repair request with the write so a crash or owner handover
+        // cannot strand forward references. Ordinary body edits need no rescan.
+        db.prepare(
+          "INSERT OR REPLACE INTO settings(key,value) VALUES('references_dirty','1')",
+        ).run();
       }
       if (fresh && note.chunks.some((chunk) => chunk.embedding !== null)) {
         db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('embedding_model', ?)").run(
@@ -1175,6 +1184,8 @@ export function deleteNote(lease: IndexLease, notePath: string, keepLinks = fals
     }
     db.prepare('DELETE FROM note_urls WHERE from_path = ?').run(notePath);
     db.prepare('DELETE FROM notes WHERE id = ?').run(note.id);
+    // Duplicate-name/alias resolution may now select a different surviving note.
+    db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('references_dirty','1')").run();
     logEvent('deleted', notePath);
     bumpDbVersion();
   });
@@ -1942,6 +1953,9 @@ export function replaceActiveIndex(
     if (target.chunkPolicy) saveChunkPolicy(db, target.chunkPolicy);
     else db.prepare("DELETE FROM settings WHERE key IN ('chunk_tokens','context_length')").run();
     setting.run('content_policy', target.contentPolicySignature ?? CONTENT_POLICY_IDENTITY);
+    setting.run('references_dirty', '0');
+    setting.run('links_v1', '1');
+    setting.run('markdown_links_v1', '1');
     setting.run('db_version', String(version + 1));
     saveConfigMeta(lease, target.metadata);
     updateLastIndexed(lease);

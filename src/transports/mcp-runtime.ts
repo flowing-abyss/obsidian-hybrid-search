@@ -7,6 +7,7 @@ import {
   parseStringArrayParam,
   ReadToolArgumentsSchema,
   ReindexToolArgumentsSchema,
+  SEARCH_REQUEST_LIMITS,
   SearchToolArgumentsSchema,
   StatusToolArgumentsSchema,
   type StringArrayParam,
@@ -41,6 +42,7 @@ export const packageVersion = (JSON.parse(readFileSync(_pkgPath, 'utf-8')) as { 
 type UpdateStatus =
   | { state: 'checking' }
   | { state: 'up_to_date' }
+  | { state: 'disabled' }
   | { state: 'update_available'; latestVersion: string }
   | { state: 'offline' };
 
@@ -58,6 +60,14 @@ type McpTextContent = { type: 'text'; text: string };
 type McpToolResult = { content: McpTextContent[]; isError?: true };
 
 export async function checkForUpdates(version = packageVersion): Promise<void> {
+  if (
+    ['false', '0', 'no'].includes(
+      process.env.OBSIDIAN_CHECK_FOR_UPDATES?.trim().toLowerCase() ?? '',
+    )
+  ) {
+    updateStatus = { state: 'disabled' };
+    return;
+  }
   try {
     const signal = AbortSignal.timeout(3000);
     const res = await fetch('https://registry.npmjs.org/obsidian-hybrid-search/latest', { signal });
@@ -101,6 +111,11 @@ async function runToolRequest(
 ): Promise<McpToolResult> {
   const requests = requestsFor(runtime);
   if (requests.closing) return validationErrorResult('MCP server is shutting down');
+  // Count actual operations, including work whose HTTP client disconnected.
+  // Reject excess work instead of growing an unbounded inference/reindex queue.
+  if (requests.active.size >= 32) {
+    return validationErrorResult('MCP server is busy (32 concurrent operations); retry later');
+  }
   const operation = execute();
   requests.active.add(operation);
   try {
@@ -269,7 +284,9 @@ async function callStatusTool(
         }
       : currentUpdateStatus.state === 'offline'
         ? { version_check: 'offline' }
-        : {}),
+        : currentUpdateStatus.state === 'disabled'
+          ? { version_check: 'disabled' }
+          : {}),
   };
   if (statusArgs.include_activity) {
     output.recent_activity = stats.recentActivity;
@@ -337,21 +354,24 @@ export function createMcpServer(runtime: McpRuntime): Server {
           properties: {
             query: {
               type: 'string',
+              maxLength: SEARCH_REQUEST_LIMITS.maxQueryLength,
               description:
                 'Text search query. For multi-query fan-out and better recall, use queries[] instead or alongside this field.',
             },
             queries: {
               type: 'array',
-              items: { type: 'string' },
+              maxItems: SEARCH_REQUEST_LIMITS.maxQueries,
+              items: { type: 'string', maxLength: SEARCH_REQUEST_LIMITS.maxQueryLength },
               description:
                 'Multi-query fan-out: pass 2–4 reformulations of the same question to improve recall. ' +
                 'The server runs all queries in parallel and merges results via RRF fusion — a note that ranks highly in any one query floats to the top. ' +
                 'Especially useful when the note may use different vocabulary (e.g. ["task management", "GTD productivity", "organizing todos"]). ' +
-                'If query is also provided, it is prepended to this list. ' +
+                `If query is also provided, it is prepended to this list; at most ${SEARCH_REQUEST_LIMITS.maxQueries} queries combined. ` +
                 'Reranking (rerank: true) is applied once after all results are merged, not per-query.',
             },
             path: {
               type: 'string',
+              maxLength: SEARCH_REQUEST_LIMITS.maxFilterLength,
               description:
                 "Vault-relative path to a note. Returns notes semantically similar to that note, ranked by embedding similarity, excluding the note itself and any note it already links to. Combines with tag/scope/frontmatter filters: the filter is applied to the candidate pool, so a narrow filter still returns the closest matches within it. Use this to find where a note belongs — related aggregators, overlapping topics. Do NOT use it for text search; it ignores the `query` argument entirely — use `query` without `path` for that. Do NOT use it to list a note's existing links — use `related` instead.",
             },
@@ -368,18 +388,22 @@ export function createMcpServer(runtime: McpRuntime): Server {
               description:
                 'Path-prefix filter for folders. Use when the user explicitly limits search to an area of the vault, e.g. "projects/". ' +
                 'This does not change ranking semantics or infer topic scope; it only includes/excludes paths. String or array; prefix with "-" to exclude.',
-              oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+              oneOf: boundedStringListSchema(SEARCH_REQUEST_LIMITS.maxFilters),
             },
             limit: {
-              type: 'number',
+              type: 'integer',
+              minimum: 0,
+              maximum: SEARCH_REQUEST_LIMITS.maxResults,
               description:
-                'How many text/path/filter-only results to return; related traversal uses depth instead. 0 means no limit. Default 10. ' +
+                'How many text/path/filter-only results to return; related traversal uses depth instead. 0 requests all matches within internal safety bounds. Default 10. ' +
                 'tag/scope/frontmatter filters are applied inside the query, so limit caps the filtered results, not a pre-filter pool: a narrow filter still returns up to limit matches instead of whatever survived the global top-limit. ' +
                 'Do NOT raise limit to compensate for a narrow filter — raise it only when the user genuinely wants more results. ' +
                 'Keep at 10 or below for best signal-to-noise unless the user asks for broad enumeration; results past position 10 frequently score below 0.35.',
             },
             threshold: {
               type: 'number',
+              minimum: 0,
+              maximum: 1,
               description:
                 'Minimum score 0..1 after text/path ranking. Use ~0.2 to hide weak matches when precision matters. ' +
                 'Ignored by related and filter-only searches; keep 0 for exploration or when recall matters because high thresholds can drop useful results.',
@@ -389,14 +413,14 @@ export function createMcpServer(runtime: McpRuntime): Server {
                 'Tag filter. Use when the user specifies tags/categories, not as a substitute for semantic topic search. String or array; prefix with "-" to exclude. ' +
                 'Multiple include tags are ANDed; excluded tags remove notes with any excluded tag. ' +
                 'E.g. ["note/basic/primary", "-category/cs"] returns primary notes outside cs.',
-              oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+              oneOf: boundedStringListSchema(SEARCH_REQUEST_LIMITS.maxFilters),
             },
             frontmatter: {
               description:
                 'Frontmatter field filter in "field:value" format. Use for structured metadata such as status, priority, project, milestone, or type. ' +
                 'Omit query to list matching notes sorted by title. String or array; prefix with "-" to exclude; include filters are ANDed. ' +
                 'E.g. ["status:todo", "priority:high"] returns notes with status=todo AND priority=high.',
-              oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+              oneOf: boundedStringListSchema(SEARCH_REQUEST_LIMITS.maxFilters),
             },
             related: {
               type: 'boolean',
@@ -405,7 +429,9 @@ export function createMcpServer(runtime: McpRuntime): Server {
                 'By default follows explicit wikilinks only; set link_type to markdown or all when the vault uses standard Markdown file links. It does not do semantic similarity unless path is used without related. Results include depth: negative = backlink, positive = outgoing, 0 = source.',
             },
             depth: {
-              type: 'number',
+              type: 'integer',
+              minimum: 0,
+              maximum: SEARCH_REQUEST_LIMITS.maxDepth,
               description:
                 'Maximum graph traversal depth for related mode; default 1. Use 1 for immediate links/backlinks, 2+ only when the user asks for a broader neighborhood. Larger depths can return noisy or loosely related notes.',
             },
@@ -424,7 +450,9 @@ export function createMcpServer(runtime: McpRuntime): Server {
                 'Use markdown for OKF-style or portable Markdown vaults. Do not use this for external URLs; urls[] are returned as metadata and are never traversed.',
             },
             snippet_length: {
-              type: 'number',
+              type: 'integer',
+              minimum: 0,
+              maximum: SEARCH_REQUEST_LIMITS.maxSnippetLength,
               description:
                 'Maximum snippet length in characters; default 300. Increase when notes need more surrounding context. ' +
                 'Use 600-1000 for aggregator/index notes. This affects returned context only, not retrieval, ranking, or matching.',
@@ -456,6 +484,7 @@ export function createMcpServer(runtime: McpRuntime): Server {
           properties: {
             path: {
               type: 'string',
+              maxLength: SEARCH_REQUEST_LIMITS.maxFilterLength,
               description: 'Relative path to a specific file. Omit to reindex the whole vault.',
             },
             force: {
@@ -497,10 +526,12 @@ export function createMcpServer(runtime: McpRuntime): Server {
               description:
                 'Vault-relative path(s) to read, e.g. "notes/foo.md" or ["notes/foo.md", "notes/bar.md"]. ' +
                 'Accepts a single string or an array.',
-              oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+              oneOf: boundedStringListSchema(SEARCH_REQUEST_LIMITS.maxReadPaths),
             },
             snippet_length: {
-              type: 'number',
+              type: 'integer',
+              minimum: 0,
+              maximum: SEARCH_REQUEST_LIMITS.maxSnippetLength,
               description:
                 'Max characters of content returned per note (default: full content). ' +
                 'Use to limit context window usage when reading multiple notes, e.g. 2000. ' +
@@ -548,4 +579,9 @@ export function createMcpServer(runtime: McpRuntime): Server {
   );
 
   return server;
+}
+
+function boundedStringListSchema(maxItems: number) {
+  const item = { type: 'string' as const, maxLength: SEARCH_REQUEST_LIMITS.maxFilterLength };
+  return [item, { type: 'array' as const, maxItems, items: item }];
 }
