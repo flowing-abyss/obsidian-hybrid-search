@@ -1,6 +1,6 @@
 {
   "name": "obsidian-hybrid-search",
-  "version": "0.17.6",
+  "version": "0.17.7",
   "mcpName": "io.github.flowing-abyss/obsidian-hybrid-search",
   "type": "module",
   "bin": {
@@ -79,7 +79,7 @@
   "dependencies": {
     "@modelcontextprotocol/node": "^2.1.2",
     "@modelcontextprotocol/server": "^2.4.0",
-    "better-sqlite3": "^13.1.1",
+    "better-sqlite3": "^13.2.0",
     "chokidar": "^6.0.0",
     "cli-table3": "^0.6.5",
     "commander": "^14.0.3",
