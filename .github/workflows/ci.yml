@@ -40,6 +40,9 @@ jobs:
         with:
           path: ~/.cache/huggingface
           key: local-models-e5-small-gte-int8-${{ runner.os }}-v1
+      - name: Prepare E5 model files
+        shell: bash
+        run: bash .github/scripts/prepare-e5.sh
       - name: Complete platform checks
         run: npm run verify:ci
 
@@ -63,6 +66,9 @@ jobs:
         with:
           path: ~/.cache/huggingface
           key: local-models-e5-small-gte-int8-${{ runner.os }}-v1
+      - name: Prepare E5 model files
+        shell: bash
+        run: bash .github/scripts/prepare-e5.sh
       - run: npm run verify:quality
       - uses: actions/upload-artifact@v6
         if: always()
