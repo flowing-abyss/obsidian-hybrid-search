@@ -88,21 +88,31 @@ it.each(['deleted', 'replaced', 'ignored'])(
     const respect = vi.spyOn(config, 'respectGitignore', 'get').mockReturnValue(true);
     await db.withTestIndexRun(async (run) => {
       writeFileSync(file, '---\ntitle: Original\n---\n');
-      await indexFile(run, file, 512, true);
+      assert.equal(await indexFile(run, file, 512, true), 'indexed');
       writeFileSync(file, '---\ntitle: Stale prepared version\n---\n');
       const other = new Database(config.dbPath);
       other.exec('BEGIN IMMEDIATE');
-      const release = setTimeout(() => {
-        other.exec('ROLLBACK');
-        if (change === 'deleted') {
-          rmSync(file);
-          storage.deleteNote(run.lease, 'note.md');
-        } else if (change === 'replaced')
-          writeFileSync(file, '---\ntitle: Latest source version\n---\n');
-        else writeFileSync(path.join(vault, '.gitignore'), 'note.md\n');
-      }, 20);
+      const write = storage.withIndexMutation;
+      const admission = vi
+        .spyOn(storage, 'withIndexMutation')
+        .mockImplementationOnce((lease, op) => {
+          try {
+            return write(lease, op);
+          } catch (error) {
+            assert.equal((error as { code?: string }).code, 'SQLITE_BUSY');
+            other.exec('ROLLBACK');
+            if (change === 'deleted') {
+              rmSync(file);
+              storage.deleteNote(run.lease, 'note.md');
+            } else if (change === 'replaced')
+              writeFileSync(file, '---\ntitle: Latest source version\n---\n');
+            else writeFileSync(path.join(vault, '.gitignore'), 'note.md\n');
+            throw error;
+          }
+        });
       try {
         const result = await indexFile(run, file, 512, true);
+        assert.equal(other.inTransaction, false, 'publication must encounter the held writer lock');
         if (change === 'replaced') {
           assert.equal(result, 'indexed');
           assert.equal(db.getNoteByPath('note.md')?.title, 'Latest source version');
@@ -111,7 +121,7 @@ it.each(['deleted', 'replaced', 'ignored'])(
           assert.equal(db.getNoteByPath('note.md'), undefined);
         }
       } finally {
-        clearTimeout(release);
+        admission.mockRestore();
         if (other.inTransaction) other.exec('ROLLBACK');
         other.close();
         rmSync(path.join(vault, '.gitignore'), { force: true });
